@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+
+<html class="light" lang="ru"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>The Archive - Список персонажей</title>
+<!-- Google Fonts: Manrope & Inter -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-container-high": "#e1e9ee",
+              "inverse-surface": "#0b0f10",
+              "on-background": "#2a3439",
+              "inverse-on-surface": "#9a9d9f",
+              "surface-container-lowest": "#ffffff",
+              "inverse-primary": "#bccff6",
+              "error-dim": "#4e0309",
+              "outline-variant": "#a9b4b9",
+              "on-secondary-fixed": "#314055",
+              "on-primary": "#f6f7ff",
+              "secondary-dim": "#44546a",
+              "error": "#9f403d",
+              "surface": "#f7f9fb",
+              "primary": "#4c5f80",
+              "on-secondary-fixed-variant": "#4d5d73",
+              "tertiary-fixed": "#d9d7f8",
+              "on-primary-fixed": "#2d405f",
+              "on-tertiary-fixed": "#383751",
+              "surface-dim": "#cfdce3",
+              "on-primary-container": "#3f5272",
+              "secondary-fixed-dim": "#c5d6f0",
+              "surface-container-highest": "#d9e4ea",
+              "on-tertiary": "#fbf7ff",
+              "surface-bright": "#f7f9fb",
+              "surface-container": "#e8eff3",
+              "on-error": "#fff7f6",
+              "on-error-container": "#752121",
+              "on-tertiary-container": "#4a4a65",
+              "primary-fixed": "#d6e3ff",
+              "primary-container": "#d6e3ff",
+              "on-primary-fixed-variant": "#495c7d",
+              "on-secondary": "#f7f9ff",
+              "tertiary-dim": "#51516c",
+              "on-surface-variant": "#566166",
+              "tertiary-container": "#d9d7f8",
+              "on-secondary-container": "#435368",
+              "surface-container-low": "#f0f4f7",
+              "on-tertiary-fixed-variant": "#54546f",
+              "secondary-container": "#d3e4fe",
+              "primary-fixed-dim": "#c1d5fb",
+              "surface-variant": "#d9e4ea",
+              "secondary": "#506076",
+              "primary-dim": "#405373",
+              "on-surface": "#2a3439",
+              "background": "#f7f9fb",
+              "surface-tint": "#4c5f80",
+              "tertiary-fixed-dim": "#cbc9e9",
+              "secondary-fixed": "#d3e4fe",
+              "outline": "#717c82",
+              "error-container": "#fe8983",
+              "tertiary": "#5d5c78"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+            display: inline-block;
+            vertical-align: middle;
+            line-height: 1;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+    </style>
+</head>
+<body class="bg-background font-body text-on-surface antialiased">
+<!-- TopAppBar (Tightened) -->
+<header class="fixed top-0 w-full z-50 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200/20 dark:border-slate-800/20 shadow-sm dark:shadow-none">
+<div class="flex items-center justify-between px-4 h-12 max-w-7xl mx-auto">
+<div class="flex items-center gap-6">
+<span class="text-xl font-black tracking-tight text-slate-900 dark:text-slate-50 font-manrope">The Archive</span>
+<nav class="hidden md:flex items-center gap-4">
+<a class="text-indigo-700 dark:text-indigo-400 border-b-2 border-indigo-700 dark:border-indigo-400 pb-0.5 text-xs font-semibold font-inter" href="#">Персонажи</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition-colors text-xs font-semibold font-inter" href="#">Компендиум</a>
+<a class="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 transition-colors text-xs font-semibold font-inter" href="#">Кампании</a>
+</nav>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all active:scale-95 duration-100 opacity-80">
+<span class="material-symbols-outlined text-slate-600 dark:text-slate-300 text-lg">ios_share</span>
+</button>
+<button class="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all active:scale-95 duration-100 opacity-80">
+<span class="material-symbols-outlined text-slate-600 dark:text-slate-300 text-lg">settings</span>
+</button>
+</div>
+</div>
+</header>
+<main class="pt-20 pb-12 px-4 max-w-7xl mx-auto">
+<!-- Header Section (Compact) -->
+<section class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+<div>
+<h1 class="text-3xl font-extrabold font-headline tracking-tight text-on-surface mb-0.5">Персонажи</h1>
+<p class="text-on-surface-variant text-sm">Ваш архив искателей приключений.</p>
+</div>
+<div class="flex items-center gap-2">
+<button class="flex items-center gap-1.5 px-3 py-1.5 bg-surface-container-high text-on-surface text-xs font-bold rounded-lg hover:scale-[1.01] transition-transform active:opacity-70">
+<span class="material-symbols-outlined text-base">upload_file</span>
+<span>Импорт JSON</span>
+</button>
+<button class="flex items-center gap-1.5 px-4 py-1.5 bg-gradient-to-b from-primary to-primary-dim text-on-primary text-xs font-bold rounded-lg shadow-sm hover:scale-[1.01] transition-transform active:opacity-70">
+<span class="material-symbols-outlined text-base">add</span>
+<span>Создать персонажа</span>
+</button>
+</div>
+</section>
+<!-- Search & Filter (Compact) -->
+<div class="flex items-center gap-3 mb-6">
+<div class="relative flex-1 max-w-xs">
+<span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+<input class="w-full bg-surface-container-low border-none focus:ring-2 focus:ring-primary/20 rounded-lg pl-9 pr-3 py-1.5 text-xs transition-all placeholder:text-on-surface-variant/60" placeholder="Поиск..." type="text"/>
+</div>
+<div class="h-6 w-px bg-surface-container-highest"></div>
+<button class="text-on-surface-variant hover:text-primary transition-colors text-xs font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-lg">filter_list</span>
+<span>Сортировка</span>
+</button>
+</div>
+<!-- Character Grid (Densely Packed) -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+<!-- Character Card 1 -->
+<div class="group relative bg-surface-container-lowest p-4 rounded-lg hover:shadow-lg hover:shadow-on-surface/5 transition-all duration-300 border border-transparent hover:border-outline-variant/20">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 rounded-lg bg-primary-container flex items-center justify-center overflow-hidden">
+<img alt="Аватар" class="w-full h-full object-cover" data-alt="Портрет сурового дварфа-воина" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBOG2EWXcHuXxhVrsU4RoWB29yWta4xskkyCuQFQKyyq7jpB-8--JsBfwlp9mGxGPMPxkwhnGxkxtxe0aQ_J3UUmEoZ4NBI_3nqbXloDaWopfunPc1BnAyKT5LMRs8Rg0GqIIxDOMlv86Y0Gz9Wna8ThwLLsIWOK-qS9TFb9lQIMxgG0FlnrD0zVqDwhyCkbXgIH3oLkagNrey9_MEi3UPCa0Tnfo_Xpsh4Y9tkPRsOMyRHmYR1fXNmVDypLi1puryCNNzOdOrcFII"/>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-[9px] uppercase tracking-wider font-bold text-on-surface-variant/50">Статус</span>
+<span class="px-1.5 py-0.5 bg-tertiary-container text-on-tertiary-container text-[10px] font-bold rounded">АКТИВЕН</span>
+</div>
+</div>
+<h3 class="text-lg font-bold font-headline text-on-surface mb-0.5 group-hover:text-primary transition-colors truncate">Трайн Железный Кулак</h3>
+<div class="flex items-center gap-1.5 mb-3">
+<span class="text-xs font-medium text-on-surface-variant">Жрец 5</span>
+<span class="text-outline-variant text-[10px]">•</span>
+<span class="text-xs font-medium text-on-surface-variant">Дварф</span>
+</div>
+<div class="pt-3 border-t border-surface-container-low flex items-center justify-between">
+<div class="flex items-center gap-1.5 text-on-surface-variant">
+<span class="material-symbols-outlined text-sm">schedule</span>
+<span class="text-[10px]">2ч назад</span>
+</div>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity text-primary">
+<span class="material-symbols-outlined text-lg">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Character Card 2 -->
+<div class="group relative bg-surface-container-lowest p-4 rounded-lg hover:shadow-lg hover:shadow-on-surface/5 transition-all duration-300 border border-transparent hover:border-outline-variant/20">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 rounded-lg bg-secondary-container flex items-center justify-center overflow-hidden">
+<img alt="Аватар" class="w-full h-full object-cover" data-alt="Портрет элегантной эльфийской волшебницы" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCwGcHprfQFZmDoW_lL3IWfTOXRqAVpg2MC5sctA4VOiuZAR3QSD3d9Tkyg--1Xo02KGQl3YmkiMxeapxW1_lmOiDc5v9gB361OOk3UWmoXqjwbUwXRWayixXaeFQ4XMldbSUD-xiKPpKY9ayzo617EjUz0BYYrrRobhCRZeObcyVhJACP1YV4lshwRniW-ThCUq-uU3ebc69YfR0UWiERedSTJmmIkv2dJuIyfbP-Z5F09FnNMC5zUwSFa498FtSDCkfxGpVA7ggo"/>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-[9px] uppercase tracking-wider font-bold text-on-surface-variant/50">Статус</span>
+<span class="px-1.5 py-0.5 bg-surface-container-high text-on-surface-variant text-[10px] font-bold rounded">НЕАКТИВЕН</span>
+</div>
+</div>
+<h3 class="text-lg font-bold font-headline text-on-surface mb-0.5 group-hover:text-primary transition-colors truncate">Элара Шепот Луны</h3>
+<div class="flex items-center gap-1.5 mb-3">
+<span class="text-xs font-medium text-on-surface-variant">Волшебник 8</span>
+<span class="text-outline-variant text-[10px]">•</span>
+<span class="text-xs font-medium text-on-surface-variant">Эльф</span>
+</div>
+<div class="pt-3 border-t border-surface-container-low flex items-center justify-between">
+<div class="flex items-center gap-1.5 text-on-surface-variant">
+<span class="material-symbols-outlined text-sm">schedule</span>
+<span class="text-[10px]">1д назад</span>
+</div>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity text-primary">
+<span class="material-symbols-outlined text-lg">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Character Card 3 -->
+<div class="group relative bg-surface-container-lowest p-4 rounded-lg hover:shadow-lg hover:shadow-on-surface/5 transition-all duration-300 border border-transparent hover:border-outline-variant/20">
+<div class="flex justify-between items-start mb-4">
+<div class="w-12 h-12 rounded-lg bg-tertiary-container flex items-center justify-center overflow-hidden">
+<img alt="Аватар" class="w-full h-full object-cover" data-alt="Портрет тифлинга-плута" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCbEtELv6nRKechOMeJP1W6W5BleIZWt3uB-KvjLo5lkEZXufAzPzIr5-_Exx8x9_CzCZT2mIUTFGpJPvp8_RfA2qvxNTfoViPCMXnJkqga3e7aP96GwKEAq5BndP61eaWs_62o3edqwheU-K78_lZsxDhwzdFsNIQXmnTnBtlPHW0CDhTColq30GtbsrSnU3DUvWQW09ttPG-wdKJaWy4AEDz6dcI_AHHemZi9PTWPxZ8B30Q-v4s1DsANUyvzhYbzYyX48XuT-JA"/>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-[9px] uppercase tracking-wider font-bold text-on-surface-variant/50">Статус</span>
+<span class="px-1.5 py-0.5 bg-tertiary-container text-on-tertiary-container text-[10px] font-bold rounded">АКТИВЕН</span>
+</div>
+</div>
+<h3 class="text-lg font-bold font-headline text-on-surface mb-0.5 group-hover:text-primary transition-colors truncate">Каэлен Ночная Тень</h3>
+<div class="flex items-center gap-1.5 mb-3">
+<span class="text-xs font-medium text-on-surface-variant">Плут 3</span>
+<span class="text-outline-variant text-[10px]">•</span>
+<span class="text-xs font-medium text-on-surface-variant">Тифлинг</span>
+</div>
+<div class="pt-3 border-t border-surface-container-low flex items-center justify-between">
+<div class="flex items-center gap-1.5 text-on-surface-variant">
+<span class="material-symbols-outlined text-sm">schedule</span>
+<span class="text-[10px]">4д назад</span>
+</div>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity text-primary">
+<span class="material-symbols-outlined text-lg">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Create New Placeholder (Smaller) -->
+<button class="group border-2 border-dashed border-surface-container-highest rounded-lg flex flex-col items-center justify-center p-4 hover:bg-surface-container-low transition-colors min-h-[160px]">
+<div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center mb-2 group-hover:scale-105 transition-transform">
+<span class="material-symbols-outlined text-on-surface-variant text-base">add</span>
+</div>
+<span class="text-sm font-bold text-on-surface-variant group-hover:text-primary">Новый герой</span>
+<span class="text-[10px] text-on-surface-variant/60 mt-0.5">Начать приключение</span>
+</button>
+</div>
+<!-- Empty State (Hidden if characters exist) -->
+<div class="hidden flex-col items-center justify-center py-12 text-center">
+<div class="w-16 h-16 rounded-full bg-surface-container-low flex items-center justify-center mb-4">
+<span class="material-symbols-outlined text-2xl text-outline-variant">person_off</span>
+</div>
+<h2 class="text-xl font-bold font-headline mb-1">Персонажи не найдены</h2>
+<p class="text-on-surface-variant text-sm mb-4">Создайте своего первого персонажа.</p>
+<button class="px-6 py-2 bg-gradient-to-b from-primary to-primary-dim text-on-primary text-sm font-bold rounded-lg shadow-md">
+            Создать персонажа
+        </button>
+</div>
+</main>
+<!-- FAB for quick action (Compact) -->
+<div class="fixed bottom-4 right-4 z-50 md:hidden">
+<button class="w-11 h-11 bg-primary text-on-primary rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">add</span>
+</button>
+</div>
+<!-- Background Decoration -->
+<div class="fixed inset-0 -z-10 pointer-events-none overflow-hidden">
+<div class="absolute top-[-10%] left-[-5%] w-[40%] h-[40%] bg-primary/3 blur-[120px] rounded-full"></div>
+<div class="absolute bottom-[-10%] right-[-5%] w-[40%] h-[40%] bg-tertiary/3 blur-[120px] rounded-full"></div>
+</div>
+</body></html>

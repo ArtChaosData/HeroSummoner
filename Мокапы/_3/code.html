@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+
+<html class="light" lang="ru"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-container-high": "#e1e9ee",
+              "inverse-surface": "#0b0f10",
+              "on-background": "#2a3439",
+              "inverse-on-surface": "#9a9d9f",
+              "surface-container-lowest": "#ffffff",
+              "inverse-primary": "#bccff6",
+              "error-dim": "#4e0309",
+              "outline-variant": "#a9b4b9",
+              "on-secondary-fixed": "#314055",
+              "on-primary": "#f6f7ff",
+              "secondary-dim": "#44546a",
+              "error": "#9f403d",
+              "surface": "#f7f9fb",
+              "primary": "#3E5171",
+              "on-secondary-fixed-variant": "#4d5d73",
+              "on-primary-fixed": "#2d405f",
+              "on-tertiary-fixed": "#383751",
+              "surface-dim": "#cfdce3",
+              "on-primary-container": "#3f5272",
+              "secondary-fixed-dim": "#c5d6f0",
+              "surface-container-highest": "#d9e4ea",
+              "on-tertiary": "#fbf7ff",
+              "surface-bright": "#f7f9fb",
+              "surface-container": "#e8eff3",
+              "on-error": "#fff7f6",
+              "on-error-container": "#752121",
+              "on-tertiary-container": "#4a4a65",
+              "primary-fixed": "#d6e3ff",
+              "primary-container": "#d6e3ff",
+              "on-primary-fixed-variant": "#495c7d",
+              "on-secondary": "#f7f9ff",
+              "tertiary-dim": "#51516c",
+              "on-surface-variant": "#566166",
+              "tertiary-container": "#d9d7f8",
+              "on-secondary-container": "#435368",
+              "surface-container-low": "#f0f4f7",
+              "on-tertiary-fixed-variant": "#54546f",
+              "secondary-container": "#d3e4fe",
+              "primary-fixed-dim": "#c1d5fb",
+              "surface-variant": "#d9e4ea",
+              "secondary": "#506076",
+              "primary-dim": "#405373",
+              "on-surface": "#2a3439",
+              "background": "#f7f9fb",
+              "surface-tint": "#3E5171",
+              "tertiary-fixed-dim": "#cbc9e9",
+              "secondary-fixed": "#d3e4fe",
+              "outline": "#717c82",
+              "error-container": "#fe8983",
+              "tertiary": "#5d5c78",
+              "col-class": "#6C63FF",
+              "col-race": "#3AAB72",
+              "col-bg": "#C9A23C"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem", "2xl": "1rem", "3xl": "1.5rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(16px);
+        }
+        .sk-cb {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            border: 1px solid #a9b4b9;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all .13s;
+            position: relative;
+            flex-shrink: 0;
+        }
+        .sk-cb.checked::after {
+            content: '';
+            width: 5px;
+            height: 3px;
+            border-left: 1.2px solid #fff;
+            border-bottom: 1.2px solid #fff;
+            transform: rotate(-45deg) translate(0.5px, -0.5px);
+            display: block;
+        }
+        .sk-cb.mandatory-class { background: #6C63FF; border-color: #6C63FF; }
+        .sk-cb.mandatory-race { background: #3AAB72; border-color: #3AAB72; }
+        .sk-cb.mandatory-bg { background: #C9A23C; border-color: #C9A23C; }
+        
+        .ms-pip {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            border: 1px solid #a9b4b9;
+            transition: all .15s;
+        }
+        .ms-pip.active { background: #6C63FF; border-color: #6C63FF; }
+
+        .ds-pip {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            border: 1px solid #a9b4b9;
+        }
+        .ds-pip.success.active { background: #3AAB72; border-color: #3AAB72; }
+        .ds-pip.failure.active { background: #9f403d; border-color: #9f403d; }
+
+        body {
+            background-color: #f7f9fb;
+            color: #2a3439;
+            font-family: 'Inter', sans-serif;
+        }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-background text-on-surface">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-200/20 shadow-sm">
+<div class="flex items-center justify-between px-4 h-12 max-w-full mx-auto">
+<div class="flex items-center gap-6">
+<span class="text-xl font-black tracking-tight text-slate-900 font-manrope">The Archive</span>
+<nav class="hidden md:flex gap-4 items-center h-full">
+<a class="text-slate-500 hover:text-slate-900 transition-colors text-xs font-medium" href="#">Персонажи</a>
+<a class="text-slate-500 hover:text-slate-900 transition-colors text-xs font-medium" href="#">Компендиум</a>
+<a class="text-slate-500 hover:text-slate-900 transition-colors text-xs font-medium" href="#">Кампании</a>
+</nav>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-1.5 hover:bg-slate-100 rounded-lg transition-all text-slate-600">
+<span class="material-symbols-outlined !text-xl" data-icon="ios_share">ios_share</span>
+</button>
+<button class="p-1.5 hover:bg-slate-100 rounded-lg transition-all text-slate-600">
+<span class="material-symbols-outlined !text-xl" data-icon="settings">settings</span>
+</button>
+</div>
+</div>
+</header>
+<div class="flex pt-12 min-h-screen">
+<!-- Narrow SideNavBar (App Navigation) -->
+<aside class="hidden md:flex flex-col items-center gap-3 py-4 fixed left-0 top-12 bottom-0 h-full w-14 border-r bg-white z-40">
+<div class="mb-2 flex flex-col items-center">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary font-bold text-sm">ВС</div>
+</div>
+<nav class="flex flex-col gap-2">
+<a class="relative group bg-indigo-50 text-indigo-700 w-10 h-10 flex items-center justify-center rounded-lg transition-all hover:scale-105" href="#" title="Характеристики">
+<span class="material-symbols-outlined !text-xl" data-icon="person" style="font-variation-settings: 'FILL' 1;">person</span>
+</a>
+<a class="relative group text-slate-400 hover:text-slate-900 w-10 h-10 flex items-center justify-center rounded-lg transition-all hover:bg-slate-50" href="#" title="Заклинания">
+<span class="material-symbols-outlined !text-xl" data-icon="auto_stories">auto_stories</span>
+</a>
+<a class="relative group text-slate-400 hover:text-slate-900 w-10 h-10 flex items-center justify-center rounded-lg transition-all hover:bg-slate-50" href="#" title="Снаряжение">
+<span class="material-symbols-outlined !text-xl" data-icon="backpack">backpack</span>
+</a>
+<a class="relative group text-slate-400 hover:text-slate-900 w-10 h-10 flex items-center justify-center rounded-lg transition-all hover:bg-slate-50" href="#" title="Умения">
+<span class="material-symbols-outlined !text-xl" data-icon="Military_tech">military_tech</span>
+</a>
+<a class="relative group text-slate-400 hover:text-slate-900 w-10 h-10 flex items-center justify-center rounded-lg transition-all hover:bg-slate-50" href="#" title="Биография">
+<span class="material-symbols-outlined !text-xl" data-icon="history_edu">history_edu</span>
+</a>
+</nav>
+</aside>
+<!-- Sidebar for Abilities (Sheet Navigation) -->
+<aside class="hidden xl:flex flex-col gap-2 py-4 fixed left-14 top-12 bottom-0 w-64 border-r bg-surface-container-low/50 overflow-y-auto scrollbar-hide p-3 z-30">
+<h3 class="text-[10px] font-black uppercase tracking-[0.2em] text-on-surface-variant/60 px-2 mb-2">Характеристики</h3>
+<!-- STR -->
+<div class="bg-white rounded-xl border border-outline-variant/20 overflow-hidden mb-1 shadow-sm">
+<div class="px-3 py-1.5 flex items-center justify-between bg-surface-container-low/30 border-b border-outline-variant/10">
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Сила</span>
+<div class="flex gap-2 text-[10px] font-semibold">
+<span class="text-primary">Мод +4</span>
+<span class="text-col-class">Спас +7</span>
+</div>
+</div>
+<span class="text-base font-black font-headline text-on-surface">18</span>
+</div>
+<div class="p-1 space-y-0.5">
+<div class="flex items-center justify-between px-2 py-1 hover:bg-surface-container rounded-md group cursor-pointer">
+<div class="flex items-center gap-2">
+<div class="sk-cb checked mandatory-class"></div>
+<span class="text-[11px] font-medium">Атлетика</span>
+</div>
+<span class="text-[11px] font-bold text-col-class">+7</span>
+</div>
+</div>
+</div>
+<!-- DEX -->
+<div class="bg-white rounded-xl border border-outline-variant/20 overflow-hidden mb-1 shadow-sm">
+<div class="px-3 py-1.5 flex items-center justify-between bg-surface-container-low/30 border-b border-outline-variant/10">
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Ловкость</span>
+<div class="flex gap-2 text-[10px] font-semibold">
+<span class="text-primary">Мод +1</span>
+<span class="text-on-surface-variant/60">Спас +1</span>
+</div>
+</div>
+<span class="text-base font-black font-headline text-on-surface">12</span>
+</div>
+<div class="p-1 space-y-0.5">
+<div class="flex items-center justify-between px-2 py-1 hover:bg-surface-container rounded-md group cursor-pointer">
+<div class="flex items-center gap-2">
+<div class="sk-cb"></div>
+<span class="text-[11px] font-medium text-on-surface-variant">Акробатика</span>
+</div>
+<span class="text-[11px] font-bold text-on-surface-variant">+1</span>
+</div>
+<div class="flex items-center justify-between px-2 py-1 hover:bg-surface-container rounded-md group cursor-pointer">
+<div class="flex items-center gap-2">
+<div class="sk-cb"></div>
+<span class="text-[11px] font-medium text-on-surface-variant">Скрытность</span>
+</div>
+<span class="text-[11px] font-bold text-on-surface-variant">+1</span>
+</div>
+</div>
+</div>
+<!-- CON -->
+<div class="bg-white rounded-xl border border-outline-variant/20 overflow-hidden mb-1 shadow-sm">
+<div class="px-3 py-1.5 flex items-center justify-between bg-surface-container-low/30 border-b border-outline-variant/10">
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Телосложение</span>
+<div class="flex gap-2 text-[10px] font-semibold">
+<span class="text-primary">Мод +3</span>
+<span class="text-on-surface-variant/60">Спас +3</span>
+</div>
+</div>
+<span class="text-base font-black font-headline text-on-surface">16</span>
+</div>
+<div class="px-3 py-2 text-center">
+<span class="text-[9px] font-medium text-outline-variant italic uppercase">Навыков нет</span>
+</div>
+</div>
+<!-- INT -->
+<div class="bg-white rounded-xl border border-outline-variant/20 overflow-hidden mb-1 shadow-sm">
+<div class="px-3 py-1.5 flex items-center justify-between bg-surface-container-low/30 border-b border-outline-variant/10">
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Интеллект</span>
+<div class="flex gap-2 text-[10px] font-semibold">
+<span class="text-primary">Мод +0</span>
+<span class="text-on-surface-variant/60">Спас +0</span>
+</div>
+</div>
+<span class="text-base font-black font-headline text-on-surface">10</span>
+</div>
+<div class="p-1 space-y-0.5">
+<div class="flex items-center justify-between px-2 py-1 hover:bg-surface-container rounded-md group cursor-pointer">
+<div class="flex items-center gap-2">
+<div class="sk-cb"></div>
+<span class="text-[11px] font-medium text-on-surface-variant">История</span>
+</div>
+<span class="text-[11px] font-bold text-on-surface-variant">+0</span>
+</div>
+</div>
+</div>
+<!-- WIS -->
+<div class="bg-white rounded-xl border border-outline-variant/20 overflow-hidden mb-1 shadow-sm">
+<div class="px-3 py-1.5 flex items-center justify-between bg-surface-container-low/30 border-b border-outline-variant/10">
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Мудрость</span>
+<div class="flex gap-2 text-[10px] font-semibold">
+<span class="text-primary">Мод +2</span>
+<span class="text-col-bg">Спас +5</span>
+</div>
+</div>
+<span class="text-base font-black font-headline text-on-surface">14</span>
+</div>
+<div class="p-1 space-y-0.5">
+<div class="flex items-center justify-between px-2 py-1 hover:bg-surface-container rounded-md group cursor-pointer">
+<div class="flex items-center gap-2">
+<div class="sk-cb checked mandatory-bg"></div>
+<span class="text-[11px] font-medium">Проницательность</span>
+</div>
+<span class="text-[11px] font-bold text-col-bg">+5</span>
+</div>
+</div>
+</div>
+<!-- CHA -->
+<div class="bg-white rounded-xl border border-outline-variant/20 overflow-hidden mb-1 shadow-sm">
+<div class="px-3 py-1.5 flex items-center justify-between bg-surface-container-low/30 border-b border-outline-variant/10">
+<div class="flex flex-col">
+<span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Харизма</span>
+<div class="flex gap-2 text-[10px] font-semibold">
+<span class="text-primary">Мод +5</span>
+<span class="text-col-class">Спас +8</span>
+</div>
+</div>
+<span class="text-base font-black font-headline text-on-surface">20</span>
+</div>
+<div class="p-1 space-y-0.5">
+<div class="flex items-center justify-between px-2 py-1 hover:bg-surface-container rounded-md group cursor-pointer">
+<div class="flex items-center gap-2">
+<div class="sk-cb checked mandatory-class"></div>
+<span class="text-[11px] font-medium">Убеждение</span>
+</div>
+<span class="text-[11px] font-bold text-col-class">+8</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 md:ml-14 xl:ml-80 p-4 md:p-6 bg-background overflow-y-auto pb-24">
+<div class="max-w-5xl mx-auto space-y-4">
+<!-- Identity Header -->
+<section class="space-y-1">
+<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+<div class="space-y-0.5">
+<h1 class="text-3xl font-extrabold font-headline tracking-tight text-on-surface leading-tight">Валериус Смелый</h1>
+<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-col-class"></span>
+<span>Паладин <span class="text-primary font-bold">8</span></span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-col-race"></span>
+<span>Человек</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-col-bg"></span>
+<span>Благородный</span>
+</div>
+<div class="flex items-center gap-1.5 opacity-60">
+<span>Законно-добрый</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-3 px-3 py-1 bg-surface-container rounded-xl border border-outline-variant/10">
+<label class="relative inline-flex items-center cursor-pointer scale-[0.75]">
+<input checked="" class="sr-only peer" type="checkbox" value=""/>
+<div class="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-col-class"></div>
+</label>
+<span class="text-[9px] font-bold text-on-surface uppercase tracking-widest">Правила Таши</span>
+</div>
+</div>
+</section>
+<!-- Top Dashboard Row - Significantly Reduced Height -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-3">
+<!-- Health Stats Card -->
+<div class="lg:col-span-7 bg-white rounded-2xl border border-outline-variant/10 px-5 py-3 shadow-sm flex flex-col md:flex-row gap-6 items-center min-h-[80px]">
+<div class="flex-1 w-full flex flex-col justify-center border-b md:border-b-0 md:border-r border-outline-variant/10 pb-2 md:pb-0 md:pr-6">
+<div class="flex justify-between items-baseline mb-1">
+<span class="text-[9px] font-black uppercase tracking-widest text-on-surface-variant">Очки здоровья</span>
+<div class="flex items-baseline gap-1">
+<span class="text-xl font-black font-headline text-on-surface leading-none">64</span>
+<span class="text-xs font-bold text-outline-variant">/ 72</span>
+</div>
+</div>
+<div class="h-1.5 w-full bg-surface-container rounded-full overflow-hidden">
+<div class="h-full bg-col-race w-[88%]"></div>
+</div>
+</div>
+<div class="flex-1 w-full flex flex-row md:flex-col justify-between items-center md:items-start md:py-0 gap-4">
+<div class="flex flex-col md:flex-row md:items-baseline md:gap-2">
+<span class="text-[8px] font-bold uppercase text-on-surface-variant tracking-wider">Временные ОЗ</span>
+<div class="text-base font-bold font-headline text-primary leading-none">+0</div>
+</div>
+<div class="flex flex-col md:flex-row md:items-center md:gap-3">
+<span class="text-[8px] font-bold uppercase text-on-surface-variant tracking-wider">Спасброски от смерти</span>
+<div class="flex items-center gap-2">
+<div class="flex gap-0.5">
+<div class="ds-pip success active !w-2 !h-2"></div>
+<div class="ds-pip success !w-2 !h-2"></div>
+<div class="ds-pip success !w-2 !h-2"></div>
+</div>
+<div class="flex gap-0.5">
+<div class="ds-pip failure !w-2 !h-2"></div>
+<div class="ds-pip failure !w-2 !h-2"></div>
+<div class="ds-pip failure !w-2 !h-2"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Combat Cards -->
+<div class="lg:col-span-5 grid grid-cols-3 gap-3">
+<div class="bg-white rounded-2xl border border-outline-variant/10 px-2 py-2 text-center shadow-sm flex flex-col justify-center border-t-2 border-t-primary min-h-[80px]">
+<span class="text-[8px] font-black uppercase tracking-widest text-on-surface-variant mb-0.5">КД</span>
+<span class="text-xl font-black font-headline text-on-surface">21</span>
+</div>
+<div class="bg-white rounded-2xl border border-outline-variant/10 px-2 py-2 text-center shadow-sm flex flex-col justify-center border-t-2 border-t-col-class min-h-[80px]">
+<span class="text-[8px] font-black uppercase tracking-widest text-on-surface-variant mb-0.5">Иниц</span>
+<span class="text-xl font-black font-headline text-on-surface">+1</span>
+</div>
+<div class="bg-white rounded-2xl border border-outline-variant/10 px-2 py-2 text-center shadow-sm flex flex-col justify-center border-t-2 border-t-col-bg min-h-[80px]">
+<span class="text-[8px] font-black uppercase tracking-widest text-on-surface-variant mb-0.5">Скор</span>
+<span class="text-xl font-black font-headline text-on-surface">30</span>
+</div>
+</div>
+</section>
+<!-- Features & Traits -->
+<section class="bg-white rounded-2xl border border-outline-variant/10 overflow-hidden shadow-sm">
+<div class="px-5 py-2 border-b border-outline-variant/10 bg-slate-50/50 flex justify-between items-center">
+<h3 class="font-headline font-extrabold text-[10px] uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined !text-base text-primary">military_tech</span>
+                        Особенности и Умения
+                    </h3>
+</div>
+<div class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-col-class"></span>
+<span class="text-[11px] font-bold text-on-surface">Божественное чувство</span>
+</div>
+<p class="text-[10px] text-on-surface-variant leading-relaxed pl-3.5 border-l border-slate-100">Чувствуете присутствие сильного зла или добра в радиусе 60 футов.</p>
+</div>
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-col-class"></span>
+<span class="text-[11px] font-bold text-on-surface">Наложение рук (40/40)</span>
+</div>
+<div class="pl-3.5 border-l border-slate-100 space-y-1.5">
+<p class="text-[10px] text-on-surface-variant leading-relaxed">Касание может исцелять раны или излечивать болезни.</p>
+<div class="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+<div class="h-full bg-col-class w-full"></div>
+</div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-col-race"></span>
+<span class="text-[11px] font-bold text-on-surface">Дополнительный навык</span>
+</div>
+<p class="text-[10px] text-on-surface-variant leading-relaxed pl-3.5 border-l border-slate-100">Владение одним дополнительным навыком по выбору (Человек).</p>
+</div>
+</div>
+</section>
+<!-- Bottom Two-Column Split -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+<!-- Equipment Column -->
+<div class="bg-white rounded-2xl border border-outline-variant/10 overflow-hidden flex flex-col shadow-sm min-h-[300px]">
+<div class="px-5 py-2 border-b border-outline-variant/10 flex justify-between items-center bg-slate-50/50">
+<h3 class="font-headline font-extrabold text-[10px] uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined !text-base text-primary">backpack</span>
+                            Снаряжение
+                        </h3>
+<button class="w-6 h-6 flex items-center justify-center hover:bg-primary/10 rounded-full transition-colors text-primary">
+<span class="material-symbols-outlined !text-sm" data-icon="add">add</span>
+</button>
+</div>
+<div class="p-3 space-y-2 overflow-y-auto flex-1">
+<div class="bg-surface-container-lowest px-4 py-2 rounded-xl border border-outline-variant/10 flex justify-between items-center group hover:border-primary/30 transition-all cursor-default">
+<div class="leading-tight">
+<div class="text-xs font-bold">Кованые латы</div>
+<div class="text-[9px] text-on-surface-variant font-medium mt-0.5">Тяжелый доспех • 65 фнт</div>
+</div>
+<span class="material-symbols-outlined opacity-0 group-hover:opacity-100 transition-opacity text-error cursor-pointer !text-sm" data-icon="delete">delete</span>
+</div>
+<div class="bg-surface-container-lowest px-4 py-2 rounded-xl border border-outline-variant/10 flex justify-between items-center group hover:border-col-class/30 transition-all cursor-default">
+<div class="leading-tight">
+<div class="text-xs font-bold text-col-class">Святой Мститель</div>
+<div class="text-[9px] text-on-surface-variant font-medium mt-0.5">Воинское оружие • 3 фнт</div>
+</div>
+<span class="material-symbols-outlined opacity-0 group-hover:opacity-100 transition-opacity text-error cursor-pointer !text-sm" data-icon="delete">delete</span>
+</div>
+</div>
+<div class="px-5 py-2.5 bg-surface-container border-t border-outline-variant/10">
+<div class="flex justify-between items-center mb-1">
+<span class="text-[8px] font-black uppercase tracking-[0.2em] text-on-surface-variant">Нагрузка</span>
+<span class="text-[10px] font-bold text-on-surface">80.5 / 270 фнт</span>
+</div>
+<div class="w-full h-1 bg-white rounded-full overflow-hidden">
+<div class="h-full bg-primary/40 w-[30%]"></div>
+</div>
+</div>
+</div>
+<!-- Spells Column -->
+<div class="bg-white rounded-2xl border border-outline-variant/10 overflow-hidden flex flex-col shadow-sm min-h-[300px]">
+<div class="px-5 py-2 border-b border-outline-variant/10 flex justify-between items-center bg-slate-50/50">
+<h3 class="font-headline font-extrabold text-[10px] uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined !text-base text-primary">auto_stories</span>
+                            Заклинания
+                        </h3>
+<div class="flex gap-1.5">
+<div class="px-2 py-0.5 rounded bg-primary/10 text-primary text-[9px] font-black">8 Ячеек</div>
+</div>
+</div>
+<div class="p-6 flex-1 flex flex-col items-center justify-center text-center space-y-3">
+<div class="w-10 h-10 rounded-full bg-surface-container flex items-center justify-center">
+<span class="material-symbols-outlined text-outline-variant !text-lg">auto_fix_normal</span>
+</div>
+<div class="space-y-1">
+<p class="text-[12px] font-bold text-on-surface">Книга заклинаний пуста</p>
+<p class="text-[10px] text-on-surface-variant leading-relaxed max-w-[180px] mx-auto">Выберите подготовленные заклинания для использования в бою.</p>
+</div>
+<button class="px-5 py-1.5 border border-primary text-primary rounded-xl text-[9px] font-bold hover:bg-primary hover:text-white transition-all uppercase tracking-widest">
+                            Открыть книгу
+                        </button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Mobile Navigation -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full glass-panel flex justify-around items-center h-16 px-4 z-50 border-t border-outline-variant/10 shadow-[0_-4px_20px_rgba(0,0,0,0.05)]">
+<a class="flex flex-col items-center gap-1 text-primary" href="#">
+<span class="material-symbols-outlined !text-2xl" data-icon="person" style="font-variation-settings: 'FILL' 1;">person</span>
+<span class="text-[10px] font-bold">Лист</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined !text-2xl" data-icon="auto_stories">auto_stories</span>
+<span class="text-[10px] font-bold">Магия</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined !text-2xl" data-icon="backpack">backpack</span>
+<span class="text-[10px] font-bold">Вещи</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined !text-2xl" data-icon="history_edu">history_edu</span>
+<span class="text-[10px] font-bold">Био</span>
+</a>
+</nav>
+</body></html>

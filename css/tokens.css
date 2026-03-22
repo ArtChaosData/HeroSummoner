@@ -1,0 +1,88 @@
+/* ═══════════════════════════════════════════
+   HeroSummoner — Design Tokens
+   Source: Colors mockup palette
+═══════════════════════════════════════════ */
+:root {
+  /* ── Base surfaces ── */
+  --bg:           #07090F;
+  --bg-raised:    #0C0E18;
+  --surface:      #0F1019;
+  --surface-2:    #171926;
+  --surface-3:    #1E2132;
+
+  /* ── Borders ── */
+  --border:       #1C1F30;
+  --border-2:     #272B42;
+  --border-3:     #363D5E;
+
+  /* ── Text ── */
+  --text-primary:   #ECEAF8;
+  --text-secondary: #8A88A8;
+  --text-muted:     #525070;
+  --text-disabled:  #313050;
+
+  /* ── Accent — indigo ── */
+  --accent:       #6C63FF;
+  --accent-soft:  #9C96FF;
+  --accent-bg:    rgba(108,99,255,0.09);
+  --accent-glow:  rgba(108,99,255,0.22);
+
+  /* ── Gold ── */
+  --gold:         #C9A23C;
+  --gold-soft:    #DEBA5A;
+  --gold-bg:      rgba(201,162,60,0.12);
+  --gold-dim:     #7A6128;
+
+  /* ── HP / life states ── */
+  --hp-full:      #3AB870;
+  --hp-mid:       #E07B1A;
+  --hp-low:       #D03535;
+  --dead-accent:  #7A3A52;
+  --dead-border:  #3A1E28;
+
+  /* ── Danger ── */
+  --danger:       #E05555;
+  --danger-bg:    rgba(224,85,85,0.08);
+
+  /* ── Shadows ── */
+  --shadow-sm:   0 1px 3px rgba(0,0,0,0.5);
+  --shadow-md:   0 4px 20px rgba(0,0,0,0.6);
+  --shadow-lg:   0 16px 52px rgba(0,0,0,0.75);
+  --shadow-card: 0 0 0 1px var(--border), 0 4px 24px rgba(0,0,0,0.55);
+
+  /* ── Radius ── */
+  --r-sm:   6px;
+  --r-md:   10px;
+  --r-lg:   14px;
+  --r-xl:   20px;
+  --r-full: 999px;
+
+  /* ── Typography ── */
+  --font-body:    'Inter', system-ui, sans-serif;
+  --font-display: 'Philosopher', Georgia, serif;
+
+  /* ── Class colours ── */
+  --c-barbarian:  #C03535;
+  --c-bard:       #D33682;
+  --c-cleric:     #5A90D4;
+  --c-druid:      #4AAB3A;
+  --c-fighter:    #839496;
+  --c-monk:       #CB4B16;
+  --c-paladin:    #D4A017;
+  --c-ranger:     #3AAB72;
+  --c-rogue:      #2AA198;
+  --c-sorcerer:   #6C71C4;
+  --c-warlock:    #6C3A8A;
+  --c-wizard:     #7A5DC7;
+  --c-artificer:  #C08030;
+
+  /* ── Semantic label colours ── */
+  --col-class: #6C63FF;
+  --col-race:  #3AAB72;
+  --col-bg-s:  #C9A23C;
+
+  /* ── Transitions ── */
+  --t-fast: 0.15s ease;
+  --t-mid:  0.25s ease;
+  --t-slow: 0.4s ease;
+}
