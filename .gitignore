@@ -19,3 +19,7 @@ Thumbs.db
 # Push helper (contains token — never commit)
 _push_to_github.bat
 _push_to_github.sh
+
+# Reference materials — not part of the app
+Мокапы/
+ТЗ/
