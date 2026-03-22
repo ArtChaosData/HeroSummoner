@@ -421,6 +421,104 @@
 .new-card-hint { font-size: 11.5px; color: var(--text-disabled); }
 
 /* ════════════════════════════════
+   EDITION SWITCHER
+════════════════════════════════ */
+.edition-switcher {
+  display: inline-flex;
+  gap: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.edition-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--r-lg);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: all 0.14s ease;
+  white-space: nowrap;
+  font-family: var(--font-body);
+}
+
+.edition-btn:hover:not(.is-active) {
+  color: var(--text-secondary);
+  background: var(--surface-2);
+}
+
+/* "Все" active */
+.edition-btn[data-edition="all"].is-active {
+  background: var(--surface-3);
+  border-color: var(--border-2);
+  color: var(--text-primary);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+}
+
+/* "5e 2014" active */
+.edition-btn[data-edition="2014"].is-active {
+  background: rgba(108,99,255,0.1);
+  border-color: rgba(108,99,255,0.3);
+  color: var(--accent-soft);
+}
+
+/* "5.5 2024" active */
+.edition-btn[data-edition="2024"].is-active {
+  background: rgba(201,162,60,0.1);
+  border-color: rgba(201,162,60,0.3);
+  color: var(--gold-soft);
+}
+
+.edition-count {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: var(--r-full);
+  background: var(--surface-3);
+  color: var(--text-muted);
+  min-width: 16px;
+  text-align: center;
+}
+.edition-btn.is-active .edition-count {
+  background: rgba(255,255,255,0.08);
+  color: var(--text-secondary);
+}
+
+/* ════════════════════════════════
+   EDITION BADGE (on card portrait)
+════════════════════════════════ */
+.badge-edition {
+  top: auto;
+  bottom: 11px;
+  left: 11px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+}
+
+.badge-edition--2014 {
+  background: rgba(108,99,255,0.22);
+  color: var(--accent-soft);
+  border-color: rgba(108,99,255,0.3);
+}
+
+.badge-edition--2024 {
+  background: rgba(201,162,60,0.22);
+  color: var(--gold-soft);
+  border-color: rgba(201,162,60,0.3);
+}
+
+/* ════════════════════════════════
    EMPTY STATE
 ════════════════════════════════ */
 .empty-state {
