@@ -95,16 +95,11 @@ const BACKGROUNDS = {
   'Шарлатан':                { skills:['Обман','Ловкость рук'] },
 };
 
-const ALIGNMENTS = [
-  'Законопослушный добрый',
-  'Законопослушный злой',
-  'Законопослушный нейтральный',
-  'Истинный нейтральный',
-  'Нейтральный добрый',
-  'Нейтральный злой',
-  'Хаотичный добрый',
-  'Хаотичный злой',
-  'Хаотичный нейтральный',
+// 3×3 alignment grid — row 0=good, row 1=neutral, row 2=evil
+const ALIGN_GRID = [
+  ['Законопослушный добрый',     'Нейтральный добрый',     'Хаотичный добрый'],
+  ['Законопослушный нейтральный','Истинный нейтральный',   'Хаотичный нейтральный'],
+  ['Законопослушный злой',       'Нейтральный злой',       'Хаотичный злой'],
 ];
 
 const CLASS_EQUIP = {
@@ -138,6 +133,40 @@ const BG_EQUIP = {
   'Солдат':                  ['Знак воинского звания', 'Трофей с врага', 'Кости', 'Дорожная одежда', '10 зм'],
   'Чужестранец':             ['Путевые дневники', 'Карты родной земли', 'Дорожные одежды', '10 зм'],
   'Шарлатан':                ['Шулерские карты', 'Одежда разных сословий', '15 зм'],
+};
+
+const CLASS_FEATURES_L1 = {
+  'Бард':      ['Использование магии', 'Вдохновение барда (к6)', 'Мастер на все руки'],
+  'Варвар':    ['Ярость (2/день)', 'Защита без доспехов'],
+  'Воин':      ['Боевой стиль', 'Второе дыхание'],
+  'Волшебник': ['Использование заклинаний', 'Восстановление чар'],
+  'Друид':     ['Использование заклинаний', 'Язык друидов'],
+  'Жрец':      ['Использование заклинаний', 'Канал канал (1/отдых)'],
+  'Искусник':  ['Магические изобретения (2)', 'Использование инструментов'],
+  'Колдун':    ['Тёмный покровитель', 'Тайная магия'],
+  'Монах':     ['Боевые искусства (к4)', 'Защита без доспехов', 'Очки ки (1)'],
+  'Паладин':   ['Обнаружение зла', 'Наложение рук (5 хп/день)'],
+  'Плут':      ['Скрытая атака (к6)', 'Жаргон воров', 'Хитрое действие'],
+  'Следопыт':  ['Любимый враг', 'Природный исследователь'],
+  'Чародей':   ['Использование заклинаний', 'Чародейское происхождение'],
+};
+
+const RACE_FEATURES_L1 = {
+  'Аасимар':        ['Тёмное зрение 60 фт', 'Небесное сопротивление', 'Исцеляющие руки'],
+  'Гном':           ['Тёмное зрение 60 фт', 'Гномья хитрость'],
+  'Голиаф':         ['Атлетическая мощь', 'Горное происхождение', 'Могучий атлет'],
+  'Дварф':          ['Тёмное зрение 60 фт', 'Дварфийская стойкость', 'Знание камня'],
+  'Дракорождённый': ['Наследие дракона (дыхание)', 'Урон по типу дракона'],
+  'Кенку':          ['Мастер мимикрии', 'Умения засады'],
+  'Полуорк':        ['Тёмное зрение 60 фт', 'Свирепость', 'Устойчивость'],
+  'Полурослик':     ['Везение', 'Храбрость', 'Ловкость полуросликов'],
+  'Полуэльф':       ['Тёмное зрение 60 фт', 'Устойчивость к очарованию', '+2 навыка'],
+  'Таваксия':       ['Кошачья грация', 'Тёмное зрение 60 фт'],
+  'Тифлинг':        ['Тёмное зрение 60 фт', 'Адское сопротивление (огонь)', 'Адское наследие'],
+  'Тритон':         ['Плавание 30 фт', 'Земноводный', 'Контроль воды'],
+  'Фирболг':        ['Скрытая стопа', 'Обнаружение магии', 'Мощь великана'],
+  'Человек':        ['Разностороннее развитие (+1 ко всем)'],
+  'Эльф':           ['Тёмное зрение 60 фт', 'Острые чувства', 'Транс'],
 };
 
 const CLASS_GOLD = {
@@ -190,6 +219,82 @@ function rollDice(rolls, die) {
 
 // ─── Builders ─────────────────────────────────────────────────────────────────
 
+function buildAlignWidget(state, refresh) {
+  const ROW_CLS = ['align-good', 'align-neut', 'align-evil'];
+
+  const dropdown = el('div', { class: 'align-dropdown' });
+
+  ALIGN_GRID.forEach((row, ri) =>
+    row.forEach((full) => {
+      const cell = el('button', {
+        class: `align-cell ${ROW_CLS[ri]}${state.alignment === full ? ' active' : ''}`,
+        onClick: (e) => {
+          e.stopPropagation();
+          state.alignment = full;
+          dropdown.style.display = 'none';
+          refresh();
+        },
+      }, full);
+      dropdown.append(cell);
+    })
+  );
+
+  const trigger = el('button', {
+    class: `align-trigger${state.alignment ? '' : ' placeholder'}`,
+    onClick: (e) => {
+      e.stopPropagation();
+      const isOpen = dropdown.style.display === 'grid';
+      if (isOpen) {
+        dropdown.style.display = 'none';
+      } else {
+        dropdown.style.display = 'grid';
+        setTimeout(() => {
+          document.addEventListener('click', () => { dropdown.style.display = 'none'; }, { once: true });
+        }, 0);
+      }
+    },
+  }, state.alignment || '— Выбрать —');
+
+  return el('div', { class: 'id-field id-align-f', style: 'position:relative' },
+    el('label', {}, 'Мировоззрение'),
+    trigger,
+    dropdown
+  );
+}
+
+function buildFeaturesBlock(state, refresh) {
+  const clsFeats  = state.class ? (CLASS_FEATURES_L1[state.class]  || []) : [];
+  const raceFeats = state.race  ? (RACE_FEATURES_L1[state.race]    || []) : [];
+  if (!clsFeats.length && !raceFeats.length) return null;
+
+  const collapsed = state.featuresCollapsed;
+  const toggleBtn = el('button', {
+    class: 'collapse-btn',
+    onClick: () => { state.featuresCollapsed = !state.featuresCollapsed; refresh(); },
+  }, collapsed ? '∨' : '∧');
+
+  return el('div', { class: 'panel features-panel' },
+    el('div', { class: 'panel-head' },
+      el('span', { class: 'panel-title' }, 'Особенности 1 ур.'),
+      toggleBtn
+    ),
+    collapsed ? null : el('div', { class: 'panel-body features-body' },
+      clsFeats.length ? el('div', { class: 'feat-section' },
+        el('div', { class: 'feat-section-label' }, state.class),
+        el('div', { class: 'feat-chips' },
+          ...clsFeats.map(f => el('span', { class: 'feat-chip feat-chip-class' }, f))
+        )
+      ) : null,
+      raceFeats.length ? el('div', { class: `feat-section${clsFeats.length ? ' feat-section-mt' : ''}` },
+        el('div', { class: 'feat-section-label feat-label-race' }, state.race),
+        el('div', { class: 'feat-chips' },
+          ...raceFeats.map(f => el('span', { class: 'feat-chip feat-chip-race' }, f))
+        )
+      ) : null,
+    )
+  );
+}
+
 function makeSel(opts, cur, onChange, placeholder = '— Выбрать —') {
   const s = el('select', {});
   s.append(el('option', { value: '', disabled: true }, placeholder));
@@ -213,7 +318,6 @@ function buildIdRow(state, refresh) {
   const classNames = Object.keys(CLASSES).sort((a,b) => a.localeCompare(b, 'ru'));
   const raceNames  = Object.keys(RACES).sort((a,b) => a.localeCompare(b, 'ru'));
   const bgNames    = Object.keys(BACKGROUNDS).sort((a,b) => a.localeCompare(b, 'ru'));
-  const aligns     = ALIGNMENTS.slice().sort((a,b) => a.localeCompare(b, 'ru'));
 
   const raceData = state.race ? RACES[state.race] : null;
   const subraces = raceData?.sub || [];
@@ -239,9 +343,7 @@ function buildIdRow(state, refresh) {
     el('div', { class:'id-field id-bg-f is-bg' }, el('label',{}, 'Предыстория'),
       makeSel(bgNames, state.background, v => { state.background = v; refresh(); })
     ),
-    el('div', { class:'id-field id-align-f' },     el('label',{}, 'Мировоззрение'),
-      makeSel(aligns, state.alignment, v => { state.alignment = v; })
-    ),
+    buildAlignWidget(state, refresh),
     el('div', { class:'id-field id-player-f' },    el('label',{}, 'Имя игрока'), playerInp),
     // Edition toggle — far right
     el('div', { class:'id-field id-edition', style:'margin-left:auto' },
@@ -345,7 +447,9 @@ function buildAbBlock(state, ability, refresh) {
     },
       el('div', { class: cbCls }),
       el('span', { class: `sk-name${proficient ? ' proficient' : ''}` }, name),
-      el('span', { class: `sk-bonus${fromClass ? ' col-class' : fromBg ? ' col-bg' : ''}` }, sign(bonus))
+      el('div', { class: 'sk-bonus-wrap' },
+        el('span', { class: `sk-bonus${fromClass ? ' col-class' : fromBg ? ' col-bg' : ''}` }, sign(bonus))
+      )
     );
   });
 
@@ -424,12 +528,19 @@ function buildEquipPanel(state, refresh) {
     );
   }
 
+  const collapsed = state.equipCollapsed;
+  const toggleBtn = el('button', {
+    class: 'collapse-btn',
+    onClick: () => { state.equipCollapsed = !state.equipCollapsed; refresh(); },
+  }, collapsed ? '∨' : '∧');
+
   return el('div', { class: 'panel' },
     el('div', { class: 'panel-head' },
       el('span', { class: 'panel-title' }, 'Снаряжение'),
-      tabs
+      tabs,
+      toggleBtn
     ),
-    el('div', { class: 'panel-body' }, body)
+    collapsed ? null : el('div', { class: 'panel-body' }, body)
   );
 }
 
@@ -460,22 +571,19 @@ function buildRightPanel(state, refresh) {
   const saveNames = { str:'Сила',dex:'Ловкость',con:'Телосложение',int:'Интеллект',wis:'Мудрость',cha:'Харизма' };
 
   return el('div', { class: 'create-right' },
-    // HP
+    // Combat stats (HP merged in)
     el('div', { class: 'panel' },
       el('div', { class: 'panel-head' },
-        el('span', { class: 'panel-title' }, 'Хиты'),
-        el('span', { class: 'panel-badge' }, cls ? `к${cls.die}` : '—')
+        el('span', { class: 'panel-title' }, 'Боевые статы'),
+        cls ? el('span', { class: 'panel-badge' }, `к${cls.die}`) : null
       ),
-      el('div', { class: 'hp-row' },
-        el('span', { class: 'hp-val' }, hp),
-        el('span', { class: 'hp-max-label' }, '/ макс')
-      ),
-      cls ? el('div', { class: 'hp-formula' }, `к${cls.die} ${sign(conMod)} (Тел)`) : null
-    ),
-    // Combat stats
-    el('div', { class: 'panel' },
-      el('div', { class: 'panel-head' }, el('span', { class: 'panel-title' }, 'Боевые статы')),
       el('div', { class: 'combat-grid' },
+        // HP — full width
+        el('div', { class: 'cs-chip cs-hp' },
+          el('div', { class: 'cs-val cs-hp-val' }, String(hp)),
+          el('div', { class: 'cs-label' }, 'Хиты'),
+          cls ? el('div', { class: 'cs-detail' }, `к${cls.die} ${sign(conMod)} (Тел)`) : null
+        ),
         ...[
           ['КД',          10 + dexMod,   '10 + Ловк'],
           ['Инициатива',  sign(dexMod),  'мод Ловкости'],
@@ -589,8 +697,10 @@ export function renderCreate(container, router, _params = {}) {
     alignment:  '',
     stats:      { str:8, dex:8, con:8, int:8, wis:8, cha:8 },
     chosen:     new Set(),
-    equipMode:  'standard',
-    equipGold:  null,
+    equipMode:       'standard',
+    equipGold:       null,
+    equipCollapsed:  false,
+    featuresCollapsed: false,
   };
 
   let strip, body, bar;
@@ -600,8 +710,10 @@ export function renderCreate(container, router, _params = {}) {
   }
 
   function buildBody(st) {
+    const feats = buildFeaturesBlock(st, refresh);
     return el('div', { class: 'create-body' },
       el('div', { class: 'stats-area' },
+        feats,
         buildPbHeader(st),
         el('div', { class: 'stats-grid' },
           ...ABILITIES.map(ab => buildAbBlock(st, ab, refresh))
