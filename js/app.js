@@ -48,7 +48,10 @@ function showUpdateBanner(reg) {
   const btn = document.createElement('button');
   btn.className = 'btn btn-sm btn-primary';
   btn.textContent = 'Обновить';
-  btn.onclick = () => { reg.waiting.postMessage('SKIP_WAITING'); banner.remove(); };
+  btn.onclick = () => {
+    if (reg.waiting) { reg.waiting.postMessage('SKIP_WAITING'); } else { location.reload(); }
+    banner.remove();
+  };
   banner.append(btn);
   document.body.append(banner);
 }
