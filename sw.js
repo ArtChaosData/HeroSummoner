@@ -24,7 +24,7 @@ const PRECACHE = [
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE)));
-  // Do NOT skipWaiting automatically — let the app show an update banner
+  self.skipWaiting(); // Take over immediately
 });
 
 self.addEventListener('message', e => {
