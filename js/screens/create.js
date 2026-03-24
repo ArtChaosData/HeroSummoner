@@ -3,6 +3,9 @@
  */
 import { DB }        from '../db.js';
 import { el, toast } from '../utils.js';
+import { CLASS_FEATURES }             from '../data/class_features.js';
+import { CLASS_FEATURE_DESCRIPTIONS } from '../data/class_feature_descriptions.js';
+import { SUBCLASS_FEATURES }          from '../data/subclass_features.js';
 
 // ─── Game Data ────────────────────────────────────────────────────────────────
 
@@ -151,21 +154,6 @@ const SUBCLASSES = {
   'Чародей':   { level:1, list:['Дикая магия','Драконье происхождение','Тень','Небесный','Буря','Часовой механизм'] },
 };
 
-const CLASS_FEATURES_L1 = {
-  'Бард':      ['Использование магии', 'Вдохновение барда (к6)', 'Мастер на все руки'],
-  'Варвар':    ['Ярость (2/день)', 'Защита без доспехов'],
-  'Воин':      ['Боевой стиль', 'Второе дыхание'],
-  'Волшебник': ['Использование заклинаний', 'Восстановление чар'],
-  'Друид':     ['Использование заклинаний', 'Язык друидов'],
-  'Жрец':      ['Использование заклинаний', 'Канал канал (1/отдых)'],
-  'Искусник':  ['Магические изобретения (2)', 'Использование инструментов'],
-  'Колдун':    ['Тёмный покровитель', 'Тайная магия'],
-  'Монах':     ['Боевые искусства (к4)', 'Защита без доспехов', 'Очки ки (1)'],
-  'Паладин':   ['Обнаружение зла', 'Наложение рук (5 хп/день)'],
-  'Плут':      ['Скрытая атака (к6)', 'Жаргон воров', 'Хитрое действие'],
-  'Следопыт':  ['Любимый враг', 'Природный исследователь'],
-  'Чародей':   ['Использование заклинаний', 'Чародейское происхождение'],
-};
 
 const RACE_FEATURES_L1 = {
   'Аасимар':        ['Тёмное зрение 60 фт', 'Небесное сопротивление', 'Исцеляющие руки'],
@@ -290,36 +278,166 @@ function buildAlignWidget(state, refresh) {
   );
 }
 
+// ─── Description renderer ─────────────────────────────────────────────────────
+
+const profBonus = lvl => Math.floor((lvl - 1) / 4) + 2;
+
+const STAT_KW = [
+  ['Харизм',      'cha'],
+  ['Мудрост',     'wis'],
+  ['Интеллект',   'int'],
+  ['Силы',        'str'],
+  ['Ловкост',     'dex'],
+  ['Телосложен',  'con'],
+];
+
+function calcFormula(line, state) {
+  if (!line.includes('+') || !line.includes('модификатор')) return null;
+  let total = 0;
+  if (/=\s*8/.test(line) || /:\s*8\s*\+/.test(line)) total += 8;
+  if (line.includes('мастерства')) total += profBonus(state.level);
+  for (const [kw, key] of STAT_KW) {
+    if (line.includes(kw)) { total += mod(totalStat(state, key)); break; }
+  }
+  return total;
+}
+
+function renderDesc(text, state) {
+  const wrap = el('div', { class: 'feat-item-desc' });
+  const lines = text.split('\n');
+  lines.forEach((raw, i) => {
+    const t = raw.trim();
+    if (!t) return;
+    if (i === 0) {
+      wrap.append(el('span', { class: 'feat-desc-meta' }, t));
+      return;
+    }
+    // Subheading: short, no formula, no sentence-ending punctuation
+    if (t.length < 65 && !t.includes('=') && !/[.,;:]$/.test(t)) {
+      wrap.append(el('div', { class: 'feat-desc-hd' }, t));
+      return;
+    }
+    const calc = state.class ? calcFormula(t, state) : null;
+    if (calc !== null) {
+      const p = el('p', { class: 'feat-desc-p feat-desc-formula-line' }, t,
+        el('span', { class: 'feat-desc-formula' }, ` = ${calc}`)
+      );
+      wrap.append(p);
+    } else {
+      wrap.append(el('p', { class: 'feat-desc-p' }, t));
+    }
+  });
+  return wrap;
+}
+
+// Case-insensitive description lookup
+function lookupDesc(map, name) {
+  if (!map) return null;
+  if (map[name]) return map[name];
+  const up = name.toUpperCase();
+  for (const k of Object.keys(map)) if (k.toUpperCase() === up) return map[k];
+  // Try stripping trailing parenthetical suffix, e.g. "Вдохновение барда (к6)" → "Вдохновение барда"
+  const stripped = name.replace(/\s*\([^)]*\)$/, '').trim();
+  if (stripped !== name) {
+    if (map[stripped]) return map[stripped];
+    const upStripped = stripped.toUpperCase();
+    for (const k of Object.keys(map)) if (k.toUpperCase() === upStripped) return map[k];
+  }
+  return null;
+}
+
+// Title-case for ALL_CAPS subclass feature names
+function toTitle(s) {
+  return s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+}
+
+function buildFeatItem(name, desc, state, refresh) {
+  const expanded = !!state.featExpanded[name];
+  const hasDesc  = !!desc;
+  const hdClass  = `feat-item-hd${expanded ? ' open' : ''}${hasDesc ? ' has-desc' : ''}`;
+  return el('div', { class: 'feat-item' },
+    el('div', {
+      class: hdClass,
+      onClick: hasDesc ? () => { state.featExpanded[name] = !expanded; refresh(); } : null,
+    },
+      el('span', { class: `feat-arrow${hasDesc ? '' : ' invis'}` }, expanded ? '▾' : '▸'),
+      el('span', { class: 'feat-item-name' }, name),
+    ),
+    expanded && desc ? renderDesc(desc, state) : null,
+  );
+}
+
+function buildFeatSection(key, title, items, state, refresh) {
+  if (!items.length) return null;
+  const LABELS = { class:'Класс', subclass:'Подкласс', race:'Раса', bg:'Предыстория' };
+  const collapsed = !!state.featSections[key];
+  return el('div', { class: 'feat-sec' },
+    el('div', { class: 'feat-sec-hd', onClick: () => { state.featSections[key] = !collapsed; refresh(); } },
+      el('span', { class: `feat-sec-tag feat-tag-${key}` }, LABELS[key]),
+      el('span', { class: 'feat-sec-name' }, title),
+      el('span', { class: 'feat-sec-arrow' }, collapsed ? '›' : '⌄'),
+    ),
+    collapsed ? null : el('div', { class: 'feat-items' },
+      ...items.map(({ name, desc }) => buildFeatItem(name, desc, state, refresh))
+    ),
+  );
+}
+
 function buildFeaturesBlock(state, refresh) {
-  const clsFeats  = state.class ? (CLASS_FEATURES_L1[state.class]  || []) : [];
-  const raceFeats = state.race  ? (RACE_FEATURES_L1[state.race]    || []) : [];
-  if (!clsFeats.length && !raceFeats.length) return null;
+  if (!state.featSections) state.featSections = {};
+  if (!state.featExpanded) state.featExpanded = {};
+
+  const clsDescs = state.class ? CLASS_FEATURE_DESCRIPTIONS[state.class] : null;
+  const clsItems = [];
+  const clsBaseIdx = new Map(); // baseName → index in clsItems, for upgrade tracking
+  if (state.class) {
+    for (let lvl = 1; lvl <= state.level; lvl++) {
+      for (const name of (CLASS_FEATURES[state.class]?.[lvl] || [])) {
+        const baseName = name.replace(/\s*\([^)]*\)$/, '').trim();
+        const item = { name, desc: lookupDesc(clsDescs, name) };
+        if (baseName !== name && clsBaseIdx.has(baseName)) {
+          // Upgraded variant (e.g. "Вдохновение барда (к8)") — replace existing entry
+          clsItems[clsBaseIdx.get(baseName)] = item;
+        } else {
+          clsBaseIdx.set(baseName, clsItems.length);
+          clsItems.push(item);
+        }
+      }
+    }
+  }
+
+  const subData  = state.subclass ? SUBCLASS_FEATURES[state.class]?.[state.subclass] : null;
+  const subItems = [];
+  if (subData) {
+    for (let lvl = 1; lvl <= state.level; lvl++) {
+      for (const raw of (subData.features[lvl] || [])) {
+        const name = toTitle(raw);
+        subItems.push({ name, desc: lookupDesc(subData.descriptions, raw) });
+      }
+    }
+  }
+
+  const raceItems = (RACE_FEATURES_L1[state.race] || []).map(name => ({ name, desc: null }));
+  const bgSkillNames = BACKGROUNDS[state.background]?.skills || [];
+  const bgItems = bgSkillNames.length
+    ? [{ name: `Навыки: ${bgSkillNames.join(', ')}`, desc: null }] : [];
+
+  const sections = [
+    buildFeatSection('class',    state.class       || '—', clsItems,  state, refresh),
+    buildFeatSection('subclass', state.subclass    || '—', subItems,  state, refresh),
+    buildFeatSection('race',     state.race        || '—', raceItems, state, refresh),
+    buildFeatSection('bg',       state.background  || '—', bgItems,   state, refresh),
+  ].filter(Boolean);
+
+  if (!sections.length) return null;
 
   const collapsed = state.featuresCollapsed;
-  const toggleBtn = el('button', {
-    class: 'collapse-btn',
-    onClick: () => { state.featuresCollapsed = !state.featuresCollapsed; refresh(); },
-  }, collapsed ? '∨' : '∧');
-
   return el('div', { class: 'panel features-panel' },
     el('div', { class: 'panel-head' },
-      el('span', { class: 'panel-title' }, 'Особенности 1 ур.'),
-      toggleBtn
+      el('span', { class: 'panel-title' }, 'Особенности'),
+      el('button', { class: 'collapse-btn', onClick: () => { state.featuresCollapsed = !collapsed; refresh(); } }, collapsed ? '∨' : '∧'),
     ),
-    collapsed ? null : el('div', { class: 'panel-body features-body' },
-      clsFeats.length ? el('div', { class: 'feat-section' },
-        el('div', { class: 'feat-section-label' }, state.class),
-        el('div', { class: 'feat-chips' },
-          ...clsFeats.map(f => el('span', { class: 'feat-chip feat-chip-class' }, f))
-        )
-      ) : null,
-      raceFeats.length ? el('div', { class: `feat-section${clsFeats.length ? ' feat-section-mt' : ''}` },
-        el('div', { class: 'feat-section-label feat-label-race' }, state.race),
-        el('div', { class: 'feat-chips' },
-          ...raceFeats.map(f => el('span', { class: 'feat-chip feat-chip-race' }, f))
-        )
-      ) : null,
-    )
+    collapsed ? null : el('div', { class: 'feat-body' }, ...sections),
   );
 }
 
@@ -348,6 +466,7 @@ function buildIdRow(state, refresh) {
   const lvlInc = el('button', { class:'ab-btn', onClick:()=>{ if(state.level<20){ state.level++; refresh(); } } }, '+');
   if (state.level <= 1)  lvlDec.disabled = true;
   if (state.level >= 20) lvlInc.disabled = true;
+  if (subData && state.level >= subData.level && !state.subclass) lvlInc.disabled = true;
 
   const raceData = state.race ? RACES[state.race] : null;
   const subraces = raceData?.sub || [];
@@ -473,8 +592,9 @@ function buildAbBlock(state, ability, refresh) {
     else if (fromClass) cbCls += ' src-class has-check';
     else if (canPick)   cbCls += ' opt-class';
 
+    const locked = fromBg || (!fromClass && (!canPick || atLimit));
     return el('div', {
-      class: `skill-row${fromBg ? ' locked' : ''}`,
+      class: `skill-row${locked ? ' locked' : ''}`,
       onClick: () => {
         if (fromBg) return;
         if (fromClass) { state.chosen.delete(name); refresh(); }
@@ -494,7 +614,7 @@ function buildAbBlock(state, ability, refresh) {
     const percProf = isProf(state, 'Восприятие');
     const passVal  = 10 + modifier + (percProf ? 2 : 0);
     skillEls.push(el('div', { class: 'skill-row locked passive-row' },
-      el('div', { class: 'sk-cb' }),
+      el('div', { class: 'sk-cb sk-cb-passive' }),
       el('span', { class: 'sk-name' }, 'Пасс. Внимательность'),
       el('div', { class: 'sk-bonus-wrap' },
         el('span', { class: 'sk-bonus' }, String(passVal))
@@ -625,7 +745,7 @@ function buildHeaderCombat(state) {
       [String(10 + dexMod), 'КД',         ''],
       [sign(dexMod),        'Инициатива', ''],
       [String(speed),       'Скорость',   ''],
-      ['+2',                'Мастерство', ''],
+      [sign(profBonus(state.level)), 'Мастерство', ''],
     ].map(([val, lbl, extra]) =>
       el('div', { class: `hc-chip${extra ? ' ' + extra : ''}` },
         el('div', { class: 'hc-val' }, val),
@@ -751,6 +871,8 @@ export function renderCreate(container, router, _params = {}) {
     equipGold:       null,
     equipCollapsed:  false,
     featuresCollapsed: false,
+    featSections:  {},
+    featExpanded:  {},
   };
 
   const appHeader = document.querySelector('.app-header');

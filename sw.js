@@ -2,7 +2,7 @@
  * HeroSummoner — Service Worker
  * Strategy: cache-first for assets, always update in background.
  */
-const CACHE = 'herosummoner-v6';
+const CACHE = 'herosummoner-v7';
 
 const PRECACHE = [
   './',
@@ -19,6 +19,9 @@ const PRECACHE = [
   './js/screens/characters.js',
   './js/screens/create.js',
   './js/screens/sheet.js',
+  './js/data/class_features.js',
+  './js/data/class_feature_descriptions.js',
+  './js/data/subclass_features.js',
   './assets/icon_4.svg',
 ];
 
