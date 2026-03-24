@@ -61,7 +61,7 @@ const CLASS_COLOR_MAP = {
   'Чародей':   'var(--c-sorcerer)',
   'Колдун':    'var(--c-warlock)',
   'Волшебник': 'var(--c-wizard)',
-  'Искусник':  'var(--c-artificer)',
+  'Изобретатель':  'var(--c-artificer)',
 };
 export function classColor(className) {
   return CLASS_COLOR_MAP[className] || 'var(--accent)';

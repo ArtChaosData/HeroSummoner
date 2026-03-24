@@ -39,7 +39,7 @@ const CLASSES = {
   'Волшебник': { die:6,  saves:['int','wis'], count:2, list:['Магия','История','Расследование','Медицина','Природа','Религия'] },
   'Друид':     { die:8,  saves:['int','wis'], count:2, list:['Магия','Медицина','Природа','Восприятие','Религия','Уход за животными','Выживание'] },
   'Жрец':      { die:8,  saves:['wis','cha'], count:2, list:['История','Магия','Медицина','Религия','Убеждение'] },
-  'Искусник':  { die:8,  saves:['con','int'], count:2, list:['Магия','История','Расследование','Медицина','Природа','Восприятие','Ловкость рук'] },
+  'Изобретатель':  { die:8,  saves:['con','int'], count:2, list:['Магия','История','Расследование','Медицина','Природа','Восприятие','Ловкость рук'] },
   'Колдун':    { die:8,  saves:['wis','cha'], count:2, list:['Магия','Обман','История','Запугивание','Природа','Религия'] },
   'Монах':     { die:8,  saves:['str','dex'], count:2, list:['Акробатика','Атлетика','История','Магия','Религия','Скрытность'] },
   'Паладин':   { die:10, saves:['wis','cha'], count:2, list:['Атлетика','Магия','История','Медицина','Убеждение','Религия'] },
@@ -112,7 +112,7 @@ const CLASS_EQUIP = {
   'Волшебник': ['Посох или кинжал', 'Книга заклинаний', 'Компонентный мешочек', 'Набор учёного'],
   'Друид':     ['Щит или простое оружие', 'Кожаный доспех', 'Деревянный щит', 'Набор путешественника'],
   'Жрец':      ['Боевой молот или простое оружие', 'Кольчуга', 'Символ веры', 'Набор священника'],
-  'Искусник':  ['2 кинжала', 'Любое простое оружие', 'Воровские инструменты', 'Кожаный доспех', 'Набор подземелья'],
+  'Изобретатель':  ['2 кинжала', 'Любое простое оружие', 'Воровские инструменты', 'Кожаный доспех', 'Набор подземелья'],
   'Колдун':    ['Лёгкий арбалет + 20 болтов', 'Компонентный мешочек', 'Набор учёного', 'Кожаный доспех + 2 кинжала'],
   'Монах':     ['Короткий меч или простое оружие', 'Набор путешественника', '10 дротиков'],
   'Паладин':   ['Боевое оружие + щит', 'Метательные копья ×5', 'Кольчуга', 'Набор священника'],
@@ -138,6 +138,93 @@ const BG_EQUIP = {
   'Шарлатан':                ['Шулерские карты', 'Одежда разных сословий', '15 зм'],
 };
 
+// ─── Spellcasting data ────────────────────────────────────────────────────────
+
+const SPELL_STAT = {
+  'Бард':'cha','Жрец':'wis','Друид':'wis','Волшебник':'int',
+  'Колдун':'cha','Паладин':'cha','Следопыт':'wis','Чародей':'cha','Изобретатель':'int',
+};
+
+// Full casters: slots per spell level [1..9] by class level
+const SLOTS_FULL = [
+  [2,0,0,0,0,0,0,0,0],[3,0,0,0,0,0,0,0,0],[4,2,0,0,0,0,0,0,0],[4,3,0,0,0,0,0,0,0],
+  [4,3,2,0,0,0,0,0,0],[4,3,3,0,0,0,0,0,0],[4,3,3,1,0,0,0,0,0],[4,3,3,2,0,0,0,0,0],
+  [4,3,3,3,1,0,0,0,0],[4,3,3,3,2,0,0,0,0],[4,3,3,3,2,1,0,0,0],[4,3,3,3,2,1,0,0,0],
+  [4,3,3,3,2,1,1,0,0],[4,3,3,3,2,1,1,0,0],[4,3,3,3,2,1,1,1,0],[4,3,3,3,2,1,1,1,0],
+  [4,3,3,3,2,1,1,1,1],[4,3,3,3,3,1,1,1,1],[4,3,3,3,3,2,1,1,1],[4,3,3,3,3,2,2,1,1],
+];
+// Half casters (Paladin, Ranger)
+const SLOTS_HALF = [
+  [0,0,0,0,0],[2,0,0,0,0],[3,0,0,0,0],[3,0,0,0,0],[4,2,0,0,0],
+  [4,2,0,0,0],[4,3,0,0,0],[4,3,0,0,0],[4,3,2,0,0],[4,3,2,0,0],
+  [4,3,3,0,0],[4,3,3,0,0],[4,3,3,1,0],[4,3,3,1,0],[4,3,3,2,0],
+  [4,3,3,2,0],[4,3,3,3,1],[4,3,3,3,1],[4,3,3,3,2],[4,3,3,3,2],
+];
+// Artificer (half caster from L1)
+const SLOTS_ARTIFICER = [
+  [2,0,0,0,0],[2,0,0,0,0],[3,0,0,0,0],[3,0,0,0,0],[4,2,0,0,0],
+  [4,2,0,0,0],[4,3,0,0,0],[4,3,0,0,0],[4,3,2,0,0],[4,3,2,0,0],
+  [4,3,3,0,0],[4,3,3,0,0],[4,3,3,1,0],[4,3,3,1,0],[4,3,3,2,0],
+  [4,3,3,2,0],[4,3,3,3,1],[4,3,3,3,1],[4,3,3,3,2],[4,3,3,3,2],
+];
+// Warlock pact magic: [slots, slot_level] by class level
+const SLOTS_WARLOCK = [
+  [1,1],[2,1],[2,2],[2,2],[2,3],[2,3],[2,4],[2,4],[2,5],[2,5],
+  [3,5],[3,5],[3,5],[3,5],[3,5],[3,5],[4,5],[4,5],[4,5],[4,5],
+];
+const SPELL_SLOTS = {
+  'Бард':SLOTS_FULL,'Жрец':SLOTS_FULL,'Друид':SLOTS_FULL,'Волшебник':SLOTS_FULL,'Чародей':SLOTS_FULL,
+  'Паладин':SLOTS_HALF,'Следопыт':SLOTS_HALF,
+  'Колдун':'warlock',
+  'Изобретатель':SLOTS_ARTIFICER,
+};
+
+// ─── Proficiency data ─────────────────────────────────────────────────────────
+
+const INSTRUMENTS  = ['Лютня','Лира','Флейта','Свирель','Рог','Барабан','Виола','Цимбалы','Волынка'];
+const ARTISAN_TOOLS = ['Инстр. алхимика','Пивоваренные принадлежности','Плотницкие инстр.','Инстр. сапожника','Инстр. кузнеца','Инстр. картографа','Инстр. повара','Ювелирные инстр.','Гончарные инстр.','Инстр. столяра'];
+const EXTRA_LANGS  = ['Карликовый','Эльфийский','Великаний','Гномий','Гоблинский','Орочий','Небесный','Глубинный','Инфернальный','Дракарис','Первобытный','Слоговый','Сильван','Подземный','Авраль'];
+
+const CLASS_PROFS_DATA = {
+  'Бард':      { armor:['Лёгкие доспехи'], weapons:['Простое оружие','Рапира','Длинный меч','Короткий меч','Метательные ножи'], tools:[{choose:3,from:INSTRUMENTS,label:'Инструмент'}], langs:0 },
+  'Варвар':    { armor:['Лёгкие доспехи','Средние доспехи','Щиты'], weapons:['Простое оружие','Воинское оружие'], tools:[], langs:0 },
+  'Воин':      { armor:['Все доспехи','Щиты'], weapons:['Простое оружие','Воинское оружие'], tools:[], langs:0 },
+  'Волшебник': { armor:[], weapons:['Кинжалы','Дротики','Пращи','Посохи','Лёгкие арбалеты'], tools:[], langs:0 },
+  'Друид':     { armor:['Лёгкие доспехи','Средние доспехи','Щиты (не металл)'], weapons:['Булавы','Серпы','Скимитары','Дубинки','Кинжалы','Дротики','Пращи','Копья','Боевые посохи'], tools:['Набор травника'], langs:0 },
+  'Жрец':      { armor:['Лёгкие доспехи','Средние доспехи','Щиты'], weapons:['Простое оружие'], tools:[], langs:0 },
+  'Изобретатель':  { armor:['Лёгкие доспехи','Средние доспехи','Щиты'], weapons:['Простое оружие','Огнестрельное оружие'], tools:['Воровские инструменты',{choose:1,from:ARTISAN_TOOLS,label:'Инстр. ремесленника'}], langs:0 },
+  'Колдун':    { armor:['Лёгкие доспехи'], weapons:['Простое оружие'], tools:[], langs:0 },
+  'Монах':     { armor:[], weapons:['Простое оружие','Короткие мечи'], tools:[{choose:1,from:[...ARTISAN_TOOLS,...INSTRUMENTS],label:'Инструмент'}], langs:0 },
+  'Паладин':   { armor:['Все доспехи','Щиты'], weapons:['Простое оружие','Воинское оружие'], tools:[], langs:0 },
+  'Плут':      { armor:['Лёгкие доспехи'], weapons:['Простое оружие','Рапиры','Короткие мечи','Длинные луки','Метательные ножи'], tools:['Воровские инструменты',{choose:1,from:INSTRUMENTS,label:'Муз. инструмент'}], langs:0 },
+  'Следопыт':  { armor:['Лёгкие доспехи','Средние доспехи','Щиты'], weapons:['Простое оружие','Воинское оружие'], tools:[], langs:0 },
+  'Чародей':   { armor:[], weapons:['Кинжалы','Дротики','Пращи','Посохи','Лёгкие арбалеты'], tools:[], langs:0 },
+};
+
+const RACE_LANGS_BASE = {
+  'Аасимар':['Общий','Небесный'],'Гном':['Общий','Гномий'],'Голиаф':['Общий','Великаний'],
+  'Дварф':['Общий','Карликовый'],'Дракорождённый':['Общий','Дракарис'],'Кенку':['Общий','Авраль'],
+  'Полуорк':['Общий','Орочий'],'Полурослик':['Общий','Полурослика'],'Полуэльф':['Общий','Эльфийский'],
+  'Таваксия':['Общий'],'Тифлинг':['Общий','Инфернальный'],'Тритон':['Общий','Первобытный'],
+  'Фирболг':['Эльфийский','Великаний'],'Человек':['Общий'],'Эльф':['Общий','Эльфийский'],
+};
+const RACE_EXTRA_LANGS = { 'Человек':1, 'Полуэльф':2 };
+
+const BG_PROFS = {
+  'Аколит':                  { langs:2 },
+  'Артист':                   { tools:[{choose:1,from:INSTRUMENTS,label:'Инструмент'}] },
+  'Гильдейский ремесленник':  { tools:[{choose:1,from:ARTISAN_TOOLS,label:'Инстр. ремесленника'}] },
+  'Дворянин':                 { tools:[{choose:1,from:INSTRUMENTS,label:'Инструмент'}], langs:1 },
+  'Моряк':                    { tools:['Навигационные инструменты','Водный транспорт'] },
+  'Мудрец':                   { langs:2 },
+  'Народный герой':           { tools:[{choose:1,from:ARTISAN_TOOLS,label:'Инстр. ремесленника'},'Наземный транспорт'] },
+  'Отшельник':                { tools:['Набор травника'] },
+  'Преступник':               { tools:['Игровые кости','Воровские инструменты'] },
+  'Солдат':                   { tools:[{choose:1,from:['Кости','Карты','Три дракона'],label:'Игровой набор'},'Наземный транспорт'] },
+  'Чужестранец':              { langs:2 },
+  'Шарлатан':                 { tools:['Набор для маскировки','Набор фальсификатора'] },
+};
+
 const SUBCLASSES = {
   'Бард':      { level:3, list:['Коллегия знания','Коллегия доблести','Коллегия шепотов','Коллегия гламура','Коллегия мечей','Коллегия красноречия'] },
   'Варвар':    { level:3, list:['Путь берсерка','Путь тотемного воина','Путь громового неба','Путь диких магов','Путь зверя'] },
@@ -145,7 +232,7 @@ const SUBCLASSES = {
   'Волшебник': { level:2, list:['Школа ограждения','Школа воплощения','Школа некромантии','Школа иллюзий','Школа прорицания','Школа очарования','Школа призыва','Хронург'] },
   'Друид':     { level:2, list:['Круг земли','Круг луны','Круг звёзд','Круг спор','Круг огня','Круг пастыря'] },
   'Жрец':      { level:1, list:['Домен войны','Домен жизни','Домен смерти','Домен света','Домен природы','Домен бури','Домен знаний','Домен обмана','Домен порядка','Домен мира','Домен кузни'] },
-  'Искусник':  { level:3, list:['Алхимик','Артиллерист','Боевой кузнец','Бронник'] },
+  'Изобретатель':  { level:3, list:['Алхимик','Артиллерист','Боевой кузнец','Бронник'] },
   'Колдун':    { level:1, list:['Архифея','Великий древний','Небожитель','Фиенд','Клинок','Джинн','Нежить'] },
   'Монах':     { level:3, list:['Путь открытой ладони','Путь тьмы','Путь четырёх стихий','Путь сострадания','Путь пьяного мастера','Путь солнечной души'] },
   'Паладин':   { level:3, list:['Клятва преданности','Клятва древних','Клятва мщения','Клятва завоевания','Клятва искупления','Клятва славы'] },
@@ -180,7 +267,7 @@ const CLASS_GOLD = {
   'Волшебник': { formula:'4к4×10', rolls:4, die:4, mult:10 },
   'Друид':     { formula:'2к4×10', rolls:2, die:4, mult:10 },
   'Жрец':      { formula:'5к4×10', rolls:5, die:4, mult:10 },
-  'Искусник':  { formula:'5к4×10', rolls:5, die:4, mult:10 },
+  'Изобретатель':  { formula:'5к4×10', rolls:5, die:4, mult:10 },
   'Колдун':    { formula:'4к4×10', rolls:4, die:4, mult:10 },
   'Монах':     { formula:'5к4×10', rolls:5, die:4, mult:10 },
   'Паладин':   { formula:'5к4×10', rolls:5, die:4, mult:10 },
@@ -312,8 +399,9 @@ function renderDesc(text, state) {
       wrap.append(el('span', { class: 'feat-desc-meta' }, t));
       return;
     }
-    // Subheading: short, no formula, no sentence-ending punctuation
-    if (t.length < 65 && !t.includes('=') && !/[.,;:]$/.test(t)) {
+    // Subheading: short, no formula, no sentence-ending punctuation, not ending with a conjunction
+    const CONJ_END = /\s(И|В|НА|С|А|НО|ДЛЯ|ПО|ОТ|ДО|ИЛИ|ЖЕ|БЫ|ЛИ)$/i;
+    if (t.length < 65 && !t.includes('=') && !/[.,;:]$/.test(t) && !CONJ_END.test(t)) {
       wrap.append(el('div', { class: 'feat-desc-hd' }, t));
       return;
     }
@@ -732,6 +820,156 @@ function openEquipModal() {
   document.body.append(overlay);
 }
 
+// ─── Magic panel ──────────────────────────────────────────────────────────────
+
+function buildMagicPanel(state) {
+  const spellStat = SPELL_STAT[state.class];
+  if (!spellStat) return null;
+
+  const pb      = profBonus(state.level);
+  const statMod = mod(totalStat(state, spellStat));
+  const dc      = 8 + pb + statMod;
+  const atk     = pb + statMod;
+  const statLbl = { str:'Сила',dex:'Ловкость',con:'Тел-ние',int:'Интеллект',wis:'Мудрость',cha:'Харизма' }[spellStat];
+
+  const rawSlots = SPELL_SLOTS[state.class];
+  let slotRows = [];
+  if (rawSlots === 'warlock') {
+    const [count, lvl] = SLOTS_WARLOCK[state.level - 1];
+    slotRows = [[lvl, count]];
+  } else if (rawSlots) {
+    slotRows = rawSlots[state.level - 1]
+      .map((c, i) => c > 0 ? [i + 1, c] : null).filter(Boolean);
+  }
+
+  return el('div', { class: 'panel magic-panel' },
+    el('div', { class: 'panel-head' }, el('span', { class: 'panel-title' }, 'Магия')),
+    el('div', { class: 'magic-stats-row' },
+      el('div', { class: 'magic-chip' },
+        el('div', { class: 'magic-chip-val' }, String(dc)),
+        el('div', { class: 'magic-chip-lbl' }, 'Сл сп.'),
+      ),
+      el('div', { class: 'magic-chip' },
+        el('div', { class: 'magic-chip-val' }, sign(atk)),
+        el('div', { class: 'magic-chip-lbl' }, 'Атака'),
+      ),
+      el('div', { class: 'magic-chip magic-chip-wide' },
+        el('div', { class: 'magic-chip-val magic-chip-stat' }, statLbl),
+        el('div', { class: 'magic-chip-lbl' }, 'Хар-ка'),
+      ),
+    ),
+    slotRows.length ? el('div', { class: 'magic-slots' },
+      ...slotRows.map(([lvl, count]) =>
+        el('div', { class: 'magic-slot-row' },
+          el('span', { class: 'magic-slot-lbl' }, `${lvl} кр`),
+          el('div', { class: 'magic-slot-pips' },
+            ...Array.from({ length: count }, () => el('div', { class: 'slot-pip' }))
+          ),
+        )
+      )
+    ) : null,
+  );
+}
+
+// ─── Spells panel ─────────────────────────────────────────────────────────────
+
+function buildSpellsPanel(state) {
+  if (!SPELL_STAT[state.class]) return null;
+
+  function wipPopup(title) {
+    const overlay = el('div', { class: 'equip-modal-overlay', onClick: e => { if (e.target === overlay) overlay.remove(); } },
+      el('div', { class: 'equip-modal' },
+        el('div', { class: 'equip-modal-head' },
+          el('span', { class: 'equip-modal-title' }, title),
+          el('button', { class: 'equip-modal-close', onClick: () => overlay.remove() }, '×'),
+        ),
+        el('div', { class: 'equip-modal-body' },
+          el('div', { class: 'equip-modal-stub' }, '🚧', el('p', {}, 'Раздел в разработке')),
+        ),
+      )
+    );
+    document.body.append(overlay);
+  }
+
+  return el('div', { class: 'panel spells-panel' },
+    el('div', { class: 'panel-head' }, el('span', { class: 'panel-title' }, 'Заклинания')),
+    el('div', { class: 'panel-body spells-btns' },
+      el('button', { class: 'btn btn-sm btn-ghost spells-btn', onClick: () => wipPopup('Заговоры') }, 'Выбрать заговоры'),
+      el('button', { class: 'btn btn-sm btn-ghost spells-btn', onClick: () => wipPopup('Заклинания') }, 'Выбрать заклинания'),
+    ),
+  );
+}
+
+// ─── Proficiencies panel ──────────────────────────────────────────────────────
+
+function buildProfChoice(key, opts, placeholder, state) {
+  const s = el('select', { class: 'prof-choice-sel' });
+  s.append(el('option', { value: '' }, `— ${placeholder} —`));
+  for (const o of opts) {
+    const opt = el('option', { value: o }, o);
+    if ((state.profChoices[key] || '') === o) opt.selected = true;
+    s.append(opt);
+  }
+  s.addEventListener('change', () => { state.profChoices[key] = s.value; });
+  return el('span', { class: 'prof-choice-wrap' }, s);
+}
+
+function buildProfsPanel(state) {
+  const clsP  = CLASS_PROFS_DATA[state.class];
+  const bgP   = BG_PROFS[state.background] || {};
+  const raceLangs = RACE_LANGS_BASE[state.race] || [];
+  const extraLangCount = (RACE_EXTRA_LANGS[state.race] || 0) + (bgP.langs || 0);
+
+  // Collect all tool entries (static strings + choice objects)
+  const allTools = [...(clsP?.tools || []), ...(bgP.tools || [])];
+
+  let choiceIdx = 0;
+  function renderToolItem(item) {
+    if (typeof item === 'string') return el('span', { class: 'prof-tag' }, item);
+    return buildProfChoice(`tool_${choiceIdx++}`, item.from, item.label, state);
+  }
+
+  const sections = [];
+
+  if (clsP?.armor?.length) {
+    sections.push(el('div', { class: 'profs-section' },
+      el('div', { class: 'profs-section-lbl' }, 'Доспехи'),
+      el('div', { class: 'profs-tags' }, ...clsP.armor.map(a => el('span', { class: 'prof-tag' }, a))),
+    ));
+  }
+  if (clsP?.weapons?.length) {
+    sections.push(el('div', { class: 'profs-section' },
+      el('div', { class: 'profs-section-lbl' }, 'Оружие'),
+      el('div', { class: 'profs-tags' }, ...clsP.weapons.map(w => el('span', { class: 'prof-tag' }, w))),
+    ));
+  }
+  if (allTools.length) {
+    sections.push(el('div', { class: 'profs-section' },
+      el('div', { class: 'profs-section-lbl' }, 'Инструменты'),
+      el('div', { class: 'profs-tags' }, ...allTools.map(t => renderToolItem(t))),
+    ));
+  }
+
+  // Languages
+  const langTags = raceLangs.map(l => el('span', { class: 'prof-tag' }, l));
+  for (let i = 0; i < extraLangCount; i++) {
+    langTags.push(buildProfChoice(`lang_${i}`, EXTRA_LANGS, 'Язык', state));
+  }
+  if (langTags.length) {
+    sections.push(el('div', { class: 'profs-section' },
+      el('div', { class: 'profs-section-lbl' }, 'Языки'),
+      el('div', { class: 'profs-tags' }, ...langTags),
+    ));
+  }
+
+  if (!sections.length) return null;
+
+  return el('div', { class: 'panel profs-panel' },
+    el('div', { class: 'panel-head' }, el('span', { class: 'panel-title' }, 'Владения')),
+    el('div', { class: 'panel-body profs-body' }, ...sections),
+  );
+}
+
 function buildHeaderCombat(state) {
   const cls    = state.class ? CLASSES[state.class] : null;
   const conMod = mod(totalStat(state, 'con'));
@@ -756,36 +994,10 @@ function buildHeaderCombat(state) {
 }
 
 function buildRightPanel(state, refresh) {
-  const cls    = state.class ? CLASSES[state.class] : null;
-  const saves  = cls?.saves || [];
-  const saveNames = { str:'Сила',dex:'Ловкость',con:'Телосложение',int:'Интеллект',wis:'Мудрость',cha:'Харизма' };
-
   return el('div', { class: 'create-right' },
-    // Proficiencies
-    el('div', { class: 'panel' },
-      el('div', { class: 'panel-head' }, el('span', { class: 'panel-title' }, 'Владения')),
-      el('div', { class: 'panel-body' },
-        el('div', { class: 'prof-list' },
-          el('div', { class: 'prof-row' },
-            el('span', { class: 'prof-cat' }, 'Спасбр.'),
-            el('div',  { class: 'prof-tags' },
-              saves.length
-                ? saves.map(s => el('span', { class: 'prof-tag class-t' }, saveNames[s]))
-                : [el('span', { class: 'prof-tag' }, '—')]
-            )
-          ),
-          el('div', { class: 'prof-row' },
-            el('span', { class: 'prof-cat' }, 'Навыки'),
-            el('div',  { class: 'prof-tags' },
-              ...bgSkills(state).map(s => el('span', { class: 'prof-tag bg-t' }, s)),
-              ...[...state.chosen].map(s => el('span', { class: 'prof-tag class-t' }, s)),
-            )
-          )
-        )
-      )
-    ),
-    // Equipment
-    buildEquipPanel(state, refresh)
+    buildMagicPanel(state),
+    buildSpellsPanel(state),
+    buildEquipPanel(state, refresh),
   );
 }
 
@@ -873,6 +1085,7 @@ export function renderCreate(container, router, _params = {}) {
     featuresCollapsed: false,
     featSections:  {},
     featExpanded:  {},
+    profChoices:   {},
   };
 
   const appHeader = document.querySelector('.app-header');
@@ -890,10 +1103,11 @@ export function renderCreate(container, router, _params = {}) {
       el('div', { class: 'stats-area' },
         buildPbHeader(st),
         el('div', { class: 'stats-grid' },
-          ...['str','con','wis','dex','int','cha']
+          ...['str','dex','con','int','wis','cha']
             .map(k => ABILITIES.find(a => a.key === k))
             .map(ab => buildAbBlock(st, ab, refresh))
-        )
+        ),
+        buildProfsPanel(st),
       ),
       el('div', { class: 'create-middle' }, feats),
       buildRightPanel(st, refresh)
