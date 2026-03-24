@@ -19,7 +19,7 @@ const PRECACHE = [
   './js/screens/characters.js',
   './js/screens/create.js',
   './js/screens/sheet.js',
-  './assets/icon.svg',
+  './assets/icon_4.svg',
 ];
 
 self.addEventListener('install', e => {

@@ -8,6 +8,6 @@
   "theme_color": "#07090F",
   "lang": "ru",
   "icons": [
-    { "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "assets/icon_4.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
 }

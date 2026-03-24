@@ -285,6 +285,8 @@ function buildEditionSwitcher(router) {
 
 export async function renderCharacters(container, router) {
   container.innerHTML = '';
+  document.querySelector('.create-header-id')?.remove();
+  document.querySelector('.app-header')?.classList.remove('app-header--create');
 
   // Load stylesheet
   if (!document.getElementById('css-characters')) {

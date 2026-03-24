@@ -240,9 +240,14 @@ function buildAlignWidget(state, refresh) {
 
   const dropdown = el('div', { class: 'align-dropdown' });
 
+  // Portal to body — escapes overflow clipping in header
+  document.querySelectorAll('.align-dropdown').forEach(d => d.remove());
+  dropdown.style.position = 'fixed';
+  document.body.append(dropdown);
+
   ALIGN_GRID.forEach((row, ri) =>
     row.forEach((full) => {
-      const label = full.replace('Законопослушный', 'Законно-');
+      const parts = full.replace('Законопослушный', 'Законно-').split(' ');
       const cell = el('button', {
         class: `align-cell ${ROW_CLS[ri]}${state.alignment === full ? ' active' : ''}`,
         onClick: (e) => {
@@ -251,7 +256,11 @@ function buildAlignWidget(state, refresh) {
           dropdown.style.display = 'none';
           refresh();
         },
-      }, label);
+      });
+      parts.forEach((p, i) => {
+        if (i > 0) cell.append(document.createElement('br'));
+        cell.append(document.createTextNode(p));
+      });
       dropdown.append(cell);
     })
   );
@@ -264,6 +273,9 @@ function buildAlignWidget(state, refresh) {
       if (isOpen) {
         dropdown.style.display = 'none';
       } else {
+        const rect = trigger.getBoundingClientRect();
+        dropdown.style.top  = `${rect.bottom + 4}px`;
+        dropdown.style.left = `${rect.left}px`;
         dropdown.style.display = 'grid';
         setTimeout(() => {
           document.addEventListener('click', () => { dropdown.style.display = 'none'; }, { once: true });
@@ -272,10 +284,9 @@ function buildAlignWidget(state, refresh) {
     },
   }, state.alignment || '— Выбрать —');
 
-  return el('div', { class: 'id-field id-align-f', style: 'position:relative' },
+  return el('div', { class: 'id-field id-align-f' },
     el('label', {}, 'Мировоззрение'),
     trigger,
-    dropdown
   );
 }
 
@@ -394,14 +405,13 @@ function buildPbHeader(state) {
 
   return el('div', { class: 'pb-header' },
     el('span', { class: 'pb-label' }, 'Point Buy'),
+    el('div', { class: 'pb-track' },
+      el('div', { class: `pb-fill ${cls === 'ok' ? '' : cls}`, style: `width:${pct}%` })
+    ),
     el('div',  { class: 'pb-counter' },
       el('span', { class: `pb-remaining ${cls}` }, remain),
       el('span', { class: 'pb-of' }, `/ ${PB_POOL}`),
-      el('span', { class: 'pb-unit' }, 'очков'),
     ),
-    el('div', { class: 'pb-track' },
-      el('div', { class: `pb-fill ${cls === 'ok' ? '' : cls}`, style: `width:${pct}%` })
-    )
   );
 }
 
@@ -537,16 +547,18 @@ function buildEquipPanel(state, refresh) {
   } else {
     // Buy mode
     const goldResult = state.equipGold;
+    const rollBtn = el('button', {
+      class: 'btn btn-sm equip-roll-btn',
+      onClick: () => {
+        if (!goldInfo) return;
+        state.equipGold = rollDice(goldInfo.rolls, goldInfo.die) * goldInfo.mult;
+        refresh();
+      },
+    });
+    rollBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" style="flex-shrink:0"><polygon points="10,1 19,6.5 19,13.5 10,19 1,13.5 1,6.5"/><polygon points="10,1 5,10 15,10"/><line x1="5" y1="10" x2="1" y2="6.5"/><line x1="15" y1="10" x2="19" y2="6.5"/><line x1="5" y1="10" x2="1" y2="13.5"/><line x1="15" y1="10" x2="19" y2="13.5"/></svg> Бросить`;
     const rollRow = el('div', { class: 'equip-gold-roll-row' },
       el('span', { class: 'equip-gold-formula' }, goldInfo ? goldInfo.formula : '— зм'),
-      el('button', {
-        class: 'btn btn-sm equip-roll-btn',
-        onClick: () => {
-          if (!goldInfo) return;
-          state.equipGold = rollDice(goldInfo.rolls, goldInfo.die) * goldInfo.mult;
-          refresh();
-        },
-      }, '🎲 Бросить'),
+      rollBtn,
     );
 
     const resultEl = goldResult !== null
@@ -600,43 +612,35 @@ function openEquipModal() {
   document.body.append(overlay);
 }
 
-function buildRightPanel(state, refresh) {
+function buildHeaderCombat(state) {
   const cls    = state.class ? CLASSES[state.class] : null;
   const conMod = mod(totalStat(state, 'con'));
   const dexMod = mod(totalStat(state, 'dex'));
   const hp     = cls ? Math.max(1, cls.die + conMod) : '—';
   const speed  = state.race ? (RACES[state.race]?.speed || 30) : '—';
+
+  return el('div', { class: 'header-combat' },
+    ...[
+      [String(hp),          'Хиты',       'hc-hp'],
+      [String(10 + dexMod), 'КД',         ''],
+      [sign(dexMod),        'Инициатива', ''],
+      [String(speed),       'Скорость',   ''],
+      ['+2',                'Мастерство', ''],
+    ].map(([val, lbl, extra]) =>
+      el('div', { class: `hc-chip${extra ? ' ' + extra : ''}` },
+        el('div', { class: 'hc-val' }, val),
+        el('div', { class: 'hc-lbl' }, lbl),
+      )
+    )
+  );
+}
+
+function buildRightPanel(state, refresh) {
+  const cls    = state.class ? CLASSES[state.class] : null;
   const saves  = cls?.saves || [];
   const saveNames = { str:'Сила',dex:'Ловкость',con:'Телосложение',int:'Интеллект',wis:'Мудрость',cha:'Харизма' };
 
   return el('div', { class: 'create-right' },
-    // Combat stats (HP merged in)
-    el('div', { class: 'panel' },
-      el('div', { class: 'panel-head' },
-        el('span', { class: 'panel-title' }, 'Боевые статы'),
-        cls ? el('span', { class: 'panel-badge' }, `к${cls.die}`) : null
-      ),
-      el('div', { class: 'combat-grid' },
-        // HP — full width
-        el('div', { class: 'cs-chip cs-hp' },
-          el('div', { class: 'cs-val cs-hp-val' }, String(hp)),
-          el('div', { class: 'cs-label' }, 'Хиты'),
-          cls ? el('div', { class: 'cs-detail' }, `к${cls.die} ${sign(conMod)} (Тел)`) : null
-        ),
-        ...[
-          [10 + dexMod,   '', 'КД'],
-          [sign(dexMod),  '', 'Инициатива'],
-          [`${speed} фт`, '', 'Скорость'],
-          ['+2',          '', 'Мастерство'],
-        ].map(([val, sub, lbl]) =>
-          el('div', { class: 'cs-chip' },
-            el('div', { class: 'cs-val'   }, String(val)),
-            el('div', { class: 'cs-label' }, lbl),
-            sub ? el('div', { class: 'cs-detail' }, String(sub)) : null
-          )
-        )
-      )
-    ),
     // Proficiencies
     el('div', { class: 'panel' },
       el('div', { class: 'panel-head' }, el('span', { class: 'panel-title' }, 'Владения')),
@@ -719,8 +723,14 @@ function buildActionBar(state, router) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+function cleanupCreateHeader() {
+  document.querySelector('.create-header-id')?.remove();
+  document.querySelector('.app-header')?.classList.remove('app-header--create');
+}
+
 export function renderCreate(container, router, _params = {}) {
   container.innerHTML = '';
+  cleanupCreateHeader();
   const ha = document.getElementById('header-actions');
   if (ha) ha.innerHTML = '';
 
@@ -743,38 +753,49 @@ export function renderCreate(container, router, _params = {}) {
     featuresCollapsed: false,
   };
 
-  let strip, body, bar;
+  const appHeader = document.querySelector('.app-header');
+  appHeader.classList.add('app-header--create');
 
-  function buildStrip(st) {
-    return el('div', { class: 'identity-strip' }, buildIdRow(st, refresh));
+  let headerIdEl, headerCombatEl, body, bar;
+
+  function buildHeaderId(st) {
+    return el('div', { class: 'create-header-id' }, buildIdRow(st, refresh));
   }
 
   function buildBody(st) {
     const feats = buildFeaturesBlock(st, refresh);
     return el('div', { class: 'create-body' },
       el('div', { class: 'stats-area' },
-        feats,
         buildPbHeader(st),
         el('div', { class: 'stats-grid' },
-          ...ABILITIES.map(ab => buildAbBlock(st, ab, refresh))
+          ...['str','con','wis','dex','int','cha']
+            .map(k => ABILITIES.find(a => a.key === k))
+            .map(ab => buildAbBlock(st, ab, refresh))
         )
       ),
+      el('div', { class: 'create-middle' }, feats),
       buildRightPanel(st, refresh)
     );
   }
 
   function refresh() {
-    const s2 = buildStrip(state);
-    const b2 = buildBody(state);
-    const r2 = buildActionBar(state, router);
-    strip.replaceWith(s2); strip = s2;
-    body.replaceWith(b2);  body  = b2;
-    bar.replaceWith(r2);   bar   = r2;
+    const hid2 = buildHeaderId(state);
+    const hc2  = buildHeaderCombat(state);
+    const b2   = buildBody(state);
+    const r2   = buildActionBar(state, router);
+    headerIdEl.replaceWith(hid2);    headerIdEl     = hid2;
+    headerCombatEl.replaceWith(hc2); headerCombatEl = hc2;
+    body.replaceWith(b2);            body           = b2;
+    bar.replaceWith(r2);             bar            = r2;
   }
 
-  strip = buildStrip(state);
-  body  = buildBody(state);
-  bar   = buildActionBar(state, router);
+  headerIdEl     = buildHeaderId(state);
+  headerCombatEl = buildHeaderCombat(state);
+  appHeader.insertBefore(headerIdEl, ha);
+  ha.append(headerCombatEl);
 
-  container.append(strip, body, bar);
+  body = buildBody(state);
+  bar  = buildActionBar(state, router);
+
+  container.append(body, bar);
 }

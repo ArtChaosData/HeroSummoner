@@ -7,6 +7,8 @@ import { el } from '../utils.js';
 
 export async function renderSheet(container, router, { id } = {}) {
   container.innerHTML = '';
+  document.querySelector('.create-header-id')?.remove();
+  document.querySelector('.app-header')?.classList.remove('app-header--create');
 
   const headerActions = document.getElementById('header-actions');
   if (headerActions) headerActions.innerHTML = '';
