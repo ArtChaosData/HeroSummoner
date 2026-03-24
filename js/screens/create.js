@@ -135,6 +135,22 @@ const BG_EQUIP = {
   'Шарлатан':                ['Шулерские карты', 'Одежда разных сословий', '15 зм'],
 };
 
+const SUBCLASSES = {
+  'Бард':      { level:3, list:['Коллегия знания','Коллегия доблести','Коллегия шепотов','Коллегия гламура','Коллегия мечей','Коллегия красноречия'] },
+  'Варвар':    { level:3, list:['Путь берсерка','Путь тотемного воина','Путь громового неба','Путь диких магов','Путь зверя'] },
+  'Воин':      { level:3, list:['Чемпион','Боевой мастер','Мистический рыцарь','Рунный рыцарь','Псионический воин','Стрелок'] },
+  'Волшебник': { level:2, list:['Школа ограждения','Школа воплощения','Школа некромантии','Школа иллюзий','Школа прорицания','Школа очарования','Школа призыва','Хронург'] },
+  'Друид':     { level:2, list:['Круг земли','Круг луны','Круг звёзд','Круг спор','Круг огня','Круг пастыря'] },
+  'Жрец':      { level:1, list:['Домен войны','Домен жизни','Домен смерти','Домен света','Домен природы','Домен бури','Домен знаний','Домен обмана','Домен порядка','Домен мира','Домен кузни'] },
+  'Искусник':  { level:3, list:['Алхимик','Артиллерист','Боевой кузнец','Бронник'] },
+  'Колдун':    { level:1, list:['Архифея','Великий древний','Небожитель','Фиенд','Клинок','Джинн','Нежить'] },
+  'Монах':     { level:3, list:['Путь открытой ладони','Путь тьмы','Путь четырёх стихий','Путь сострадания','Путь пьяного мастера','Путь солнечной души'] },
+  'Паладин':   { level:3, list:['Клятва преданности','Клятва древних','Клятва мщения','Клятва завоевания','Клятва искупления','Клятва славы'] },
+  'Плут':      { level:3, list:['Взломщик','Убийца','Магический трюкач','Следователь','Фантом','Обманщик душ'] },
+  'Следопыт':  { level:3, list:['Охотник','Зверовод','Странник горизонта','Убийца фей','Рой монстров'] },
+  'Чародей':   { level:1, list:['Дикая магия','Драконье происхождение','Тень','Небесный','Буря','Часовой механизм'] },
+};
+
 const CLASS_FEATURES_L1 = {
   'Бард':      ['Использование магии', 'Вдохновение барда (к6)', 'Мастер на все руки'],
   'Варвар':    ['Ярость (2/день)', 'Защита без доспехов'],
@@ -226,6 +242,7 @@ function buildAlignWidget(state, refresh) {
 
   ALIGN_GRID.forEach((row, ri) =>
     row.forEach((full) => {
+      const label = full.replace('Законопослушный', 'Законно-');
       const cell = el('button', {
         class: `align-cell ${ROW_CLS[ri]}${state.alignment === full ? ' active' : ''}`,
         onClick: (e) => {
@@ -234,7 +251,7 @@ function buildAlignWidget(state, refresh) {
           dropdown.style.display = 'none';
           refresh();
         },
-      }, full);
+      }, label);
       dropdown.append(cell);
     })
   );
@@ -319,15 +336,30 @@ function buildIdRow(state, refresh) {
   const raceNames  = Object.keys(RACES).sort((a,b) => a.localeCompare(b, 'ru'));
   const bgNames    = Object.keys(BACKGROUNDS).sort((a,b) => a.localeCompare(b, 'ru'));
 
+  const subData     = state.class ? SUBCLASSES[state.class] : null;
+  const showSub     = subData && state.level >= subData.level;
+
+  const lvlDec = el('button', { class:'ab-btn', onClick:()=>{ if(state.level>1){ state.level--; refresh(); } } }, '−');
+  const lvlInc = el('button', { class:'ab-btn', onClick:()=>{ if(state.level<20){ state.level++; refresh(); } } }, '+');
+  if (state.level <= 1)  lvlDec.disabled = true;
+  if (state.level >= 20) lvlInc.disabled = true;
+
   const raceData = state.race ? RACES[state.race] : null;
   const subraces = raceData?.sub || [];
 
   const fields = [
     el('div', { class:'id-field id-name' },        el('label',{}, 'Имя персонажа'), nameInp),
     el('div', { class:'id-field id-class-f is-class' }, el('label',{}, 'Класс'),
-      makeSel(classNames, state.class, v => { state.class = v; state.chosen.clear(); refresh(); })
+      makeSel(classNames, state.class, v => { state.class = v; state.subclass = ''; state.chosen.clear(); refresh(); })
     ),
-    el('div', { class:'id-field' },                el('label',{}, 'Уровень'), el('div',{ class:'level-badge' }, '1')),
+    el('div', { class:'id-field' }, el('label',{}, 'Уровень'),
+      el('div', { class:'level-stepper' }, lvlDec, el('div',{ class:'level-badge' }, String(state.level)), lvlInc)
+    ),
+    ...(showSub ? [
+      el('div', { class:'id-field is-class' }, el('label',{}, 'Подкласс'),
+        makeSel(subData.list, state.subclass, v => { state.subclass = v; refresh(); })
+      ),
+    ] : []),
     el('div', { class:'id-field id-race-f is-race' }, el('label',{}, 'Раса'),
       makeSel(raceNames, state.race, v => {
         state.race = v;
@@ -389,7 +421,6 @@ function buildAbBlock(state, ability, refresh) {
   const modifier = mod(total);
   const hasSave  = state.class ? CLASSES[state.class]?.saves.includes(key) : false;
   const saveVal  = modifier + (hasSave ? 2 : 0);
-  const passWis  = key === 'wis' ? 10 + modifier + (isProf(state, 'Восприятие') ? 2 : 0) : null;
 
   const spent  = pbSpent(state.stats);
   const canDec = base > PB_MIN;
@@ -405,17 +436,18 @@ function buildAbBlock(state, ability, refresh) {
     el('div',  { class: 'ab-stepper' }, btnDec, el('span', { class: 'ab-base-val' }, base), btnInc),
     el('span', { class: 'ab-cost' }, `(${PB_COST[base]})`),
     el('div',  { class: 'ab-vsep' }),
+  el('div',  { class: 'ab-derived' },
     ...(asi !== 0 ? [
       el('span', { class: 'ab-racial-badge' }, asi > 0 ? `+${asi}` : asi),
       el('span', { class: 'ab-arrow' }, '→'),
     ] : []),
     el('span', { class: 'ab-total' }, total),
-    el('span', { class: 'ab-deriv-lbl' }, 'мод'),
+    el('span', { class: 'ab-deriv-lbl' }, 'МОД'),
     el('span', { class: 'ab-mod' }, sign(modifier)),
     el('span', { class: 'ab-deriv-lbl' }, 'СБ'),
     el('span', { class: `ab-save${hasSave ? ' prof' : ''}` }, sign(saveVal)),
     el('div',  { class: `ms-pip${hasSave ? ' active' : ''}` }),
-    ...(passWis !== null ? [el('span', { class: 'ab-passive-inline' }, `👁 ${passWis}`)] : []),
+  ),
   );
 
   const skills   = SKILLS_BY_AB[key];
@@ -424,7 +456,9 @@ function buildAbBlock(state, ability, refresh) {
   const maxPicks = state.class ? (CLASSES[state.class]?.count || 2) : 0;
   const picked   = [...state.chosen].filter(s => opts.includes(s)).length;
 
-  const skillEls = skills.map(({ name }) => {
+  const sorted = [...skills].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+
+  const skillEls = sorted.map(({ name }) => {
     const fromBg    = bgProfs.includes(name);
     const fromClass = state.chosen.has(name);
     const proficient = fromBg || fromClass;
@@ -452,6 +486,19 @@ function buildAbBlock(state, ability, refresh) {
       )
     );
   });
+
+  // Пассивная внимательность — только в блоке Мудрости, в конце
+  if (key === 'wis') {
+    const percProf = isProf(state, 'Восприятие');
+    const passVal  = 10 + modifier + (percProf ? 2 : 0);
+    skillEls.push(el('div', { class: 'skill-row locked passive-row' },
+      el('div', { class: 'sk-cb' }),
+      el('span', { class: 'sk-name' }, 'Пасс. Внимательность'),
+      el('div', { class: 'sk-bonus-wrap' },
+        el('span', { class: 'sk-bonus' }, String(passVal))
+      )
+    ));
+  }
 
   return el('div', { class: 'ab-block' },
     statRow,
@@ -691,6 +738,8 @@ export function renderCreate(container, router, _params = {}) {
     name:       '',
     playerName: '',
     class:      '',
+    subclass:   '',
+    level:      1,
     race:       '',
     subrace:    '',
     background: '',
