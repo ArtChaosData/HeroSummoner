@@ -326,12 +326,6 @@ function makeSel(opts, cur, onChange, placeholder = '— Выбрать —') {
 }
 
 function buildIdRow(state, refresh) {
-  const nameInp = el('input', { type:'text', placeholder:'Имя персонажа', value: state.name });
-  nameInp.addEventListener('input', e => { state.name = e.target.value; refresh(); });
-
-  const playerInp = el('input', { type:'text', placeholder:'Имя игрока', value: state.playerName });
-  playerInp.addEventListener('input', e => { state.playerName = e.target.value; });
-
   const classNames = Object.keys(CLASSES).sort((a,b) => a.localeCompare(b, 'ru'));
   const raceNames  = Object.keys(RACES).sort((a,b) => a.localeCompare(b, 'ru'));
   const bgNames    = Object.keys(BACKGROUNDS).sort((a,b) => a.localeCompare(b, 'ru'));
@@ -348,7 +342,18 @@ function buildIdRow(state, refresh) {
   const subraces = raceData?.sub || [];
 
   const fields = [
-    el('div', { class:'id-field id-name' },        el('label',{}, 'Имя персонажа'), nameInp),
+    // Edition toggle — leftmost
+    el('div', { class:'id-field id-edition' },
+      el('label',{}, 'Редакция'),
+      el('div', { class:'edition-toggle' },
+        ...['2014','2024'].map(ed =>
+          el('button', {
+            class: `edition-btn${state.edition === ed ? ' active' : ''}`,
+            onClick: () => { state.edition = ed; refresh(); },
+          }, ed)
+        )
+      )
+    ),
     el('div', { class:'id-field id-class-f is-class' }, el('label',{}, 'Класс'),
       makeSel(classNames, state.class, v => { state.class = v; state.subclass = ''; state.chosen.clear(); refresh(); })
     ),
@@ -376,19 +381,6 @@ function buildIdRow(state, refresh) {
       makeSel(bgNames, state.background, v => { state.background = v; refresh(); })
     ),
     buildAlignWidget(state, refresh),
-    el('div', { class:'id-field id-player-f' },    el('label',{}, 'Имя игрока'), playerInp),
-    // Edition toggle — far right
-    el('div', { class:'id-field id-edition', style:'margin-left:auto' },
-      el('label',{}, 'Редакция'),
-      el('div', { class:'edition-toggle' },
-        ...['2014','2024'].map(ed =>
-          el('button', {
-            class: `edition-btn${state.edition === ed ? ' active' : ''}`,
-            onClick: () => { state.edition = ed; refresh(); },
-          }, ed)
-        )
-      )
-    ),
   ];
 
   return el('div', { class: 'id-row' }, ...fields);
@@ -632,10 +624,10 @@ function buildRightPanel(state, refresh) {
           cls ? el('div', { class: 'cs-detail' }, `к${cls.die} ${sign(conMod)} (Тел)`) : null
         ),
         ...[
-          ['КД',          10 + dexMod,   '10 + Ловк'],
-          ['Инициатива',  sign(dexMod),  'мод Ловкости'],
-          [`${speed} фт`, '',            'Скорость'],
-          ['+2',          '',            'Мастерство'],
+          [10 + dexMod,   '', 'КД'],
+          [sign(dexMod),  '', 'Инициатива'],
+          [`${speed} фт`, '', 'Скорость'],
+          ['+2',          '', 'Мастерство'],
         ].map(([val, sub, lbl]) =>
           el('div', { class: 'cs-chip' },
             el('div', { class: 'cs-val'   }, String(val)),
@@ -675,9 +667,8 @@ function buildRightPanel(state, refresh) {
 
 function buildActionBar(state, router) {
   const spent = pbSpent(state.stats);
-  const valid = state.name.trim() && state.class && state.race && state.background && spent <= PB_POOL;
-  const hint  = !state.name.trim()    ? 'Введи имя персонажа'
-    : !state.class                    ? 'Выбери класс'
+  const valid = state.class && state.race && state.background && spent <= PB_POOL;
+  const hint  = !state.class                    ? 'Выбери класс'
     : !state.race                     ? 'Выбери расу'
     : !state.background               ? 'Выбери предысторию'
     : spent > PB_POOL                 ? `Превышен лимит: ${spent}/${PB_POOL} очков`
