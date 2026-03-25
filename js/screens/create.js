@@ -32,6 +32,35 @@ const SKILLS_BY_AB = {
   cha: [{ name:'Обман' }, { name:'Запугивание' }, { name:'Выступление' }, { name:'Убеждение' }],
 };
 
+// Features from Tasha's Cauldron of Everything (optional rules)
+const TASHA_FEATURES = new Set([
+  'Дополнительные заклинания',     // Бард/Волшебник/Друид/Колдун/Чародей 1
+  'Магическое вдохновение',        // Бард 2
+  'Первобытное знание',            // Варвар 3, 10
+  'Варианты боевых стилей',        // Воин 1, Паладин 2
+  'Универсальность воина',         // Воин 4, Паладин 4, Следопыт 4
+  'Формулы заговоров',             // Волшебник 3
+  'Дикий спутник',                 // Друид 2
+  'Универсальность заговоров',     // Друид 4, Жрец 4
+  'Благословлённые удары',         // Жрец 8
+  'Праведное восстановление',      // Жрец 2, Паладин 3
+  'Вариант договора',              // Колдун 3
+  'Мистическая универсальность',   // Колдун 4
+  'Выбранное оружие',              // Монах 2
+  'Атака, наделённая ци',          // Монах 3
+  'Ускоренное исцеление',          // Монах 4
+  'Фокусировка на цели',           // Монах 5
+  'Точное прицеливание',           // Плут 3
+  'Предпочтительный противник',    // Следопыт 1
+  'Искусный исследователь',        // Следопыт 1
+  'Заклинательная фокусировка',    // Следопыт 2
+  'Изначальная осведомлённость',   // Следопыт 3
+  'Природная завеса',              // Следопыт 10
+  'Варианты метамагии',            // Чародей 3
+  'Универсальность чародея',       // Чародей 4
+  'Волшебное указание',            // Чародей 5
+]);
+
 const CLASSES = {
   'Бард':      { die:8,  saves:['dex','cha'], count:3, list:null },
   'Варвар':    { die:12, saves:['str','con'], count:2, list:['Атлетика','Восприятие','Природа','Запугивание','Уход за животными','Выживание'] },
@@ -177,6 +206,59 @@ const SPELL_SLOTS = {
   'Паладин':SLOTS_HALF,'Следопыт':SLOTS_HALF,
   'Колдун':'warlock',
   'Изобретатель':SLOTS_ARTIFICER,
+};
+
+// Spells known per level (known-based casters)
+const SPELLS_KNOWN_TABLE = {
+  'Бард':     [2,5,7,9,10,11,12,13,14,15,16,17,17,18,18,19,20,20,20,22],
+  'Следопыт': [0,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11],
+  'Чародей':  [2,3,4,5,6,7,8,9,10,11,12,12,13,13,14,14,15,15,15,15],
+  'Колдун':   [2,3,4,5,6,7,8,9,10,10,11,11,12,12,13,13,14,14,15,15],
+};
+
+// Preparation formula: prepared = floor(level / div) + stat_mod (min 1)
+const SPELL_PREP_FORMULA = {
+  'Волшебник':    { stat: 'int', div: 1 },
+  'Жрец':         { stat: 'wis', div: 1 },
+  'Друид':        { stat: 'wis', div: 1 },
+  'Паладин':      { stat: 'cha', div: 2 },
+  'Изобретатель': { stat: 'int', div: 2 },
+};
+
+// ─── Weapons ──────────────────────────────────────────────────────────────────
+const W = (cat,dmg,dtype,fin,rng,hands,props=[]) => ({cat,dmg,dtype,fin,rng,hands,props});
+const WEAPONS_DATA = {
+  // Simple melee
+  'Кинжал':          W('s','1d4','колющий',  1,0,1,['Лёгкое','Метание']),
+  'Дубина':          W('s','1d4','дробящий', 0,0,1,['Лёгкое']),
+  'Посох':           W('s','1d6','дробящий', 0,0,1,['Универс. 1d8']),
+  'Копьё':           W('s','1d6','колющий',  0,0,1,['Метание','Универс. 1d8']),
+  'Топорик':         W('s','1d6','рубящий',  0,0,1,['Лёгкое','Метание']),
+  'Булава':          W('s','1d6','дробящий', 0,0,1),
+  'Серп':            W('s','1d4','рубящий',  0,0,1,['Лёгкое']),
+  'Дубинка':         W('s','1d4','дробящий', 0,0,1,['Лёгкое']),
+  // Simple ranged
+  'Праща':           W('s','1d4','дробящий', 0,1,1),
+  'Дротик':          W('s','1d4','колющий',  1,1,1,['Метание']),
+  'Короткий лук':    W('s','1d6','колющий',  0,1,2),
+  'Лёгкий арбалет':  W('s','1d8','колющий',  0,1,2,['Перезарядка']),
+  // Martial melee
+  'Скимитар':        W('m','1d6','рубящий',  1,0,1,['Лёгкое']),
+  'Рапира':          W('m','1d8','колющий',  1,0,1),
+  'Короткий меч':    W('m','1d6','колющий',  1,0,1,['Лёгкое']),
+  'Длинный меч':     W('m','1d8','рубящий',  0,0,1,['Универс. 1d10']),
+  'Боевой топор':    W('m','1d8','рубящий',  0,0,1,['Универс. 1d10']),
+  'Боевой молот':    W('m','1d8','дробящий', 0,0,1,['Универс. 1d10']),
+  'Двуручный меч':   W('m','2d6','рубящий',  0,0,2,['Тяжёлое']),
+  'Алебарда':        W('m','1d10','рубящий', 0,0,2,['Тяжёлое','Досягаемость']),
+  'Пика':            W('m','1d10','колющий', 0,0,2,['Досягаемость']),
+  // Martial ranged
+  'Ручной арбалет':  W('m','1d6','колющий',  0,1,1,['Лёгкое','Перезарядка']),
+  'Длинный лук':     W('m','1d8','колющий',  0,1,2,['Тяжёлое']),
+  'Тяжёлый арбалет': W('m','1d10','колющий', 0,1,2,['Тяжёлое','Перезарядка']),
+  // Special
+  'Щит':             W('s',null,null,         0,0,1,['+2 КД']),
+  'Безоружный':      W('s','1','дробящий',    0,0,0),
 };
 
 // ─── Proficiency data ─────────────────────────────────────────────────────────
@@ -439,7 +521,7 @@ function toTitle(s) {
   return s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 }
 
-function buildFeatItem(name, desc, state, refresh) {
+function buildFeatItem(name, desc, state, refresh, isTasha = false) {
   const expanded = !!state.featExpanded[name];
   const hasDesc  = !!desc;
   const hdClass  = `feat-item-hd${expanded ? ' open' : ''}${hasDesc ? ' has-desc' : ''}`;
@@ -449,7 +531,10 @@ function buildFeatItem(name, desc, state, refresh) {
       onClick: hasDesc ? () => { state.featExpanded[name] = !expanded; refresh(); } : null,
     },
       el('span', { class: `feat-arrow${hasDesc ? '' : ' invis'}` }, expanded ? '▾' : '▸'),
-      el('span', { class: 'feat-item-name' }, name),
+      el('span', { class: 'feat-item-name' },
+        name,
+        isTasha ? el('span', { class: 'feat-tasha-badge' }, 'Таша') : null,
+      ),
     ),
     expanded && desc ? renderDesc(desc, state) : null,
   );
@@ -466,7 +551,7 @@ function buildFeatSection(key, title, items, state, refresh) {
       el('span', { class: 'feat-sec-arrow' }, collapsed ? '›' : '⌄'),
     ),
     collapsed ? null : el('div', { class: 'feat-items' },
-      ...items.map(({ name, desc }) => buildFeatItem(name, desc, state, refresh))
+      ...items.map(({ name, desc, tasha }) => buildFeatItem(name, desc, state, refresh, !!tasha))
     ),
   );
 }
@@ -481,8 +566,9 @@ function buildFeaturesBlock(state, refresh) {
   if (state.class) {
     for (let lvl = 1; lvl <= state.level; lvl++) {
       for (const name of (CLASS_FEATURES[state.class]?.[lvl] || [])) {
+        if (TASHA_FEATURES.has(name) && !state.tasha) continue;
         const baseName = name.replace(/\s*\([^)]*\)$/, '').trim();
-        const item = { name, desc: lookupDesc(clsDescs, name) };
+        const item = { name, desc: lookupDesc(clsDescs, name), tasha: TASHA_FEATURES.has(name) };
         if (baseName !== name && clsBaseIdx.has(baseName)) {
           // Upgraded variant (e.g. "Вдохновение барда (к8)") — replace existing entry
           clsItems[clsBaseIdx.get(baseName)] = item;
@@ -570,6 +656,18 @@ function buildIdRow(state, refresh) {
             onClick: () => { state.edition = ed; refresh(); },
           }, ed)
         )
+      )
+    ),
+    el('div', { class:'id-field id-tasha' },
+      el('label', { class: 'tasha-toggle' },
+        (() => {
+          const cb = el('input', { type: 'checkbox', class: 'tasha-cb' });
+          cb.checked = state.tasha;
+          cb.addEventListener('change', () => { state.tasha = cb.checked; refresh(); });
+          return cb;
+        })(),
+        el('span', { class: 'tasha-check' }),
+        'Учитывать Ташу',
       )
     ),
     el('div', { class:'id-field id-class-f is-class' }, el('label',{}, 'Класс'),
@@ -714,7 +812,7 @@ function buildAbBlock(state, ability, refresh) {
     statRow,
     skills.length
       ? el('div', { class: 'ab-skills-grid' }, ...skillEls)
-      : el('div', { class: 'ab-noskills' }, 'нет навыков')
+      : null
   );
 }
 
@@ -753,16 +851,17 @@ function buildEquipPanel(state, refresh) {
       ) : (bg ? null : el('div', { class: 'equip-empty', style:'margin-top:8px' }, 'Выбери предыстории'))
     );
   } else {
-    // Buy mode
-    const goldResult = state.equipGold;
-    const rollBtn = el('button', {
-      class: 'btn btn-sm equip-roll-btn',
+    // Buy mode — per-class gold is stored in state.equipGoldByClass
+    if (!state.equipGoldByClass) state.equipGoldByClass = {};
+    const goldResult = cls ? (state.equipGoldByClass[cls] ?? null) : null;
+    const rollBtn = el('button', { class: 'btn btn-sm equip-roll-btn',
       onClick: () => {
-        if (!goldInfo) return;
-        state.equipGold = rollDice(goldInfo.rolls, goldInfo.die) * goldInfo.mult;
+        if (!goldInfo || !cls || state.equipGoldByClass[cls] != null) return;
+        state.equipGoldByClass[cls] = rollDice(goldInfo.rolls, goldInfo.die) * goldInfo.mult;
         refresh();
       },
     });
+    rollBtn.disabled = goldResult !== null;
     rollBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" style="flex-shrink:0"><polygon points="10,1 19,6.5 19,13.5 10,19 1,13.5 1,6.5"/><polygon points="10,1 5,10 15,10"/><line x1="5" y1="10" x2="1" y2="6.5"/><line x1="15" y1="10" x2="19" y2="6.5"/><line x1="5" y1="10" x2="1" y2="13.5"/><line x1="15" y1="10" x2="19" y2="13.5"/></svg> Бросить`;
     const rollRow = el('div', { class: 'equip-gold-roll-row' },
       el('span', { class: 'equip-gold-formula' }, goldInfo ? goldInfo.formula : '— зм'),
@@ -820,6 +919,248 @@ function openEquipModal() {
   document.body.append(overlay);
 }
 
+// ─── Panel help tooltip ────────────────────────────────────────────────────────
+
+function panelHelp(text) {
+  const btn = el('button', { class: 'panel-help-btn', 'aria-label': 'Справка' }, '?');
+  let tip = null;
+
+  btn.addEventListener('mouseenter', () => {
+    tip = el('div', { class: 'panel-tooltip' },
+      ...text.split('\n').map(line => el('p', {}, line))
+    );
+    document.body.append(tip);
+    const r = btn.getBoundingClientRect();
+    tip.style.position = 'fixed';
+    tip.style.top = (r.bottom + 6) + 'px';
+    tip.style.left = Math.max(8, r.right - tip.offsetWidth) + 'px';
+  });
+
+  btn.addEventListener('mouseleave', () => { tip?.remove(); tip = null; });
+
+  return el('span', { class: 'panel-help-wrap' }, btn);
+}
+
+// ─── Weapons block ────────────────────────────────────────────────────────────
+
+function isWeaponProf(state, name) {
+  const d = WEAPONS_DATA[name];
+  if (!d || !state.class) return false;
+  const cw = CLASS_PROFS_DATA[state.class]?.weapons || [];
+  return cw.includes('Воинское оружие') ||
+    (d.cat === 's' && cw.includes('Простое оружие')) ||
+    cw.some(w => name.startsWith(w.replace(/[аыие]$/, '')));
+}
+
+function weaponCalc(state, w) {
+  const d = WEAPONS_DATA[w.name];
+  if (!d?.dmg) return null;
+  const strM = mod(totalStat(state, 'str'));
+  const dexM = mod(totalStat(state, 'dex'));
+  const statMod = d.rng ? dexM : d.fin ? Math.max(strM, dexM) : strM;
+  const pb = isWeaponProf(state, w.name) ? profBonus(state.level) : 0;
+  return { atk: statMod + pb, dmgMod: statMod };
+}
+
+// Property tooltip texts
+const PROP_TIPS = {
+  'Лёгкое':       'Можно держать по одному лёгкому оружию в каждой руке и атаковать обоими.',
+  'Финесс':       'Можно использовать модификатор Силы или Ловкости — на ваш выбор.',
+  'Метание':      'Оружие можно бросить в цель. При броске используется Сила (или Ловкость для финесс).',
+  'Двуручное':    'Требует обеих рук для атаки.',
+  'Универс. 1d8': 'Одноручный урон 1d6. При держании двумя руками — 1d8.',
+  'Универс. 1d10':'Одноручный урон 1d8. При держании двумя руками — 1d10.',
+  'Тяжёлое':      'Маленькие существа атакуют с помехой. Нельзя использовать для Двойного боя.',
+  'Досягаемость': '+1,5 м к дальности атаки (только в ближнем бою).',
+  'Перезарядка':  'Можно выстрелить лишь один раз за ход, сколько бы атак у вас ни было.',
+  '+2 КД':        'Щит повышает Класс Доспеха на 2. Занимает одну руку.',
+};
+
+function propBadge(text) {
+  const tip = PROP_TIPS[text] ?? (text.startsWith('Универс.') ? 'При держании двумя руками урон увеличивается.' : null);
+  const span = el('span', { class: `weapon-prop${tip ? ' has-tip' : ''}` }, text);
+  if (!tip) return span;
+  let tipEl = null;
+  span.addEventListener('mouseenter', () => {
+    tipEl = el('div', { class: 'weapon-prop-tip' }, tip);
+    document.body.append(tipEl);
+    const r = span.getBoundingClientRect();
+    const tw = tipEl.offsetWidth || 200;
+    tipEl.style.cssText = `position:fixed;top:${r.bottom + 5}px;left:${Math.max(8, Math.min(innerWidth - tw - 8, r.left + r.width / 2 - tw / 2))}px`;
+  });
+  span.addEventListener('mouseleave', () => { tipEl?.remove(); tipEl = null; });
+  return span;
+}
+
+// Check if weapon slot is available given current hand state (excludes weapon at excludeIdx)
+function handsOccupied(weapons, excludeIdx = -1) {
+  let main = false, off = false;
+  for (let j = 0; j < weapons.length; j++) {
+    if (j === excludeIdx) continue;
+    const w = weapons[j];
+    if (w.slot === 'stowed') continue;
+    const d = WEAPONS_DATA[w.name];
+    if (!d) continue;
+    if (d.hands === 2 || w.slot === 'both') { main = true; off = true; }
+    else if (w.slot === 'off') off = true;
+    else main = true;
+  }
+  return { main, off };
+}
+
+function canEquipSlot(weapons, idx, slot) {
+  if (slot === 'stowed') return true;
+  const { main, off } = handsOccupied(weapons, idx);
+  if (slot === 'both') return !main && !off;
+  if (slot === 'main') return !main;
+  if (slot === 'off')  return !off;
+  return true;
+}
+
+function buildWeaponsBlock(state, refresh) {
+  if (!state.weapons) state.weapons = [];
+
+  // Hand status label
+  function handStatus() {
+    const { main, off } = handsOccupied(state.weapons);
+    const shield = state.weapons.some(w => w.slot !== 'stowed' && w.name === 'Щит');
+    if (!main && !off)   return ['Руки свободны',   'free'];
+    if (main && shield)  return ['Оружие + щит',    'full'];
+    if (main && off)     return ['Обе руки заняты', 'full'];
+    if (shield)          return ['Щит надет',        'mid'];
+    return               ['Одна рука занята',        'mid'];
+  }
+
+  const [statusLabel, statusKey] = handStatus();
+
+  // Pre-compute priority for sorting: 0=equipped, 1=stowed+can, 2=stowed+cant
+  const weaponEntries = state.weapons.map((w, i) => {
+    const d      = WEAPONS_DATA[w.name];
+    const stowed = w.slot === 'stowed';
+    const canEquip = stowed && (
+      d?.hands === 2   ? canEquipSlot(state.weapons, i, 'both') :
+      w.name === 'Щит' ? canEquipSlot(state.weapons, i, 'off')  :
+      canEquipSlot(state.weapons, i, 'main') || canEquipSlot(state.weapons, i, 'off')
+    );
+    return { w, i, d, stowed, canEquip, priority: !stowed ? 0 : canEquip ? 1 : 2 };
+  });
+  weaponEntries.sort((a, b) => a.priority - b.priority);
+
+  const rows = weaponEntries.map(({ w, i, d, stowed, canEquip }) => {
+    const calc   = weaponCalc(state, w);
+    const curSlot = w.slot || (d?.hands === 2 ? 'both' : w.name === 'Щит' ? 'off' : 'main');
+
+    // Slot label
+    const inHandLabel = w.name === 'Щит' ? 'Щит' : (curSlot === 'both' ? 'Обе руки' : 'В руке');
+    const btnLabel    = stowed ? 'Убрано' : inHandLabel;
+
+    // Range icon (monochrome SVG)
+    const _iconSvg = w.name === 'Щит'
+      ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`
+      : d?.rng
+        ? `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/></svg>`
+        : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 17.5L3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/></svg>`;
+    const typeIcon = el('span', { class: 'weapon-type-icon', html: _iconSvg });
+
+    // Versatile two-hand toggle
+    const versProp = d?.props.find(p => p.startsWith('Универс.'));
+    const versDie  = versProp ? versProp.split(' ')[1] : null;
+    const dmgDice  = versDie && w.twoHanded ? versDie : d?.dmg;
+
+    const versCb = versDie ? (() => {
+      const cb = el('input', { type: 'checkbox', class: 'weapon-vers-cb' });
+      cb.checked = !!w.twoHanded;
+      cb.addEventListener('change', () => {
+        w.twoHanded = cb.checked;
+        if (cb.checked) {
+          if (canEquipSlot(state.weapons, i, 'both')) w.slot = 'both';
+          else { cb.checked = w.twoHanded = false; }
+        } else {
+          if (w.slot === 'both') w.slot = canEquipSlot(state.weapons, i, 'main') ? 'main' : 'stowed';
+        }
+        refresh();
+      });
+      return el('label', { class: 'weapon-vers-label' }, cb, el('span', { class: 'weapon-vers-check' }), '2 руки');
+    })() : null;
+
+    return el('div', { class: `weapon-row${stowed ? ' weapon-stowed' : ''}${canEquip ? ' weapon-can-equip' : ''}` },
+      el('div', { class: 'weapon-info' },
+        typeIcon,
+        el('span', { class: 'weapon-name' }, w.name),
+        calc ? el('span', { class: 'weapon-atk' }, sign(calc.atk) + ' атк') : null,
+        calc && dmgDice ? el('span', { class: 'weapon-dmg' },
+          el('span', { class: 'weapon-dice' }, dmgDice + (calc.dmgMod ? sign(calc.dmgMod) : '')),
+          el('span', { class: 'weapon-dtype' }, d.dtype),
+        ) : null,
+        ...(d?.props || []).map(p => propBadge(p)),
+        versCb,
+      ),
+      el('div', { class: 'weapon-ctrl' },
+        el('button', {
+          class: `weapon-slot-btn${stowed ? ' is-stowed' : ''}`,
+          onClick: () => {
+            if (!stowed) {
+              w.slot = 'stowed';
+              if (w.twoHanded) w.twoHanded = false;
+            } else if (w.name === 'Щит') {
+              w.slot = canEquipSlot(state.weapons, i, 'off') ? 'off' : 'stowed';
+            } else if (d?.hands === 2 || w.twoHanded) {
+              w.slot = canEquipSlot(state.weapons, i, 'both') ? 'both' : 'stowed';
+            } else {
+              if      (canEquipSlot(state.weapons, i, 'main')) w.slot = 'main';
+              else if (canEquipSlot(state.weapons, i, 'off'))  w.slot = 'off';
+            }
+            refresh();
+          },
+        }, btnLabel),
+        el('button', { class: 'weapon-remove', onClick: () => { state.weapons.splice(i, 1); refresh(); } }, '×'),
+      ),
+    );
+  });
+
+  // Unarmed row — shown when nothing is in hand
+  const anyInHand = state.weapons.some(w => w.slot !== 'stowed');
+  const strMod    = mod(totalStat(state, 'str'));
+  const unarmedRow = !anyInHand ? el('div', { class: 'weapon-row weapon-equipped' },
+    el('div', { class: 'weapon-info' },
+      el('span', { class: 'weapon-name weapon-name-muted' }, 'Безоружный'),
+      el('span', { class: 'weapon-atk' }, sign(strMod + profBonus(state.level)) + ' атк'),
+      el('span', { class: 'weapon-dmg' },
+        el('span', { class: 'weapon-dice' }, '1' + (strMod > 0 ? sign(strMod) : '')),
+        el('span', { class: 'weapon-dtype' }, 'дробящий'),
+      ),
+    ),
+  ) : null;
+
+  // Dropdown — flat, sorted A-Z (no Безоружный)
+  const addSel = el('select', { class: 'weapon-add-sel' });
+  addSel.append(el('option', { value: '' }, '＋ Добавить оружие'));
+  const sortedWeapons = Object.keys(WEAPONS_DATA).filter(n => n !== 'Безоружный').sort((a, b) => a.localeCompare(b, 'ru'));
+  for (const name of sortedWeapons) {
+    addSel.append(el('option', { value: name }, name));
+  }
+  addSel.addEventListener('change', () => {
+    if (!addSel.value) return;
+    const d    = WEAPONS_DATA[addSel.value];
+    const want = d?.hands === 2 ? 'both' : addSel.value === 'Щит' ? 'off' : 'main';
+    let slot = canEquipSlot(state.weapons, -1, want) ? want :
+               (want === 'main' && canEquipSlot(state.weapons, -1, 'off')) ? 'off' : 'stowed';
+    state.weapons.push({ name: addSel.value, slot });
+    addSel.value = '';
+    refresh();
+  });
+
+  return el('div', { class: 'weapons-block' },
+    el('div', { class: 'weapons-hd' },
+      el('span', { class: 'weapons-title' }, 'Оружие · щиты'),
+      el('span', { class: `hands-status hands-${statusKey}` }, statusLabel),
+    ),
+    unarmedRow,
+    ...rows,
+    el('div', { class: 'weapon-add-row' }, addSel),
+  );
+}
+
 // ─── Magic panel ──────────────────────────────────────────────────────────────
 
 function buildMagicPanel(state) {
@@ -842,8 +1183,12 @@ function buildMagicPanel(state) {
       .map((c, i) => c > 0 ? [i + 1, c] : null).filter(Boolean);
   }
 
+  const slotsRest = state.class === 'Колдун'
+    ? 'Ячейки заклинаний восстанавливаются после короткого или долгого отдыха.'
+    : 'Ячейки заклинаний восстанавливаются после долгого отдыха.';
+
   return el('div', { class: 'panel magic-panel' },
-    el('div', { class: 'panel-head' }, el('span', { class: 'panel-title' }, 'Магия')),
+    el('div', { class: 'panel-head' }, el('span', { class: 'panel-title' }, 'Магия'), panelHelp(`СЛ спасброска = 8 + бонус мастерства + модификатор заклинательной хар-ки.\nБонус атаки = бонус мастерства + модификатор закл. хар-ки.\nЗакл. хар-ка зависит от класса: Интеллект — Волшебник, Изобретатель; Мудрость — Жрец, Друид, Следопыт; Харизма — Бард, Паладин, Чародей, Колдун.\n${slotsRest}`)),
     el('div', { class: 'magic-stats-row' },
       el('div', { class: 'magic-chip' },
         el('div', { class: 'magic-chip-val' }, String(dc)),
@@ -855,7 +1200,7 @@ function buildMagicPanel(state) {
       ),
       el('div', { class: 'magic-chip magic-chip-wide' },
         el('div', { class: 'magic-chip-val magic-chip-stat' }, statLbl),
-        el('div', { class: 'magic-chip-lbl' }, 'Хар-ка'),
+        el('div', { class: 'magic-chip-lbl' }, 'Закл. хар-ка'),
       ),
     ),
     slotRows.length ? el('div', { class: 'magic-slots' },
@@ -891,12 +1236,42 @@ function buildSpellsPanel(state) {
     document.body.append(overlay);
   }
 
+  const lvl        = state.level;
+  const knownTable  = SPELLS_KNOWN_TABLE[state.class];
+  const prepFormula = SPELL_PREP_FORMULA[state.class];
+  const spellChips  = [];
+
+  if (knownTable) {
+    spellChips.push(['Известно', String(knownTable[lvl - 1])]);
+  } else if (prepFormula) {
+    const statMod  = mod(totalStat(state, prepFormula.stat));
+    const prepared = Math.max(1, Math.floor(lvl / prepFormula.div) + statMod);
+    spellChips.push(['Подготовлено', String(prepared)]);
+    if (state.class === 'Волшебник') {
+      spellChips.push(['Книга заклинаний', String(6 + 2 * (lvl - 1))]);
+    }
+  }
+
+  const spellHelpLines = knownTable
+    ? 'Известно — фиксированное число заклинаний, которые персонаж всегда держит в голове. Сменить можно только при повышении уровня.'
+    : state.class === 'Волшебник'
+      ? 'Подготовлено — число заклинаний, выбираемых из книги после долгого отдыха (уровень + мод. Инт, мин. 1).\nКнига заклинаний — все записанные заклинания: 6 стартовых + 2 за каждый уровень.'
+      : 'Подготовлено — число заклинаний, которые можно выбрать из списка класса после долгого отдыха.';
+
   return el('div', { class: 'panel spells-panel' },
-    el('div', { class: 'panel-head' }, el('span', { class: 'panel-title' }, 'Заклинания')),
+    el('div', { class: 'panel-head' }, el('span', { class: 'panel-title' }, 'Заклинания'), panelHelp(spellHelpLines)),
     el('div', { class: 'panel-body spells-btns' },
       el('button', { class: 'btn btn-sm btn-ghost spells-btn', onClick: () => wipPopup('Заговоры') }, 'Выбрать заговоры'),
       el('button', { class: 'btn btn-sm btn-ghost spells-btn', onClick: () => wipPopup('Заклинания') }, 'Выбрать заклинания'),
     ),
+    spellChips.length ? el('div', { class: 'spell-counts' },
+      ...spellChips.map(([lbl, val]) =>
+        el('div', { class: 'spell-count-chip' },
+          el('span', { class: 'spell-count-val' }, val),
+          el('span', { class: 'spell-count-lbl' }, lbl),
+        )
+      )
+    ) : null,
   );
 }
 
@@ -974,13 +1349,15 @@ function buildHeaderCombat(state) {
   const cls    = state.class ? CLASSES[state.class] : null;
   const conMod = mod(totalStat(state, 'con'));
   const dexMod = mod(totalStat(state, 'dex'));
-  const hp     = cls ? Math.max(1, cls.die + conMod) : '—';
-  const speed  = state.race ? (RACES[state.race]?.speed || 30) : '—';
+  const hp        = cls ? Math.max(1, cls.die + conMod) : '—';
+  const speed     = state.race ? (RACES[state.race]?.speed || 30) : '—';
+  const hasShield = (state.weapons || []).some(w => w.name === 'Щит' && w.slot !== 'stowed');
+  const ac        = 10 + dexMod + (hasShield ? 2 : 0);
 
   return el('div', { class: 'header-combat' },
     ...[
-      [String(hp),          'Хиты',       'hc-hp'],
-      [String(10 + dexMod), 'КД',         ''],
+      [String(hp),    'Хиты',       'hc-hp'],
+      [String(ac),    'КД',         ''],
       [sign(dexMod),        'Инициатива', ''],
       [String(speed),       'Скорость',   ''],
       [sign(profBonus(state.level)), 'Мастерство', ''],
@@ -1068,6 +1445,7 @@ export function renderCreate(container, router, _params = {}) {
 
   const state = {
     edition:    '2014',
+    tasha:      false,
     name:       '',
     playerName: '',
     class:      '',
@@ -1086,6 +1464,7 @@ export function renderCreate(container, router, _params = {}) {
     featSections:  {},
     featExpanded:  {},
     profChoices:   {},
+    weapons:       [],
   };
 
   const appHeader = document.querySelector('.app-header');
@@ -1109,7 +1488,7 @@ export function renderCreate(container, router, _params = {}) {
         ),
         buildProfsPanel(st),
       ),
-      el('div', { class: 'create-middle' }, feats),
+      el('div', { class: 'create-middle' }, feats, buildWeaponsBlock(st, refresh)),
       buildRightPanel(st, refresh)
     );
   }
