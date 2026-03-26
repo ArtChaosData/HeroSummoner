@@ -49,12 +49,12 @@ function buildLanding(st, go) {
       el('div', { class: 'cnew-name-block' },
         nameInp,
         el('p', { class: 'cnew-name-hint' },
-          'Так мы будем знать, кого мы призовём. Не беспокойтесь — имя можно будет поменять в меню «Концепта».'
+          'Так мы узнаем, кого мы призовём. Не беспокойтесь — имя можно будет поменять во вкладке «Концепт».'
         ),
       ),
 
       el('p', { class: 'cnew-order-hint' },
-        'Вы можете начать собирать персонажа с концепта или с механики — порядок не важен.'
+        'Начните с концепта или механики — порядок не важен, мы сохраним ваш прогресс.'
       ),
 
       el('div', { class: 'cnew-big-btns' },
@@ -154,8 +154,10 @@ function buildConcept(st, go) {
 
 // ─── SVG icons ────────────────────────────────────────────────────────────────
 
-const SVG_CONCEPT   = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>`;
-const SVG_MECHANICS = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>`;
+/* Wizard: pointed hat + head + beard + staff */
+const SVG_CONCEPT   = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L7 11h10L12 2z"/><line x1="5.5" y1="11" x2="18.5" y2="11"/><circle cx="12" cy="15" r="3"/><path d="M9.5 17.5Q12 22 14.5 17.5"/><line x1="19.5" y1="8.5" x2="22" y2="21"/><circle cx="19.5" cy="7.5" r="1" fill="currentColor" stroke="none"/></svg>`;
+/* D20: hexagon facets */
+const SVG_MECHANICS = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L21 7.5V16.5L12 22L3 16.5V7.5Z"/><path d="M12 2L3 7.5L12 11.5L21 7.5Z"/><path d="M3 16.5L12 11.5L21 16.5"/><line x1="12" y1="11.5" x2="12" y2="22"/></svg>`;
 const SVG_CAMERA    = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`;
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
