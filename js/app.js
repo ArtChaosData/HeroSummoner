@@ -12,8 +12,10 @@ const router = new Router();
 
 router
   .on('/',           ()       => renderCharacters(main, router))
-  .on('/create',     ()       => renderCreateNew(main, router))
-  .on('/edit/:id',   params   => renderCreateNew(main, router, params))
+  .on('/create',              () => renderCreateNew(main, router, 'landing'))
+  .on('/create/concept',      () => renderCreateNew(main, router, 'concept'))
+  .on('/create/mechanics',    () => renderCreateNew(main, router, 'mechanics'))
+  .on('/edit/:id',   params   => renderCreateNew(main, router, 'landing', params))
   .on('/sheet/:id',  params   => renderSheet(main, router, params))
   .start();
 
