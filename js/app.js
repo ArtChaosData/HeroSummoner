@@ -4,6 +4,7 @@
 import { Router }           from './router.js';
 import { renderCharacters } from './screens/characters.js';
 // import { renderCreate }     from './screens/create.js';  // WIP — отцеплен
+import { renderCreateNew }  from './screens/create-new.js';
 import { renderSheet }      from './screens/sheet.js';
 
 const main   = document.getElementById('main');
@@ -11,8 +12,8 @@ const router = new Router();
 
 router
   .on('/',           ()       => renderCharacters(main, router))
-  .on('/create',     ()       => { main.innerHTML = '<div style="padding:40px;color:var(--text-muted);text-align:center">Создание персонажа — в разработке</div>'; })
-  .on('/edit/:id',   ()       => { main.innerHTML = '<div style="padding:40px;color:var(--text-muted);text-align:center">Создание персонажа — в разработке</div>'; })
+  .on('/create',     ()       => renderCreateNew(main, router))
+  .on('/edit/:id',   params   => renderCreateNew(main, router, params))
   .on('/sheet/:id',  params   => renderSheet(main, router, params))
   .start();
 

@@ -1,0 +1,299 @@
+/* ═══════════════════════════════════════════════
+   HeroSummoner — Create Character (new flow)
+═══════════════════════════════════════════════ */
+
+/* ── Landing ── */
+
+.cnew-landing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 56px);
+  padding: 24px 16px;
+}
+
+.cnew-landing-card {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cnew-name-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cnew-name-input {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border-2);
+  border-radius: var(--r-lg);
+  padding: 14px 18px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--t-fast);
+  box-sizing: border-box;
+}
+.cnew-name-input::placeholder { color: var(--text-muted); font-weight: 400; }
+.cnew-name-input:focus { border-color: var(--accent); }
+
+.cnew-name-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin: 0;
+  padding: 0 4px;
+}
+
+.cnew-order-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.cnew-big-btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.cnew-big-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  min-height: 110px;
+  padding: 20px 16px;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border-2);
+  border-radius: var(--r-xl);
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
+  color: var(--text-primary);
+}
+.cnew-big-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.cnew-big-btn--secondary { border-color: var(--border); }
+.cnew-big-btn--secondary:hover { border-color: var(--border-3); }
+
+.cnew-big-btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-soft);
+  opacity: 0.85;
+}
+.cnew-big-btn--secondary .cnew-big-btn-icon { color: var(--text-muted); }
+
+.cnew-big-btn-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+
+.cnew-big-btn-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* ── Concept screen ── */
+
+.cnew-concept {
+  padding: 16px 24px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.cnew-concept-hd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cnew-concept-hd-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  color: var(--text-muted);
+}
+
+/* Top section: portrait + identity */
+.cnew-top {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.cnew-portrait-col {
+  flex-shrink: 0;
+  width: 140px;
+}
+
+.cnew-portrait {
+  width: 140px;
+  height: 180px;
+  background: var(--surface-2);
+  border: 1.5px dashed var(--border-2);
+  border-radius: var(--r-lg);
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.cnew-portrait:hover { border-color: var(--accent); background: var(--surface-3); }
+
+.cnew-portrait-img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+
+.cnew-portrait-ph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.cnew-portrait-ph-icon { color: var(--text-muted); opacity: 0.6; }
+
+/* Identity fields */
+.cnew-identity-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cnew-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* Physical traits */
+.cnew-phys-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cnew-phys-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 72px;
+  flex: 1;
+}
+
+.cnew-phys-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+}
+
+.cnew-phys-input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--t-fast);
+  width: 100%;
+  box-sizing: border-box;
+}
+.cnew-phys-input:focus { border-color: var(--accent); }
+
+/* Shared field styles */
+.cnew-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cnew-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+}
+
+.cnew-input,
+.cnew-textarea {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  outline: none;
+  transition: border-color var(--t-fast);
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+}
+.cnew-input:focus,
+.cnew-textarea:focus  { border-color: var(--accent); }
+.cnew-textarea        { min-height: 100px; line-height: 1.5; }
+
+/* 2-column grid for text areas */
+.cnew-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* Предыстория (3rd item) spans full width */
+.cnew-grid .cnew-field:nth-child(3) {
+  grid-column: span 2;
+}
+
+/* WIP placeholder */
+.cnew-wip {
+  padding: 60px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .cnew-big-btns    { grid-template-columns: 1fr; }
+  .cnew-top         { flex-direction: column; }
+  .cnew-portrait-col { width: 100%; }
+  .cnew-portrait    { width: 100%; height: 160px; }
+  .cnew-row-2       { grid-template-columns: 1fr; }
+  .cnew-grid        { grid-template-columns: 1fr; }
+  .cnew-grid .cnew-field:nth-child(3) { grid-column: span 1; }
+  .cnew-concept     { padding: 12px 16px 80px; }
+}
