@@ -386,5 +386,81 @@ export async function renderCharacters(container, router) {
   renderGrid(_grid, router);
   wrap.append(_grid);
 
+  // ── Attribution button ──
+  wrap.append(buildAttributionBtn());
+
   container.append(wrap);
+}
+
+// ─── Attribution ───────────────────────────────────────────────────────────────
+
+function buildAttributionBtn() {
+  const btn = el('button', { class: 'attr-btn', title: 'Лицензии и атрибуция' });
+  btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="8" stroke-width="3"/><polyline points="12 12 12 16"/></svg>`;
+  btn.addEventListener('click', () => {
+    if (document.getElementById('attr-modal')) return;
+    const overlay = el('div', { id: 'attr-modal', class: 'attr-overlay' });
+    const modal = el('div', { class: 'attr-modal' },
+      el('div', { class: 'attr-header' },
+        el('span', { class: 'attr-title' }, 'Лицензии и атрибуция'),
+        el('button', { class: 'attr-close', onClick: () => overlay.remove() }, '×'),
+      ),
+      el('div', { class: 'attr-body' },
+        el('section', { class: 'attr-section' },
+          el('h3', { class: 'attr-section-title' }, 'Иконки'),
+          el('p', {},
+            el('strong', { class: 'attr-item-name' }, 'Шляпа волшебника, Dice d20'),
+            ' — ',
+            el('a', { href: 'https://fontawesome.com', target: '_blank', rel: 'noopener', class: 'attr-link' }, 'Font Awesome 5 Free'),
+            ' (Solid), через ',
+            el('a', { href: 'https://svgicons.com', target: '_blank', rel: 'noopener', class: 'attr-link' }, 'svgicons.com'),
+            '. Лицензия: ',
+            el('a', { href: 'https://creativecommons.org/licenses/by/4.0/', target: '_blank', rel: 'noopener', class: 'attr-link' }, 'CC BY 4.0'),
+            '.',
+          ),
+          el('p', {},
+            el('strong', { class: 'attr-item-name' }, 'Иконки оружия, типов атаки, UI'),
+            ' — кастомные SVG в стиле ',
+            el('a', { href: 'https://lucide.dev', target: '_blank', rel: 'noopener', class: 'attr-link' }, 'Lucide'),
+            '. Лицензия: ',
+            el('a', { href: 'https://github.com/lucide-icons/lucide/blob/main/LICENSE', target: '_blank', rel: 'noopener', class: 'attr-link' }, 'MIT'),
+            '.',
+          ),
+          el('p', {},
+            el('strong', { class: 'attr-item-name' }, 'Эмодзи в интерфейсе'),
+            ' — Unicode Standard. Отображение зависит от платформы.',
+          ),
+        ),
+        el('section', { class: 'attr-section' },
+          el('h3', { class: 'attr-section-title' }, 'Шрифты'),
+          el('p', {},
+            el('strong', { class: 'attr-item-name' }, 'Philosopher'),
+            ' — Jovanny Lemonad. ',
+            el('a', { href: 'https://fonts.google.com/specimen/Philosopher', target: '_blank', rel: 'noopener', class: 'attr-link' }, 'Google Fonts'),
+            '. Лицензия: SIL Open Font License 1.1. Коммерческое использование разрешено.',
+          ),
+          el('p', {},
+            el('strong', { class: 'attr-item-name' }, 'Inter'),
+            ' — Rasmus Andersson. ',
+            el('a', { href: 'https://fonts.google.com/specimen/Inter', target: '_blank', rel: 'noopener', class: 'attr-link' }, 'Google Fonts'),
+            '. Лицензия: SIL Open Font License 1.1. Коммерческое использование разрешено.',
+          ),
+        ),
+        el('section', { class: 'attr-section' },
+          el('h3', { class: 'attr-section-title' }, 'Контент'),
+          el('p', {}, 'Dungeons & Dragons, связанные материалы, правила и механики являются интеллектуальной собственностью ',
+            el('a', { href: 'https://www.wizards.com', target: '_blank', rel: 'noopener', class: 'attr-link' }, 'Wizards of the Coast LLC'),
+            ', подразделения Hasbro, Inc.',
+          ),
+          el('p', { class: 'attr-disclaimer' },
+            'Этот проект не является официальным продуктом и не связан с Wizards of the Coast.',
+          ),
+        ),
+      ),
+    );
+    overlay.append(modal);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.append(overlay);
+  });
+  return btn;
 }

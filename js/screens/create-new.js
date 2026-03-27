@@ -31,6 +31,8 @@ function freshState() {
     mecRolls:       [],
     mecRollAssign:  {},
     mecBgChoiceData: {},
+    mecEquipMode: 'standard',
+    mecEquipGold: null,
   };
 }
 
@@ -612,6 +614,7 @@ function buildMechanics(st, go, container) {
         : st.mecStep === 'race'       ? buildRaceStep(st, goMech)
         : st.mecStep === 'background' ? buildBackgroundStep(st, goMech)
         : st.mecStep === 'stats'      ? buildStatsStep(st, goMech)
+        : st.mecStep === 'equipment'  ? buildEquipStep(st, goMech)
         : el('div', { class: 'cnew-wip' }, st.mecStep + ' — скоро'),
     ),
   );
@@ -1121,12 +1124,24 @@ function buildRaceStep(st, goMech) {
                 detailEl.querySelectorAll('.mech-subrace-btn').forEach(b =>
                   b.classList.toggle('is-selected', b.textContent === s)
                 );
+                updateRaceFoot();
               },
             }, s)
           ),
         ),
       );
     }
+  }
+
+  function updateRaceFoot() {
+    footEl.innerHTML = '';
+    if (!st.mecRace) return;
+    const [srcId, raceName] = st.mecRace.split('::');
+    const raceObj = (RACE_DATA[srcId] || []).find(r => r.name === raceName);
+    const needsSub = raceObj?.sub?.length > 0;
+    const btn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('background') }, 'Далее → Предыстория');
+    btn.disabled = needsSub && !st.mecSubrace;
+    footEl.append(btn);
   }
 
   function selectRace(srcId, raceName) {
@@ -1138,9 +1153,7 @@ function buildRaceStep(st, goMech) {
       b.classList.toggle('is-selected', b.dataset.key === key)
     );
     updateDetail();
-    if (!footEl.querySelector('.cnew-save-btn')) {
-      footEl.append(el('button', { class: 'cnew-save-btn', onClick: () => goMech('background') }, 'Далее → Предыстория'));
-    }
+    updateRaceFoot();
   }
 
   const books = (SOURCEBOOKS[st.mecEdition] || []).filter(b => st.mecSources.includes(b.id));
@@ -1173,9 +1186,7 @@ function buildRaceStep(st, goMech) {
     });
   });
 
-  if (st.mecRace) {
-    footEl.append(el('button', { class: 'cnew-save-btn', onClick: () => goMech('background') }, 'Далее → Предыстория'));
-  }
+  updateRaceFoot();
   updateDetail();
 
   return el('div', { class: 'mech-step-body' },
@@ -1556,7 +1567,7 @@ function buildStatsStep(st, goMech) {
   const STD_ARRAY = [15, 14, 13, 12, 10, 8];
   const bodyEl = el('div', { class: 'mech-stats-scroll' });
   const footEl = el('div', { class: 'mech-foot' },
-    el('button', { class: 'cnew-save-btn', onClick: () => goMech('summary') }, 'Далее → Итог'),
+    el('button', { class: 'cnew-save-btn', onClick: () => goMech('equipment') }, 'Далее → Снаряжение'),
   );
 
   function switchMethod(id) { st.mecStatMethod = id; scheduleSave(st); refresh(); }
@@ -1832,6 +1843,183 @@ function buildStatsStep(st, goMech) {
       el('h2', { class: 'mech-step-title' }, 'Характеристики'),
       infoEl,
     ),
+    bodyEl,
+  );
+}
+
+// ─── Equipment step: data ─────────────────────────────────────────────────────
+
+const CLASS_EQUIP = {
+  'Бард':         ['Рапира или длинный меч', 'Набор дипломата', 'Музыкальный инструмент', 'Кожаный доспех + кинжал'],
+  'Варвар':       ['Боевой топор или 2 простых оружия', 'Набор путешественника', '4 метательных топора'],
+  'Воин':         ['Кольчуга или кожаный доспех + лук', 'Щит или боевое оружие', 'Арбалет + 20 болтов', 'Набор путешественника'],
+  'Волшебник':    ['Посох или кинжал', 'Книга заклинаний', 'Компонентный мешочек', 'Набор учёного'],
+  'Друид':        ['Щит или простое оружие', 'Кожаный доспех', 'Деревянный щит', 'Набор путешественника'],
+  'Жрец':         ['Боевой молот или простое оружие', 'Кольчуга', 'Символ веры', 'Набор священника'],
+  'Изобретатель': ['2 кинжала', 'Любое простое оружие', 'Воровские инструменты', 'Кожаный доспех', 'Набор подземелья'],
+  'Колдун':       ['Лёгкий арбалет + 20 болтов', 'Компонентный мешочек', 'Набор учёного', 'Кожаный доспех + 2 кинжала'],
+  'Монах':        ['Короткий меч или простое оружие', 'Набор путешественника', '10 дротиков'],
+  'Паладин':      ['Боевое оружие + щит', 'Метательные копья ×5', 'Кольчуга', 'Набор священника'],
+  'Плут':         ['Рапира или короткий меч', 'Короткий меч или лук + 20 стрел', 'Набор взломщика', 'Кожаный доспех + 2 кинжала'],
+  'Следопыт':     ['Кольчужная рубаха', '2 коротких меча', 'Набор путешественника', 'Лук + 20 стрел'],
+  'Чародей':      ['Лёгкий арбалет + 20 болтов', 'Компонентный мешочек', 'Набор мага', '2 кинжала'],
+};
+
+const BG_EQUIP = {
+  'Аколит':           ['Символ веры', 'Молитвенник', '5 свечей', 'Облачение'],
+  'Артист':           ['Музыкальный инструмент', 'Сувенир', 'Дорожный костюм'],
+  'Беспризорник':     ['Небольшой нож', 'Карта города', 'Тёмный плащ'],
+  'Благородный':      ['Тонкие одежды', 'Перстень с гербом', 'Рекомендательное письмо'],
+  'Гильдейский мастер': ['Инструменты ремесла', 'Письмо от гильдии', 'Опрятная одежда'],
+  'Городская стража': ['Форменная одежда', 'Рожок', 'Кандалы'],
+  'Жулик':            ['Шулерские карты', 'Одежда разных сословий'],
+  'Матрос':           ['Дубина', '50 фут. канат', 'Дорожная одежда'],
+  'Мудрец':           ['Чернила', 'Перо', 'Нож для бумаги', 'Письмо с вопросом'],
+  'Народный герой':   ['Инструменты ремесла', 'Лопата', 'Горшок', 'Дорожная одежда'],
+  'Отшельник':        ['Свитки с заметками', 'Зимнее одеяло', 'Огниво'],
+  'Преступник':       ['Воровские инструменты', 'Тёмная одежда с капюшоном'],
+  'Скиталец':         ['Путевые дневники', 'Карты родной земли', 'Дорожные одежды'],
+  'Солдат':           ['Знак воинского звания', 'Трофей с врага', 'Кости', 'Дорожная одежда'],
+};
+
+const BG_GOLD = {
+  'Аколит': 15, 'Артист': 15, 'Беспризорник': 10, 'Благородный': 25,
+  'Гильдейский мастер': 15, 'Городская стража': 10, 'Жулик': 15,
+  'Матрос': 10, 'Мудрец': 10, 'Народный герой': 10, 'Отшельник': 5,
+  'Преступник': 15, 'Скиталец': 10, 'Солдат': 10,
+};
+
+const CLASS_GOLD = {
+  'Бард':         { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
+  'Варвар':       { formula: '2к4×10', rolls: 2, die: 4, mult: 10 },
+  'Воин':         { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
+  'Волшебник':    { formula: '4к4×10', rolls: 4, die: 4, mult: 10 },
+  'Друид':        { formula: '2к4×10', rolls: 2, die: 4, mult: 10 },
+  'Жрец':         { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
+  'Изобретатель': { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
+  'Колдун':       { formula: '4к4×10', rolls: 4, die: 4, mult: 10 },
+  'Монах':        { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
+  'Паладин':      { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
+  'Плут':         { formula: '4к4×10', rolls: 4, die: 4, mult: 10 },
+  'Следопыт':     { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
+  'Чародей':      { formula: '3к4×10', rolls: 3, die: 4, mult: 10 },
+};
+
+// ─── Equipment step ───────────────────────────────────────────────────────────
+
+function buildEquipStep(st, goMech) {
+  if (!st.mecEquipMode) st.mecEquipMode = 'standard';
+
+  const clsData  = CLASS_DATA.find(c => c.id === st.mecClass);
+  const clsName  = clsData?.name ?? null;
+  const bgName   = st.mecBackground ? st.mecBackground.split('::')[1] : null;
+
+  const classItems = clsName ? (CLASS_EQUIP[clsName] || []) : [];
+  const bgItems    = bgName  ? (BG_EQUIP[bgName]     || []) : [];
+  const bgGold     = bgName  ? (BG_GOLD[bgName]      ?? null) : null;
+  const goldInfo   = clsName ? (CLASS_GOLD[clsName]  ?? null) : null;
+
+  const bodyEl = el('div', { class: 'equip-scroll' });
+  const footEl = el('div', { class: 'mech-foot equip-foot' },
+    el('button', { class: 'cnew-save-btn', onClick: () => goMech('final') }, 'Далее → Финал'),
+  );
+
+  function renderBody() {
+    bodyEl.innerHTML = '';
+
+    if (st.mecEquipMode === 'standard') {
+      const moneyEl = el('div', { class: 'equip-money' },
+        bgGold !== null
+          ? el('span', { class: 'equip-money-val' }, `${bgGold} зм`)
+          : el('span', { class: 'equip-money-empty' }, bgName ? 'нет данных' : 'выберите предысторию'),
+        el('span', { class: 'equip-money-label' }, 'стартовые монеты'),
+      );
+
+      const clsSec = el('div', { class: 'equip-section' },
+        el('div', { class: 'equip-section-hd' },
+          el('span', { class: 'equip-section-source is-class' }, 'Класс'),
+          el('span', { class: 'equip-section-name' }, clsName ?? 'не выбран'),
+        ),
+        classItems.length
+          ? el('ul', { class: 'equip-items' }, ...classItems.map(i => el('li', {}, i)))
+          : el('p', { class: 'equip-empty' }, 'Выберите класс'),
+      );
+
+      const bgSec = el('div', { class: 'equip-section' },
+        el('div', { class: 'equip-section-hd' },
+          el('span', { class: 'equip-section-source is-bg' }, 'Предыстория'),
+          el('span', { class: 'equip-section-name' }, bgName ?? 'не выбрана'),
+        ),
+        bgItems.length
+          ? el('ul', { class: 'equip-items' }, ...bgItems.map(i => el('li', {}, i)))
+          : el('p', { class: 'equip-empty' }, 'Выберите предысторию'),
+      );
+
+      bodyEl.append(moneyEl, clsSec, bgSec, footEl);
+
+    } else {
+      const rolled = st.mecEquipGold !== null && st.mecEquipGold !== undefined;
+
+      const rollOrResult = rolled
+        ? el('div', { class: 'equip-money' },
+            el('span', { class: 'equip-money-val' }, `${st.mecEquipGold} зм`),
+            el('span', { class: 'equip-money-label' }, 'начальный капитал'),
+          )
+        : (() => {
+            const btn = el('button', { class: 'cnew-save-btn equip-roll-btn',
+              onClick: () => {
+                if (!goldInfo || rolled) return;
+                st.mecEquipGold = Array.from({ length: goldInfo.rolls },
+                  () => Math.floor(Math.random() * goldInfo.die) + 1
+                ).reduce((a, b) => a + b, 0) * goldInfo.mult;
+                scheduleSave(st);
+                renderBody();
+              },
+            }, '🎲 Бросить кубики');
+            if (!goldInfo) btn.disabled = true;
+            return btn;
+          })();
+
+      const goldBlock = el('div', { class: 'equip-gold-block' },
+        rollOrResult,
+        el('div', { class: 'equip-gold-hd' },
+          el('span', { class: 'equip-gold-label' }, 'Закуп'),
+          goldInfo ? el('span', { class: 'equip-gold-formula' }, goldInfo.formula + ' зм') : null,
+        ),
+      );
+
+      const wipBlock = el('div', { class: 'equip-wip-block' },
+        el('p', { class: 'equip-wip-title' }, 'Магазин снаряжения'),
+        el('p', { class: 'equip-wip-desc' }, 'В разработке'),
+      );
+
+      bodyEl.append(goldBlock, wipBlock, footEl);
+    }
+  }
+
+  const modeBar = el('div', { class: 'equip-mode-bar' },
+    ...['standard', 'buy'].map(m => {
+      const btn = el('button', {
+        class: `equip-mode-btn${st.mecEquipMode === m ? ' is-active' : ''}`,
+        onClick: () => {
+          st.mecEquipMode = m;
+          scheduleSave(st);
+          modeBar.querySelectorAll('.equip-mode-btn').forEach(b =>
+            b.classList.toggle('is-active', b.dataset.mode === m)
+          );
+          renderBody();
+        },
+      }, m === 'standard' ? 'Стандарт' : 'Закуп');
+      btn.dataset.mode = m;
+      return btn;
+    }),
+  );
+
+  renderBody();
+
+  return el('div', { class: 'mech-step-body' },
+    el('h2', { class: 'mech-step-title' }, 'Снаряжение'),
+    modeBar,
     bodyEl,
   );
 }

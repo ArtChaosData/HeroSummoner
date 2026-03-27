@@ -1259,6 +1259,232 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
 /* ── Random roll chip (same visual as std-chip, cursor indicates hover tip) ── */
 .stat-rnd-val { cursor: default; }
 
+/* ══════════════════════════════════════════
+   Equipment step
+══════════════════════════════════════════ */
+
+.equip-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.equip-scroll::-webkit-scrollbar { display: none; }
+
+/* Mode bar */
+.equip-mode-bar {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.equip-mode-btn {
+  background: var(--surface-2);
+  border: 1.5px solid var(--border-2);
+  border-radius: var(--r-md);
+  padding: 6px 18px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color var(--t-fast), color var(--t-fast), background var(--t-fast);
+}
+.equip-mode-btn.is-active {
+  border-color: var(--accent);
+  color: var(--accent-soft);
+  background: var(--surface-3);
+}
+
+/* Money block */
+.equip-money {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  padding: 12px 16px;
+}
+.equip-money-coin {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--gold-soft, #E8B84B);
+  background: rgba(232,184,75,.12);
+  border: 1px solid rgba(232,184,75,.3);
+  border-radius: var(--r-sm);
+  padding: 2px 6px;
+  text-transform: uppercase;
+}
+.equip-money-val {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--gold-soft, #E8B84B);
+  line-height: 1;
+}
+.equip-money-empty { font-size: 13px; color: var(--text-muted); font-style: italic; }
+.equip-money-label { font-size: 12px; color: var(--text-muted); }
+
+/* Equipment sections */
+.equip-section {
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.equip-section-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.equip-section-source {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+  flex-shrink: 0;
+}
+.equip-section-source.is-class {
+  color: var(--col-class);
+  background: color-mix(in srgb, var(--col-class) 12%, transparent);
+}
+.equip-section-source.is-bg {
+  color: var(--col-bg-s);
+  background: color-mix(in srgb, var(--col-bg-s) 12%, transparent);
+}
+.equip-section-name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.equip-items {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+}
+.equip-items li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding-left: 14px;
+  position: relative;
+}
+.equip-items li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--text-muted);
+}
+.equip-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+/* Buy mode — gold block */
+.equip-gold-block {
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.equip-gold-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.equip-gold-label {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.equip-gold-formula {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+.equip-gold-result {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.equip-gold-amount {
+  font-family: var(--font-display);
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--gold-soft, #E8B84B);
+  line-height: 1;
+}
+.equip-gold-unit {
+  font-size: 14px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.equip-roll-btn { align-self: flex-start; }
+
+/* Buy mode — WIP shop */
+.equip-wip-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px dashed var(--border-2);
+  border-radius: var(--r-lg);
+  padding: 40px 24px;
+  text-align: center;
+}
+.equip-wip-icon { font-size: 32px; opacity: 0.5; }
+.equip-wip-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.equip-wip-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Sticky footer inside equip scroll */
+.equip-foot {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  margin-top: 4px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.equip-foot .cnew-save-btn {
+  padding: 8px 32px;
+  font-size: 14px;
+}
+
 /* WIP placeholder */
 .cnew-wip {
   padding: 60px;
