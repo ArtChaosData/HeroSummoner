@@ -24,6 +24,13 @@ function freshState() {
     mecRace:       null,
     mecSubrace:    null,
     mecBackground: null,
+    mecStats:       { str:8, dex:8, con:8, int:8, wis:8, cha:8 },
+    mecChosen:      [],
+    mecStatMethod:  'pointbuy',
+    mecStdAssign:   {},
+    mecRolls:       [],
+    mecRollAssign:  {},
+    mecBgChoiceData: {},
   };
 }
 
@@ -485,7 +492,7 @@ function buildMechProgress(st, goMech, magic) {
   const maxIdx = st.mecMaxStep || 0;
   return el('nav', { class: 'mech-progress' },
     ...steps.flatMap((s, i) => {
-      const reachable = i <= maxIdx;
+      const reachable = i <= maxIdx && (s.id !== 'stats' || st.mecBgOk !== false);
       const cls = 'mech-step' + (i === cur ? ' is-current' : reachable ? ' is-past' : ' is-future');
       const attrs = { class: cls };
       if (!reachable) attrs.disabled = 'true';
@@ -604,6 +611,7 @@ function buildMechanics(st, go, container) {
         : st.mecStep === 'class'      ? buildClassStep(st, goMech)
         : st.mecStep === 'race'       ? buildRaceStep(st, goMech)
         : st.mecStep === 'background' ? buildBackgroundStep(st, goMech)
+        : st.mecStep === 'stats'      ? buildStatsStep(st, goMech)
         : el('div', { class: 'cnew-wip' }, st.mecStep + ' — скоро'),
     ),
   );
@@ -828,84 +836,110 @@ const RACE_DATA = {
 
 // ─── Background data ──────────────────────────────────────────────────────────
 
+const LANGUAGES   = ['Бездны','Великанский','Гномский','Гоблинский','Глубокая речь','Дварфский','Драконий','Инфернальный','Небесный','Орочий','Первозданный','Полуросликов','Сильван','Общий Подземья','Эльфийский'];
+const INSTRUMENTS = ['Барабан','Виола','Волынка','Лира','Лютня','Рог','Скрипка','Флейта','Цимбалы','Шалмей'];
+const GAMING_SETS = ['Игральные кости','Карты','Три Дракона Анти','Шахматы Дракона'];
+const ARTISAN_TOOLS = ['Инструменты алхимика','Инструменты бондаря','Инструменты гончара','Инструменты кожевника','Инструменты кузнеца','Инструменты каллиграфа','Инструменты каменщика','Инструменты плотника','Инструменты повара','Инструменты пивовара','Инструменты резчика','Инструменты сапожника','Инструменты стеклодува','Инструменты ткача','Инструменты ювелира'];
+
+function bgChoiceOptions(type) {
+  if (type === 'language')   return LANGUAGES;
+  if (type === 'instrument') return INSTRUMENTS;
+  if (type === 'gaming')     return GAMING_SETS;
+  if (type === 'artisan')    return ARTISAN_TOOLS;
+  return [];
+}
+
 const BACKGROUND_DATA = {
   PHB: [
     {
       name: 'Аколит',
       skills: 'Проницательность, Религия',
-      extra: 'Языки: 2 по выбору',
+      equipment: 'Символ священного заступника, молитвенник или 5 палочек благовоний, набор облачения, простая одежда, кошель с 15 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 2 }],
       desc: 'Вы провели годы, служа в храме — помогали жрецам проводить ритуалы, ухаживали за святилищем и наставляли верующих. Годы смиренного служения сформировали вашу веру, и теперь вы несёте свет избранного пантеона в широкий мир. Боги вашего храма готовы бесплатно оказывать вам лечебную помощь, а вы можете найти пристанище в любом храме, связанном с вашей верой.',
     },
     {
       name: 'Артист',
       skills: 'Акробатика, Выступление',
-      extra: 'Инструменты: один музыкальный инструмент, набор для грима',
+      equipment: 'Подарок от поклонника, маскировочный костюм, набор для грима, кошель с 15 зм',
+      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }],
       desc: 'Вы умеете привлекать к себе внимание и развлекать толпу. Музыка, акробатика, поэзия или театральное искусство — вы мастер своего дела. Выступая в тавернах, на ярмарках и при дворах знати, вы завоевали поклонников и связи. Артисты и развлекатели могут принять вас и оказать помощь, а публика охотно бросает монеты к вашим ногам.',
     },
     {
       name: 'Беспризорник',
       skills: 'Ловкость рук, Скрытность',
-      extra: 'Инструменты: воровские инструменты, набор для грима',
+      equipment: 'Небольшой нож, карта родного города, домашняя крыса, одежда бедняка, набор для грима, воровские инструменты, кошель с 10 зм',
+      choices: [],
       desc: 'Вы выросли на улицах города без семьи и крова, научившись выживать там, где другие погибли бы. Улица научила вас двигаться незаметно, находить пропитание и ценить каждое убежище. Вы знаете тайные ходы и переулки знакомого города, а среди уличного люда всегда найдёте кров и кусок хлеба в обмен на мелкую услугу.',
     },
     {
       name: 'Благородный',
       skills: 'История, Убеждение',
-      extra: 'Инструменты: один игровой набор. Языки: 1 по выбору',
+      equipment: 'Комплект отличной одежды, кольцо с гербом, свиток родословной, кошель с 25 зм',
+      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы выросли среди богатства, власти и привилегий. Ваша семья владеет землями, имеет авторитет при дворе и поколениями влияет на судьбы региона. Вы знаете придворный этикет, умеете вести себя среди знати и привыкли к тому, что люди обращают внимание на ваш титул. Ваши знакомства открывают двери туда, куда простолюдинам вход закрыт.',
     },
     {
       name: 'Гильдейский мастер',
       skills: 'Проницательность, Убеждение',
-      extra: 'Инструменты: один ремесленный инструмент по выбору. Языки: 1 по выбору',
+      equipment: 'Рекомендательное письмо от гильдии, комплект одежды мастера, кошель с 15 зм',
+      choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы — опытный мастер своего ремесла и полноправный член торговой или ремесленной гильдии. Гильдия — ваша семья: она обеспечивает работу, защиту и социальные связи. В любом городе, где есть отделение вашей гильдии, вы можете рассчитывать на бесплатный ночлег и помощь соратников. Гильдия также поможет с юридической защитой, если дело дойдёт до суда.',
     },
     {
       name: 'Жулик',
       skills: 'Обман, Ловкость рук',
-      extra: 'Инструменты: набор для грима, набор мошенника',
+      equipment: 'Набор отличной одежды, набор для грима, набор инструментов мошенника, кошель с 15 зм',
+      choices: [],
       desc: 'Вы всегда умели видеть слабости людей и использовать их в своих целях. Фальшивые личности, ловкий язык, убедительная ложь — всё это ваши главные инструменты. Возможно, вы торговали поддельными снадобьями, продавали "уникальные реликвии" или просто обчищали карманы зазевавшихся богачей. У вас всегда есть запасная легенда, а подобные вам мошенники готовы укрыть вас и передать весточку без лишних вопросов.',
     },
     {
       name: 'Матрос',
       skills: 'Атлетика, Восприятие',
-      extra: 'Инструменты: навигационные инструменты, транспортные средства (водные)',
+      equipment: '50 футов шёлкового каната, сувенир на удачу, навигационные инструменты, общая одежда, кошель с 10 зм',
+      choices: [],
       desc: 'Вы провели годы на море: на торговом судне, рыбацкой шхуне или военном корабле. Жизнь под парусом закалила тело, обострила чувства и научила работать в команде. Вы умеете читать ветер, предсказывать погоду и найдёте общий язык с любым моряком. В портовых городах вам без труда найдётся попутное судно, а морские кабаки встретят вас как своего.',
     },
     {
       name: 'Мудрец',
       skills: 'История, Магия',
-      extra: 'Языки: 2 по выбору',
+      equipment: 'Бутылочка чернил, перо, небольшой нож, письмо от коллеги с неотвеченным вопросом, записная книжка, мешок с 10 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 2 }],
       desc: 'Вы провели годы, погружённых в книги, свитки и манускрипты в поисках знаний о мире. Библиотеки, академии и архивы были вашим домом. Вы изучали историю, магию, естественные науки или богословие — а может быть, всё сразу. Другие учёные и исследователи готовы делиться с вами знаниями в обмен на ваши, а любая крупная библиотека, вероятно, хранит труды, к которым вы имеете доступ.',
     },
     {
       name: 'Народный герой',
       skills: 'Уход за животными, Выживание',
-      extra: 'Инструменты: один ремесленный инструмент, транспортные средства (наземные)',
+      equipment: 'Лопата, котёл для готовки, транспортные средства (наземные), общая одежда, кошель с 10 зм',
+      choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1 }],
       desc: 'Вы — простой человек из простой семьи, но однажды судьба поставила вас перед выбором, и вы поступили правильно. Теперь люди из вашей деревни или округи смотрят на вас как на заступника и надеются, что вы защитите их от тирании и зла. Простые крестьяне и ремесленники рады помочь вам: спрятать, накормить, передать весть, — ведь вы один из них.',
     },
     {
       name: 'Отшельник',
       skills: 'Медицина, Религия',
-      extra: 'Инструменты: набор для трав. Языки: 1 по выбору',
+      equipment: 'Принадлежности для рукоделия, дневник в кожаной обложке, набор трав, зимняя одежда, кошель с 5 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 1 }],
       desc: 'Долгие годы вы провели в уединении вдали от общества — в монастырской келье, лесной хижине или пещере. Одиночество давало вам время для размышлений, молитвы или исследований. Быть может, вы искали ответы на великие вопросы, бежали от преследования или несли суровое покаяние. Теперь за вами стоит открытие или понимание, изменившее ваш взгляд на мир.',
     },
     {
       name: 'Преступник',
       skills: 'Обман, Скрытность',
-      extra: 'Инструменты: один игровой набор, воровские инструменты',
+      equipment: 'Ломик, тёмная одежда с капюшоном, воровские инструменты, кошель с 15 зм',
+      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }],
       desc: 'До приключений вы нарушали закон — и довольно успешно. Кражи, контрабанда, шантаж или убийства на заказ: у вас за плечами богатый опыт незаконной деятельности. Вы знаете, как связаться с фехтовальщиками краденого, скупщиками информации и другими преступниками. Члены воровских гильдий и уличных банд, как правило, относятся к вам с уважением — или по меньшей мере не мешают.',
     },
     {
       name: 'Скиталец',
       skills: 'Атлетика, Выживание',
-      extra: 'Инструменты: один музыкальный инструмент. Языки: 1 по выбору',
+      equipment: 'Посох, охотничий капкан, трофей убитого животного, дорожная одежда, кошель с 10 зм',
+      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы выросли вдали от цивилизации — в лесах, тундре, степях или горах. Дикая природа была вашим домом, а племя или семья — всем миром. Вы умеете выживать там, где городской житель обречён на гибель: находить пропитание, строить укрытие и ориентироваться без карт. Люди племён и охотники встретят вас как своего, если вы разделите их обычаи.',
     },
     {
       name: 'Солдат',
       skills: 'Атлетика, Запугивание',
-      extra: 'Инструменты: один игровой набор, транспортные средства (наземные)',
+      equipment: 'Значок воинского звания, трофей с поверженного врага, транспортные средства (наземные), обычная одежда, кошель с 10 зм',
+      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }],
       desc: 'Вы долгие годы служили в армии — регулярных войсках, городской страже или наёмном отряде. Война научила вас дисциплине, тактике и тому, как выжить в хаосе битвы. У вас есть звание и послужной список: солдаты и ветераны признают в вас своего, офицеры уважают ваш опыт, а военные лагеря и гарнизоны готовы принять вас.',
     },
   ],
@@ -913,67 +947,82 @@ const BACKGROUND_DATA = {
     {
       name: 'Городская стража',
       skills: 'Атлетика, Проницательность',
-      extra: 'Языки: 2 по выбору',
+      equipment: 'Эмблема городской стражи, манускрипт с городским уставом, обычная одежда, кошель с 10 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 2 }],
       desc: 'Вы служили в городской страже или дозоре, охраняя покой мирных жителей от преступников и монстров. Годы патрулирования улиц научили вас читать людей, замечать подозрительное поведение и действовать решительно. Вы знаете, как работают силы правопорядка в большинстве городов, и представители власти склонны прислушиваться к вам.',
     },
     {
       name: 'Клановый мастер',
       skills: 'История, Проницательность',
-      extra: 'Инструменты: ремесленные инструменты. Языки: 1 по выбору',
+      equipment: 'Памятный предмет из дома клана, обычная одежда, кошель с 5 зм',
+      choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы выросли в клане гномов-мастеров или иного народа с богатыми традициями ремесла. Ваши изделия — предмет гордости клана, а секреты мастерства передавались из рук в руки поколениями. Вы умеете ценить качественную работу и сразу видите, когда мастер халтурит. Гномские кланы-мастера повсюду примут вас как равного и помогут с торговыми контактами.',
     },
     {
       name: 'Монастырский учёный',
       skills: 'История + 1 из: Магия, Природа, Религия',
-      extra: 'Языки: 2 по выбору',
+      equipment: 'Письмо о принятии в монастырь, записная книжка, перо и чернила, обычная одежда, кошель с 10 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 2 }],
       desc: 'Вы получили образование в монастырском скриптории или академическом хранилище знаний — месте, где книги переписывались вручную и тщательно охранялись. Вы усвоили строгую методологию и доступ к редким источникам. Учёные заведения обычно готовы предоставить вам доступ к архивам в обмен на помощь с исследованиями, а академики относятся к вам как к коллеге.',
     },
     {
       name: 'Придворный',
       skills: 'Проницательность, Убеждение',
-      extra: 'Языки: 2 по выбору',
+      equipment: 'Комплект придворной одежды, рекомендательное письмо ко двору, кошель с 5 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 2 }],
       desc: 'Вы вращались при королевском или герцогском дворе, постигая тонкости дипломатии, интриг и этикета. Придворная жизнь научила вас читать политические течения, выбирать слова с ювелирной точностью и никогда не показывать истинных намерений. Дворяне и чиновники знакомы с вашим типом: они готовы принять вас на аудиенции там, куда обычный человек не попадёт.',
     },
     {
       name: 'Дальний странник',
       skills: 'Восприятие + 1 по выбору',
-      extra: 'Инструменты или языки: 1 по выбору. Языки: 1 по выбору',
+      equipment: 'Путевые вещи, реликвия из далёкого дома, записная книжка, кошель с 5 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Инструмент/набор', type: 'instrument', count: 1 }],
       desc: 'Вы пришли из страны настолько далёкой, что большинство людей здесь никогда о ней не слышали. Ваш акцент, одежда и обычаи выдают в вас чужеземца, вызывая у людей смесь восхищения и подозрения. Вы сохранили связи с теми, кто путешествует между мирами и народами, — торговцами дальних маршрутов, дипломатами, лазутчиками.',
     },
     {
       name: 'Наследник',
       skills: 'Выживание + 1 по выбору',
-      extra: 'Инструменты: игровой набор или музыкальный инструмент. Языки: 1 по выбору',
+      equipment: 'Предмет наследства (согласуется с DM), путевая одежда, кошель с 15 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Игровой набор', type: 'gaming', count: 1 }],
       desc: 'Вы унаследовали нечто ценное — старинный артефакт, долг, миссию или тайну. Это наследство определяет ваш путь и не даёт вам покоя. Быть может, вы единственный, кто знает о нём, или, напротив, многие хотят забрать его у вас силой. Те, кто связан с вашим наследством, могут стать союзниками или врагами.',
     },
     {
       name: 'Рыцарь ордена',
       skills: 'Убеждение + 1 по выбору',
-      extra: 'Инструменты: 1 по выбору. Языки: 1 по выбору',
+      equipment: 'Символ ордена, путевая одежда, кошель с 10 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Игровой набор', type: 'gaming', count: 1 }],
       desc: 'Вы посвящены в рыцарский или религиозный орден, преследующий особые цели: защиту слабых, уничтожение зла или охрану реликвий. Орден обеспечивает вас братством, ресурсами и кровом в подконтрольных ему местах. Взамен вы несёте его символ и обязаны блюсти устав. Члены ордена относятся к вам как к брату, а простые люди нередко чтят вашу принадлежность к нему.',
     },
     {
-      name: 'Ветеран наёмника',
+      name: 'Ветеран наёмник',
       skills: 'Атлетика, Убеждение',
-      extra: 'Инструменты: один игровой набор, транспортные средства (наземные)',
+      equipment: 'Знак воинского звания, значок отряда, выбранный игровой набор, обычная одежда, кошель с 10 зм',
+      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }],
       desc: 'Вы продавали меч тому, кто платил больше, сражаясь в разных армиях и под разными знамёнами. Наёмная жизнь научила вас оценивать нанимателей, не задавать лишних вопросов и знать, когда пора уходить. Другие ветераны наёмных отрядов узнают вас по манере держаться и охотно делятся слухами о контрактах и войнах.',
     },
     {
       name: 'Городской охотник',
       skills: '3 из: Обман, Скрытность, Проницательность, Убеждение',
-      extra: 'Инструменты: 1 по выбору',
+      equipment: 'Подходящая одежда, кошель с 20 зм',
+      choices: [{ type: 'pick2of3', label: '2 из 3 на выбор:', options: [
+        { label: 'Игровой набор',      type: 'gaming' },
+        { label: 'Муз. инструмент',    type: 'instrument' },
+        { label: 'Вор. инструменты',   type: 'fixed', value: 'Воровские инструменты' },
+      ]}],
       desc: 'Вы охотились за беглецами и разыскиваемыми преступниками в городских трущобах. Ваша работа требовала терпения, умения вживаться в образ и готовности действовать грязными методами. Вы знаете, как найти нужного человека в мегаполисе, а сеть информаторов — таверщики, уличные торговцы, прачки — готова сообщить о передвижениях за небольшую плату.',
     },
     {
       name: 'Член племени Угтардов',
       skills: 'Атлетика, Выживание',
-      extra: 'Инструменты: один музыкальный инструмент. Языки: 1 по выбору',
+      equipment: 'Охотничий трофей, дорожная одежда, кошель с 10 зм',
+      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы выросли в одном из кочевых племён Угтардов — варварского народа севера Фаэруна, хранящего память о своих предках-великанах. Охота, набеги и жизнь под открытым небом — вот что сформировало вас. Угтарды уважают силу и чтут предков: вы знаете ритуалы, которые позволят вам найти приют у любого отделившегося племени на Севере.',
     },
     {
       name: 'Дворянин Уотердипа',
       skills: 'История, Убеждение',
-      extra: 'Инструменты: один игровой набор. Языки: 2 по выбору',
+      equipment: 'Комплект отличной одежды, рекомендательное письмо, кошель с 20 зм',
+      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }, { label: 'Язык', type: 'language', count: 2 }],
       desc: 'Вы происходите из одной из благородных семей Уотердипа — богатейшего торгового города Побережья Мечей. Ваши связи в городе открывают двери в советы лордов, купеческие клубы и тайные ложи. За пределами Уотердипа ваш титул значит меньше, зато золото и письма с рекомендациями заменяют его с лихвой.',
     },
   ],
@@ -981,19 +1030,22 @@ const BACKGROUND_DATA = {
     {
       name: 'Агент Азория',
       skills: 'Проницательность, Убеждение',
-      extra: 'Языки: 2 по выбору',
+      equipment: 'Форменная одежда чиновника, набор чернил и пера, кошель с 10 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 2 }],
       desc: 'Вы служили в рядах гильдии Азорий — законодательного совета Равники, пишущего законы и толкующего их в судах. Вы хорошо знаете букву закона и умеете использовать её в своих целях. Члены гильдии окажут вам правовую помощь, а в суде у вас есть шанс получить снисхождение, если вы готовы апеллировать к нужным статутам.',
     },
     {
       name: 'Культист Груула',
       skills: 'Атлетика, Запугивание',
-      extra: 'Инструменты: один музыкальный инструмент',
+      equipment: 'Ритуальный тотем, оружие с клановыми надписями, путевая одежда, кошель с 10 зм',
+      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }],
       desc: 'Вы принадлежите к дикарским кланам Груул — разрушителей цивилизации, живущих в руинах на краю Равники. Цивилизация для вас — тюрьма, а дикость — освобождение. Члены кланов Груул примут вас в лагере и поделятся пищей, а животные Диких земель чувствуют в вас родственную душу.',
     },
     {
       name: 'Дитя Диммира',
       skills: 'Обман, Скрытность',
-      extra: 'Языки: 2 по выбору',
+      equipment: 'Тёмный плащ, набор для грима, кошель с 15 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 2 }],
       desc: 'Вы выросли в тенях гильдии Диммир — культа теней и секретов, торгующего информацией и плетущего заговоры. Вас приучили хранить тайны, использовать псевдонимы и никому не доверять полностью. Шпионы Диммира передадут вам засекреченные сведения, если сочтут это выгодным для гильдии.',
     },
   ],
@@ -1001,13 +1053,15 @@ const BACKGROUND_DATA = {
     {
       name: 'Преследуемый',
       skills: 'Медицина, Скрытность',
-      extra: 'Инструменты: один игровой набор или музыкальный инструмент. Языки: 1 по выбору',
+      equipment: 'Амулет с именем любимого человека, одежда с последнего мирного дня, кошель с 1 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Игровой набор', type: 'gaming', count: 1 }],
       desc: 'Вы пережили нечто ужасное — нападение монстра, контакт с тёмной магией или трагедию, оставившую след на вашей душе. Кошмары не дают вам покоя, а странные видения порой смешиваются с реальностью. Те, кто также прошёл через ужасы, видят в вас своего и готовы укрыть вас — ведь вы знаете, что значит бояться темноты.',
     },
     {
       name: 'Следователь',
       skills: 'Медицина + 1 по выбору',
-      extra: 'Инструменты: 1 по выбору. Языки: 1 по выбору',
+      equipment: 'Записная книжка со старыми заметками, чернила и перо, обычная одежда, кошель с 10 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Инструмент', type: 'artisan', count: 1 }],
       desc: 'Вы методично распутываете тайны: ищете улики, опрашиваете свидетелей и выстраиваете картину произошедшего из разрозненных фрагментов. Вас нанимали для расследования преступлений, исчезновений или сверхъестественных явлений. Информаторы, библиотекари и репортёры охотно общаются с вами — каждый надеется на свою выгоду от вашего расследования.',
     },
   ],
@@ -1015,7 +1069,8 @@ const BACKGROUND_DATA = {
     {
       name: 'Работник балагана',
       skills: 'Акробатика, Обман',
-      extra: 'Инструменты: набор для грима или один музыкальный инструмент',
+      equipment: 'Маскировочный костюм, набор для грима, путевая одежда, кошель с 8 зм',
+      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }],
       desc: 'Вы работали в Балагане Диковин Лускин — таинственном фейском передвижном цирке, путешествующем между мирами. Акробат, дрессировщик, иллюзионист или просто разнорабочий — вы видели чудеса, недоступные смертным. Сотрудники балагана по всему Мультивселенной узнают вас по особому жесту и окажут мелкую помощь.',
     },
   ],
@@ -1130,6 +1185,92 @@ function buildRaceStep(st, goMech) {
   );
 }
 
+// ─── Background multiselect helper ───────────────────────────────────────────
+
+function buildBgMultiSel({ label, max, maxPerGroup, groups, onChange, initialSelected = [] }) {
+  const mpg = maxPerGroup !== undefined ? maxPerGroup : (groups.length > 1 ? 1 : max);
+  const sel = new Map(groups.map((_, i) => [i, new Set()]));
+  const allItems = []; // { el, groupIdx, key }
+
+  const triggerText = document.createElement('span');
+  triggerText.textContent = label;
+  const triggerArrow = el('span', { class: 'mech-bg-ms-arrow' }, '▾');
+  const trigger = el('button', { class: 'mech-bg-ms-trigger' }, triggerText, triggerArrow);
+  const panel   = el('div',   { class: 'mech-bg-ms-panel' });
+  panel.hidden  = true;
+
+  function totalSelected() {
+    let n = 0; sel.forEach(s => n += s.size); return n;
+  }
+
+  function refreshState() {
+    const total = totalSelected();
+    allItems.forEach(({ el: ie, groupIdx, key }) => {
+      const groupSel = sel.get(groupIdx);
+      const isChecked = groupSel.has(key);
+      ie.classList.toggle('is-checked', isChecked);
+      ie.querySelector('.mech-bg-ms-check').textContent = isChecked ? '✓' : '';
+      ie.classList.toggle('is-disabled', !isChecked && (groupSel.size >= mpg || total >= max));
+    });
+    const names = [];
+    const allKeys = [];
+    sel.forEach(s => s.forEach(k => { names.push(k.split('::').slice(1).join('::')); allKeys.push(k); }));
+    triggerText.textContent = names.length ? names.join(', ') : label;
+    if (onChange) onChange(total, allKeys);
+  }
+
+  groups.forEach((grp, gi) => {
+    const opts = grp.type === 'fixed' ? [grp.value] : bgChoiceOptions(grp.type);
+    panel.append(el('div', { class: 'mech-bg-ms-group' }, grp.label));
+    opts.forEach(o => {
+      const key     = `${grp.type}::${o}`;
+      const checkEl = el('span', { class: 'mech-bg-ms-check' });
+      const itemEl  = el('div', { class: 'mech-bg-ms-item' }, checkEl, el('span', {}, o));
+      itemEl.addEventListener('click', () => {
+        const groupSel = sel.get(gi);
+        if (groupSel.has(key)) { groupSel.delete(key); }
+        else if (groupSel.size < mpg && totalSelected() < max) { groupSel.add(key); }
+        refreshState();
+      });
+      allItems.push({ el: itemEl, groupIdx: gi, key });
+      panel.append(itemEl);
+    });
+  });
+
+  // Restore initial selections silently (no onChange)
+  if (initialSelected.length) {
+    initialSelected.forEach(key => {
+      const item = allItems.find(it => it.key === key);
+      if (!item) return;
+      const groupSel = sel.get(item.groupIdx);
+      if (groupSel.size < mpg && totalSelected() < max) groupSel.add(key);
+    });
+    allItems.forEach(({ el: ie, groupIdx, key }) => {
+      const groupSel = sel.get(groupIdx);
+      const isChecked = groupSel.has(key);
+      ie.classList.toggle('is-checked', isChecked);
+      ie.querySelector('.mech-bg-ms-check').textContent = isChecked ? '✓' : '';
+      ie.classList.toggle('is-disabled', !isChecked && (groupSel.size >= mpg || totalSelected() >= max));
+    });
+    const initNames = [];
+    sel.forEach(s => s.forEach(k => initNames.push(k.split('::').slice(1).join('::'))));
+    triggerText.textContent = initNames.length ? initNames.join(', ') : label;
+  }
+
+  trigger.addEventListener('click', e => {
+    e.stopPropagation();
+    panel.hidden = !panel.hidden;
+    triggerArrow.style.transform = panel.hidden ? '' : 'rotate(180deg)';
+  });
+
+  const wrap = el('div', { class: 'mech-bg-ms-wrap' }, trigger, panel);
+  document.addEventListener('click', e => {
+    if (!wrap.contains(e.target)) { panel.hidden = true; triggerArrow.style.transform = ''; }
+  });
+
+  return wrap;
+}
+
 // ─── Background step ──────────────────────────────────────────────────────────
 
 function buildBackgroundStep(st, goMech) {
@@ -1154,28 +1295,101 @@ function buildBackgroundStep(st, goMech) {
       badge.addEventListener('mouseleave', hideSrcTip);
     }
 
+    // Equipment label with tooltip
+    const eqLabel = el('span', { class: 'mech-bg-eq-label' }, 'Стартовое снаряжение');
+    eqLabel.addEventListener('mouseenter', e => showSrcTip(e, {
+      name: '',
+      desc: 'Персонаж возьмёт с собой эти вещи в приключение, если вы не решите закупить снаряжение самостоятельно',
+    }));
+    eqLabel.addEventListener('mouseleave', hideSrcTip);
+
+    // Choice rows — with completion tracking
+    const checkers = [];
+    const hintEl  = el('p', { class: 'mech-bg-foot-hint', hidden: true }, 'Заполните все выборы, чтобы продолжить');
+    const nextBtn  = el('button', { class: 'cnew-save-btn', onClick: () => goMech('stats') }, 'Далее → Характеристики');
+    const recheckFoot = () => {
+      const ok = checkers.length === 0 || checkers.every(fn => fn());
+      nextBtn.disabled = !ok;
+      hintEl.hidden = ok;
+      st.mecBgOk = ok;
+    };
+
+    if (!st.mecBgChoiceData) st.mecBgChoiceData = {};
+    let choiceIdx = 0;
+    const choiceEls = (bgObj.choices || []).flatMap(ch => {
+      const ci = choiceIdx++;
+      if (ch.type === 'pick2of3') {
+        const saved = st.mecBgChoiceData[ci] || [];
+        let cnt = saved.length;
+        checkers.push(() => cnt >= 2);
+        return [buildBgMultiSel({ label: ch.label, max: 2, maxPerGroup: 1, groups: ch.options,
+          initialSelected: saved,
+          onChange: (n, keys) => { cnt = n; st.mecBgChoiceData[ci] = keys; recheckFoot(); } })];
+      }
+      if (ch.count >= 2) {
+        const saved = st.mecBgChoiceData[ci] || [];
+        let cnt = saved.length;
+        checkers.push(() => cnt >= ch.count);
+        return [buildBgMultiSel({
+          label: ch.label + ' × ' + ch.count,
+          max: ch.count,
+          groups: [{ label: ch.label, type: ch.type }],
+          initialSelected: saved,
+          onChange: (n, keys) => { cnt = n; st.mecBgChoiceData[ci] = keys; recheckFoot(); },
+        })];
+      }
+      const savedVal = st.mecBgChoiceData[ci] || '';
+      let chosen = !!savedVal;
+      checkers.push(() => chosen);
+      const selEl = el('select', { class: 'mech-bg-select' },
+        el('option', { value: '' }, '— выберите —'),
+        ...bgChoiceOptions(ch.type).map(o => el('option', { value: o }, o)),
+      );
+      selEl.value = savedVal;
+      selEl.addEventListener('change', () => {
+        chosen = !!selEl.value;
+        st.mecBgChoiceData[ci] = selEl.value;
+        recheckFoot();
+      });
+      return [el('div', { class: 'mech-bg-row' },
+        el('span', { class: 'mech-bg-row-label' }, ch.label),
+        selEl,
+      )];
+    });
+
+    recheckFoot();
+    footEl.innerHTML = '';
+    footEl.append(nextBtn);
+
     detailEl.append(
       el('div', { class: 'mech-cls-header' },
         el('h3', { class: 'mech-cls-name' }, bgObj.name),
         badge,
       ),
       el('p', { class: 'mech-cls-desc' }, bgObj.desc),
-      el('p', { class: 'mech-cls-rp rp-1' }, 'Навыки: ' + bgObj.skills),
-      el('p', { class: 'mech-cls-rp rp-1' }, bgObj.extra),
+      el('div', { class: 'mech-bg-section' },
+        eqLabel,
+        el('p', { class: 'mech-bg-eq-text' }, bgObj.equipment),
+      ),
+      el('div', { class: 'mech-bg-row' },
+        el('span', { class: 'mech-bg-row-label' }, 'Навыки'),
+        el('span', { class: 'mech-bg-row-value' }, bgObj.skills),
+      ),
+      ...choiceEls,
+      hintEl,
     );
   }
 
   function selectBg(srcId, bgName) {
     const key = `${srcId}::${bgName}`;
+    if (st.mecBackground !== key) st.mecBgChoiceData = {};
     st.mecBackground = key;
+    st.mecBgOk = false;
     scheduleSave(st);
     listEl.querySelectorAll('.mech-cls-item').forEach(b =>
       b.classList.toggle('is-selected', b.dataset.key === key)
     );
     updateDetail();
-    if (!footEl.querySelector('.cnew-save-btn')) {
-      footEl.append(el('button', { class: 'cnew-save-btn', onClick: () => goMech('stats') }, 'Далее → Характеристики'));
-    }
   }
 
   // PHB is always included; other books only if selected
@@ -1220,6 +1434,405 @@ function buildBackgroundStep(st, goMech) {
     el('h2', { class: 'mech-step-title' }, 'Выберите предысторию'),
     el('div', { class: 'mech-cls-layout' }, el('div', { class: 'mech-list-wrap' }, listEl), detailEl),
     footEl,
+  );
+}
+
+// ─── Stats step data ──────────────────────────────────────────────────────────
+
+const PB_MIN  = 8;
+const PB_MAX  = 15;
+const PB_POOL = 27;
+const PB_COST = { 8:0, 9:1, 10:2, 11:3, 12:4, 13:5, 14:7, 15:9 };
+
+const ABILITIES = [
+  { key:'str', label:'Сила' },
+  { key:'dex', label:'Ловкость' },
+  { key:'con', label:'Телосложение' },
+  { key:'int', label:'Интеллект' },
+  { key:'wis', label:'Мудрость' },
+  { key:'cha', label:'Харизма' },
+];
+
+const SKILLS_BY_AB = {
+  str: ['Атлетика'],
+  dex: ['Акробатика', 'Ловкость рук', 'Скрытность'],
+  con: [],
+  int: ['История', 'Магия', 'Природа', 'Расследование', 'Религия'],
+  wis: ['Восприятие', 'Выживание', 'Медицина', 'Проницательность', 'Уход за животными'],
+  cha: ['Выступление', 'Запугивание', 'Обман', 'Убеждение'],
+};
+
+const STAT_CLASSES = {
+  'Бард':         { saves:['dex','cha'], count:3, list:null },
+  'Варвар':       { saves:['str','con'], count:2, list:['Атлетика','Восприятие','Природа','Запугивание','Уход за животными','Выживание'] },
+  'Воин':         { saves:['str','con'], count:2, list:['Акробатика','Атлетика','История','Восприятие','Уход за животными','Запугивание','Выживание'] },
+  'Волшебник':    { saves:['int','wis'], count:2, list:['История','Магия','Природа','Расследование','Медицина','Религия'] },
+  'Друид':        { saves:['int','wis'], count:2, list:['Магия','Медицина','Природа','Восприятие','Религия','Уход за животными','Выживание'] },
+  'Жрец':         { saves:['wis','cha'], count:2, list:['История','Магия','Медицина','Религия','Убеждение'] },
+  'Изобретатель': { saves:['con','int'], count:2, list:['История','Магия','Медицина','Природа','Расследование','Восприятие','Ловкость рук'] },
+  'Колдун':       { saves:['wis','cha'], count:2, list:['История','Магия','Обман','Запугивание','Природа','Религия'] },
+  'Монах':        { saves:['str','dex'], count:2, list:['Акробатика','Атлетика','История','Магия','Религия','Скрытность'] },
+  'Паладин':      { saves:['wis','cha'], count:2, list:['Атлетика','История','Магия','Медицина','Религия','Убеждение'] },
+  'Плут':         { saves:['dex','int'], count:4, list:['Акробатика','Атлетика','Восприятие','Обман','Запугивание','Расследование','Ловкость рук','Магия','Скрытность','Убеждение','Выступление'] },
+  'Следопыт':     { saves:['str','dex'], count:3, list:['Атлетика','Восприятие','Магия','Природа','Скрытность','Уход за животными','Выживание'] },
+  'Чародей':      { saves:['con','cha'], count:2, list:['История','Магия','Обман','Запугивание','Расследование','Религия','Убеждение'] },
+};
+
+const STAT_RACE_ASI = {
+  'Дварф':     { con:2 },        'Эльф':      { dex:2 },
+  'Полурослик':{ dex:2 },        'Человек':   { str:1,dex:1,con:1,int:1,wis:1,cha:1 },
+  'Драконид':  { str:2,cha:1 },  'Гном':      { int:2 },
+  'Полуэльф':  { cha:2 },        'Полуорк':   { str:2,con:1 },
+  'Тифлинг':   { int:1,cha:2 },  'Голиаф':    { str:2,con:1 },
+  'Аасимар':   { cha:2 },        'Фирболг':   { wis:2,str:1 },
+  'Кенку':     { dex:2,wis:1 },  'Тритон':    { str:1,con:1,cha:1 },
+  'Юань-Ти':   { int:1,cha:2 },  'Табакси':   { dex:2,cha:1 },
+  'Ящеролюд':  { con:2,int:1 },  'Орк':       { str:2,con:1 },
+  'Кобольд':   { dex:2 },        'Гитьянки':  { str:2,int:1 },
+  'Гитзерай':  { dex:2,wis:1 },  'Дуэргар':   { con:2,str:1 },
+};
+
+const STAT_SUBRACE_ASI = {
+  'Горный':    { str:2 }, 'Холмовой':  { wis:1 },
+  'Высший':    { int:1 }, 'Лесной':    { wis:1 }, 'Дроу':     { cha:1 },
+  'Легконогий':{ cha:1 }, 'Крепкий':   { con:1 },
+  'Каменный':  { con:1 },
+  'Защитник':  { wis:1 }, 'Каратель':  { str:1 }, 'Падший':   { str:1 },
+  'Весенний':  { dex:1,cha:1 }, 'Летний':  { str:1,dex:1 },
+  'Осенний':   { con:1,wis:1 }, 'Зимний':  { int:1,wis:1 },
+};
+
+// ─── Stats step helpers ───────────────────────────────────────────────────────
+
+function pbSpent(stats) {
+  return Object.values(stats).reduce((a, v) => a + (PB_COST[v] ?? 0), 0);
+}
+const statMod = s => Math.floor((s - 10) / 2);
+const signNum  = n => n >= 0 ? `+${n}` : `${n}`;
+
+function mecRacialAsi(st) {
+  if (!st.mecRace) return {};
+  const raceName = st.mecRace.split('::')[1];
+  const base = { ...(STAT_RACE_ASI[raceName] || {}) };
+  if (st.mecSubrace) {
+    const sub = STAT_SUBRACE_ASI[st.mecSubrace] || {};
+    for (const [k, v] of Object.entries(sub)) base[k] = (base[k] || 0) + v;
+  }
+  return base;
+}
+
+function mecBgSkills(st) {
+  if (!st.mecBackground) return [];
+  const [srcId, bgName] = st.mecBackground.split('::');
+  const bgObj = (BACKGROUND_DATA[srcId] || []).find(b => b.name === bgName);
+  return bgObj ? bgObj.skills.split(', ').map(s => s.trim()) : [];
+}
+
+function mecClsData(st) {
+  const clsObj = CLASS_DATA.find(c => c.id === st.mecClass);
+  return clsObj ? (STAT_CLASSES[clsObj.name] || null) : null;
+}
+
+function effectiveBase(st, key) {
+  if (!st.mecStatMethod || st.mecStatMethod === 'pointbuy') return (st.mecStats || {})[key] ?? 8;
+  if (st.mecStatMethod === 'standard') return (st.mecStdAssign || {})[key] ?? null;
+  // random
+  const idx = (st.mecRollAssign || {})[key];
+  const roll = idx !== undefined ? (st.mecRolls || [])[idx] : null;
+  if (!roll) return null;
+  return [...roll].sort((a, b) => b - a).slice(0, 3).reduce((s, v) => s + v, 0);
+}
+
+// ─── Stats step ───────────────────────────────────────────────────────────────
+
+function buildStatsStep(st, goMech) {
+  if (!st.mecStats)      st.mecStats      = { str:8, dex:8, con:8, int:8, wis:8, cha:8 };
+  if (!st.mecChosen)     st.mecChosen     = [];
+  if (!st.mecStatMethod) st.mecStatMethod = 'pointbuy';
+  if (!st.mecStdAssign)  st.mecStdAssign  = {};
+  if (!st.mecRolls || !st.mecRolls.length) st.mecRolls = Array(6).fill(null);
+  if (!st.mecRollAssign) st.mecRollAssign = {};
+
+  const STD_ARRAY = [15, 14, 13, 12, 10, 8];
+  const bodyEl = el('div', { class: 'mech-stats-scroll' });
+  const footEl = el('div', { class: 'mech-foot' },
+    el('button', { class: 'cnew-save-btn', onClick: () => goMech('summary') }, 'Далее → Итог'),
+  );
+
+  function switchMethod(id) { st.mecStatMethod = id; scheduleSave(st); refresh(); }
+
+  const METHOD_HELP = `Распределение по очкам\n27 очков в диапазоне 8–15. Самый сбалансированный метод — полный контроль над каждой характеристикой.\n\nСтандартный массив\n[15, 14, 13, 12, 10, 8] — проверенный набор, быстрый старт без броска кубиков.\n\nСлучайная генерация\n4d6, отброс минимума — случайный результат, иногда удача, иногда нет.`;
+
+  // ── Single method row: selector + help + inline content ──
+
+  function buildMethodRow() {
+    const selEl = el('select', { class: 'stat-method-sel' },
+      el('option', { value: 'pointbuy' }, 'Распределение по очкам'),
+      el('option', { value: 'standard' }, 'Стандартный массив'),
+      el('option', { value: 'random'   }, 'Случайная генерация'),
+    );
+    selEl.value = st.mecStatMethod;
+    selEl.addEventListener('change', () => switchMethod(selEl.value));
+
+    const helpBtn = el('button', { class: 'stat-method-help', type: 'button' }, '?');
+    helpBtn.addEventListener('mouseenter', e => showSrcTip(e, { name: 'Методы генерации', desc: METHOD_HELP }));
+    helpBtn.addEventListener('mouseleave', hideSrcTip);
+
+    const m = st.mecStatMethod;
+    let inlineContent;
+
+    if (m === 'pointbuy') {
+      const spent  = pbSpent(st.mecStats);
+      const remain = PB_POOL - spent;
+      const cls    = remain < 0 ? 'over' : remain === 0 ? 'done' : remain <= 7 ? 'low' : 'ok';
+      const pct    = Math.min(100, (spent / PB_POOL) * 100);
+      inlineContent = el('div', { class: 'stat-inline-pb' },
+        el('div', { class: 'pb-track stat-inline-pb-track' },
+          el('div', { class: `pb-fill${cls !== 'ok' ? ' ' + cls : ''}`, style: `width:${pct}%` }),
+        ),
+        el('div', { class: 'pb-counter' },
+          el('span', { class: `pb-remaining ${cls}` }, remain),
+          el('span', { class: 'pb-of' }, `/ ${PB_POOL}`),
+        ),
+      );
+    } else if (m === 'standard') {
+      const usedVals = new Set(Object.values(st.mecStdAssign));
+      inlineContent = el('div', { class: 'stat-std-chips' },
+        ...STD_ARRAY.map(v => el('span', { class: `stat-std-chip${usedVals.has(v) ? ' is-used' : ''}` }, String(v))),
+      );
+    } else {
+      inlineContent = el('div', { class: 'stat-rnd-blocks' },
+        ...st.mecRolls.map((r, i) => {
+          if (!r) {
+            return el('button', {
+              class: 'stat-rnd-roll-btn',
+              onClick: () => {
+                st.mecRolls[i] = Array.from({ length: 4 }, () => Math.floor(Math.random() * 6) + 1);
+                scheduleSave(st); refresh();
+              },
+            }, '🎲');
+          }
+          const sorted = [...r].sort((a, b) => b - a);
+          const total  = sorted[0] + sorted[1] + sorted[2];
+          const chip = el('span', { class: 'stat-std-chip stat-rnd-val' }, String(total));
+          chip.addEventListener('mouseenter', e => showSrcTip(e, {
+            name: 'На 4d6 выпало:',
+            desc: sorted.join('  '),
+          }));
+          chip.addEventListener('mouseleave', hideSrcTip);
+          return chip;
+        }),
+      );
+    }
+
+    return el('div', { class: 'stat-method-row' }, selEl, helpBtn, inlineContent);
+  }
+
+  // ── Ability block (method-aware) ──
+
+  function buildAbBlock(ability) {
+    const { key, label } = ability;
+    const method  = st.mecStatMethod;
+    const base    = effectiveBase(st, key);       // null if unassigned (std/rnd)
+    const baseNum = base ?? 8;
+    const asi     = mecRacialAsi(st)[key] || 0;
+    const total   = baseNum + asi;
+    const mod     = statMod(total);
+    const clsData = mecClsData(st);
+    const hasSave = clsData?.saves.includes(key) ?? false;
+    const saveVal = mod + (hasSave ? 2 : 0);
+    const hasVal  = base !== null;
+
+    // Control section
+    let controlEl;
+    if (method === 'pointbuy') {
+      const spent  = pbSpent(st.mecStats);
+      const canDec = base > PB_MIN;
+      const canInc = base < PB_MAX && (PB_POOL - spent) >= ((PB_COST[base + 1] ?? 99) - PB_COST[base]);
+      const btnDec = el('button', { class: 'ab-btn', onClick: () => { if (canDec) { st.mecStats[key]--; scheduleSave(st); refresh(); } } }, '−');
+      const btnInc = el('button', { class: 'ab-btn', onClick: () => { if (canInc) { st.mecStats[key]++; scheduleSave(st); refresh(); } } }, '+');
+      if (!canDec) btnDec.disabled = true;
+      if (!canInc) btnInc.disabled = true;
+      const costSpan = el('span', { class: 'ab-cost' }, `(${PB_COST[base]})`);
+      costSpan.addEventListener('mouseenter', e => showSrcTip(e, { name: '', desc: `Потрачено очков: ${PB_COST[base]}` }));
+      costSpan.addEventListener('mouseleave', hideSrcTip);
+      controlEl = el('div', { class: 'ab-control ab-control-pb' },
+        el('div', { class: 'ab-stepper' }, btnDec, el('span', { class: 'ab-base-val' }, base), btnInc),
+        costSpan, // stays right of + on same row via flex
+      );
+    } else if (method === 'standard') {
+      const takenVals = Object.entries(st.mecStdAssign).filter(([k]) => k !== key).map(([, v]) => v);
+      const sel = el('select', { class: 'stat-assign-sel' },
+        el('option', { value: '' }, '—'),
+        ...STD_ARRAY.map(v => {
+          const attrs = { value: String(v) };
+          if (takenVals.includes(v)) attrs.disabled = 'true';
+          return el('option', attrs, String(v));
+        }),
+      );
+      sel.value = base !== null ? String(base) : '';
+      sel.addEventListener('change', () => {
+        if (sel.value) st.mecStdAssign[key] = parseInt(sel.value);
+        else delete st.mecStdAssign[key];
+        scheduleSave(st); refresh();
+      });
+      controlEl = el('div', { class: `ab-control ab-control-std${hasVal ? ' is-assigned' : ''}` }, sel);
+    } else { // random
+      const usedIdx = Object.entries(st.mecRollAssign).filter(([k]) => k !== key).map(([, i]) => Number(i));
+      const sel = el('select', { class: 'stat-assign-sel' },
+        el('option', { value: '' }, '—'),
+        ...st.mecRolls.flatMap((r, i) => {
+          if (!r) return [];
+          const sorted = [...r].sort((a, b) => b - a);
+          const tot  = sorted[0] + sorted[1] + sorted[2];
+          const attrs = { value: String(i) };
+          if (usedIdx.includes(i)) attrs.disabled = 'true';
+          return [el('option', attrs, String(tot))];
+        }),
+      );
+      const assignedIdx = st.mecRollAssign[key];
+      sel.value = assignedIdx !== undefined ? String(assignedIdx) : '';
+      sel.addEventListener('change', () => {
+        if (sel.value !== '') st.mecRollAssign[key] = parseInt(sel.value);
+        else delete st.mecRollAssign[key];
+        scheduleSave(st); refresh();
+      });
+      controlEl = el('div', { class: `ab-control ab-control-rnd${hasVal ? ' is-assigned' : ''}` }, sel);
+    }
+
+    const statRow = el('div', { class: 'ab-stat-row' },
+      el('span', { class: 'ab-name' }, label),
+      controlEl,
+      el('div',  { class: 'ab-vsep' }),
+      el('div',  { class: 'ab-derived' },
+        ...(asi !== 0 ? [
+          el('span', { class: 'ab-racial-badge' }, asi > 0 ? `+${asi}` : `${asi}`),
+          el('span', { class: 'ab-arrow' }, '→'),
+        ] : []),
+        el('span', { class: 'ab-total' }, hasVal ? String(total) : '—'),
+        el('span', { class: 'ab-deriv-lbl' }, 'МОД'),
+        el('span', { class: 'ab-mod'  }, hasVal ? signNum(mod)     : '—'),
+        el('div',  { class: `ms-pip${hasSave ? ' active' : ''}` }),
+        el('span', { class: 'ab-deriv-lbl' }, 'СБ'),
+        el('span', { class: `ab-save${hasSave ? ' prof' : ''}` }, hasVal ? signNum(saveVal) : '—'),
+      ),
+    );
+
+    const bgProfs  = mecBgSkills(st);
+    const chosen   = new Set(st.mecChosen);
+    const skills   = SKILLS_BY_AB[key];
+    const clsOpts  = clsData ? (clsData.list ?? Object.values(SKILLS_BY_AB).flat()) : [];
+    const maxPicks = clsData?.count ?? 0;
+    const picked   = [...chosen].filter(s => clsOpts.includes(s)).length;
+
+    const skillEls = [...skills].sort((a, b) => a.localeCompare(b, 'ru')).map(name => {
+      const fromBg     = bgProfs.includes(name);
+      const fromClass  = chosen.has(name);
+      const proficient = fromBg || fromClass;
+      const canPick    = clsOpts.includes(name) && !fromBg;
+      const atLimit    = picked >= maxPicks;
+      const bonus      = mod + (proficient ? 2 : 0);
+      let cbCls = 'sk-cb';
+      if (fromBg)         cbCls += ' src-bg has-check';
+      else if (fromClass) cbCls += ' src-class has-check';
+      else if (canPick)   cbCls += ' opt-class';
+      const locked = fromBg || (!fromClass && (!canPick || atLimit));
+      return el('div', {
+        class: `skill-row${locked ? ' locked' : ''}`,
+        onClick: () => {
+          if (fromBg) return;
+          const s = new Set(st.mecChosen);
+          if (fromClass)                s.delete(name);
+          else if (canPick && !atLimit) s.add(name);
+          else return;
+          st.mecChosen = [...s]; scheduleSave(st); refresh();
+        },
+      },
+        el('div',  { class: cbCls }),
+        el('span', { class: `sk-name${proficient ? ' proficient' : ''}` }, name),
+        el('div',  { class: 'sk-bonus-wrap' },
+          el('span', { class: `sk-bonus${fromClass ? ' col-class' : fromBg ? ' col-bg' : ''}` }, signNum(bonus)),
+        ),
+      );
+    });
+
+    if (key === 'wis') {
+      const percProf = bgProfs.includes('Восприятие') || chosen.has('Восприятие');
+      const passVal  = 10 + mod + (percProf ? 2 : 0);
+      skillEls.push(el('div', { class: 'skill-row locked' },
+        el('div',  { class: 'sk-cb sk-cb-passive' }),
+        el('span', { class: 'sk-name' }, 'Пасс. Внимательность'),
+        el('div',  { class: 'sk-bonus-wrap' },
+          el('span', { class: 'sk-bonus' }, String(passVal)),
+        ),
+      ));
+    }
+
+    return el('div', { class: 'ab-block' },
+      statRow,
+      skills.length ? el('div', { class: 'ab-skills-grid' }, ...skillEls) : null,
+    );
+  }
+
+  function refresh() {
+    bodyEl.innerHTML = '';
+    bodyEl.append(
+      buildMethodRow(),
+      el('div', { class: 'mech-stats-grid' }, ...ABILITIES.map(buildAbBlock)),
+      footEl,
+    );
+  }
+
+  refresh();
+
+  // ── Character info in title row ──
+  const AB_DAT = { str:'Силе', dex:'Ловкости', con:'Телосложению', int:'Интеллекту', wis:'Мудрости', cha:'Харизме' };
+  const AB_GEN = { str:'Силы', dex:'Ловкости', con:'Телосложения', int:'Интеллекта', wis:'Мудрости', cha:'Харизмы' };
+
+  const raceStr = st.mecRace
+    ? (st.mecSubrace ? `${st.mecSubrace} ${st.mecRace.split('::')[1]}` : st.mecRace.split('::')[1])
+    : null;
+  const clsObj2 = CLASS_DATA.find(c => c.id === st.mecClass);
+  const clsStr  = clsObj2?.name || null;
+  const bgStr   = st.mecBackground ? st.mecBackground.split('::')[1] : null;
+
+  const asiObj   = mecRacialAsi(st);
+  const bgSkList = mecBgSkills(st);
+  const clsData2 = mecClsData(st);
+
+  const navSuffix = n => n === 1 ? 'навык' : n <= 4 ? 'навыка' : 'навыков';
+
+  const asiText = Object.entries(asiObj).filter(([, v]) => v)
+    .map(([k, v]) => `+${v} к ${AB_DAT[k]}`).join(', ');
+
+  const raceTip = asiText ? `даёт бонусы к:\n${asiText}` : null;
+  const clsTip  = clsData2 ? `• спасброски от ${(clsData2.saves || []).map(k => AB_GEN[k]).join(', ')}\n• ${clsData2.count} ${navSuffix(clsData2.count)} на выбор` : null;
+  const bgTip   = bgSkList.length ? `навыки: ${bgSkList.join(', ')}` : null;
+
+  const infoItems = [
+    { text: st.name || 'Безымянный', cls: st.name ? 'is-char-name' : 'is-char-name is-unnamed', tip: null },
+    ...(raceStr ? [{ text: raceStr, cls: 'is-race',  tip: raceTip ? { name: raceStr, desc: raceTip } : null }] : []),
+    ...(clsStr  ? [{ text: clsStr,  cls: 'is-class', tip: clsTip  ? { name: clsStr,  desc: clsTip  } : null }] : []),
+    ...(bgStr   ? [{ text: bgStr,   cls: 'is-bg',    tip: bgTip   ? { name: bgStr,   desc: bgTip   } : null }] : []),
+  ];
+
+  const infoEl = el('span', { class: 'mech-stat-char-info' });
+  infoItems.forEach((item, i) => {
+    if (i > 0) infoEl.append(el('span', { class: 'mech-stat-sep' }, ' · '));
+    const span = el('span', { class: `mech-stat-entity ${item.cls}` }, item.text);
+    if (item.tip) {
+      span.addEventListener('mouseenter', e => showSrcTip(e, item.tip));
+      span.addEventListener('mouseleave', hideSrcTip);
+    }
+    infoEl.append(span);
+  });
+
+  return el('div', { class: 'mech-step-body' },
+    el('div', { class: 'mech-stats-title-row' },
+      el('h2', { class: 'mech-step-title' }, 'Характеристики'),
+      infoEl,
+    ),
+    bodyEl,
   );
 }
 

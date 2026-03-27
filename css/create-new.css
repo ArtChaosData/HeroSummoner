@@ -177,8 +177,9 @@
   cursor: pointer;
   transition: opacity var(--t-fast), transform var(--t-fast);
 }
-.cnew-save-btn:hover  { opacity: 0.88; }
-.cnew-save-btn:active { opacity: 0.7; transform: scale(0.98); }
+.cnew-save-btn:hover    { opacity: 0.88; }
+.cnew-save-btn:active   { opacity: 0.7; transform: scale(0.98); }
+.cnew-save-btn:disabled { opacity: 0.38; cursor: not-allowed; }
 
 /* ── Section cards ── */
 .cnew-sec {
@@ -385,6 +386,7 @@
   flex-direction: column;
   gap: 16px;
   min-height: 0;
+  min-width: 0;
 }
 
 .mech-step-body {
@@ -393,6 +395,7 @@
   flex-direction: column;
   gap: 20px;
   min-height: 0;
+  min-width: 0;
 }
 
 .mech-step-title {
@@ -490,7 +493,22 @@
   display: flex;
   justify-content: flex-end;
   flex-shrink: 0;
-  padding-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* Stats step: footer is sticky inside the scroll container */
+.mech-stats-scroll .mech-foot {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  margin-top: 4px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.mech-stats-scroll .cnew-save-btn {
+  padding: 8px 32px;
+  font-size: 14px;
 }
 .mech-foot-wip {
   opacity: 0.4;
@@ -640,9 +658,10 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   color: var(--text-primary);
 }
 .src-tip-desc {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-secondary);
-  line-height: 1.4;
+  line-height: 1.5;
+  white-space: pre-line;
 }
 
 @media (max-width: 768px) {
@@ -832,6 +851,413 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   padding: 2px 7px;
   margin-top: 4px;
 }
+
+/* ── Background step ── */
+.mech-bg-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.mech-bg-eq-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+  border-bottom: 1px dashed var(--border-2);
+  padding-bottom: 1px;
+  width: fit-content;
+  cursor: default;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.mech-bg-eq-label:hover { color: var(--text-secondary); border-color: var(--text-muted); }
+.mech-bg-eq-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+.mech-bg-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-top: 6px;
+}
+.mech-bg-row-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  width: 116px;
+  padding-top: 2px;
+}
+.mech-bg-row-value {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.mech-bg-select {
+  width: 160px;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 4px 8px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--t-fast);
+  font-family: inherit;
+}
+.mech-bg-select:focus { border-color: var(--accent); }
+.mech-bg-select:disabled { opacity: 0.35; cursor: not-allowed; }
+.mech-bg-select option { background: var(--surface-2); }
+/* ── Stats step ── */
+.mech-stats-scroll {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+.mech-stats-scroll::-webkit-scrollbar { display: none; }
+.mech-stats-pb {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.pb-remaining.done { color: #52C87A; }
+.pb-fill.done { background: linear-gradient(90deg, #35A862, #52C87A); }
+
+/* ── Stats title row ── */
+.mech-stats-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.mech-stat-char-info {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  margin-left: 12px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 1px;
+}
+.mech-stat-entity {
+  border-bottom: 1px dotted currentColor;
+  cursor: default;
+}
+.mech-stat-sep { color: var(--text-disabled); }
+.mech-stat-entity.is-char-name { color: var(--text-primary); border-bottom: none; }
+.mech-stat-entity.is-unnamed   { color: var(--accent-soft); font-style: italic; }
+.mech-stat-entity.is-race      { color: var(--col-race); }
+.mech-stat-entity.is-class     { color: var(--col-class); }
+.mech-stat-entity.is-bg        { color: var(--col-bg-s); }
+
+/* ── Stats grid ── */
+.mech-stats-grid {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 8px;
+}
+
+/* ── Ability block overrides (scoped to stats step) ── */
+.mech-stats-grid .ab-name {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  padding-right: 2px;
+}
+.mech-stats-grid .ab-total {
+  font-size: 14px;                  /* point 5: smaller */
+  color: var(--text-primary);       /* point 5: white */
+  min-width: 20px;
+}
+.mech-stats-grid .ab-mod {
+  font-size: 22px;                  /* point 7: larger */
+  min-width: 34px;
+  color: var(--accent-soft);
+}
+.mech-stats-grid .ab-save {
+  font-size: 20px;                  /* point 7: accented */
+  min-width: 30px;
+}
+.mech-stats-grid .ab-save.prof { color: var(--accent-soft); }
+.mech-stats-grid .ms-pip {
+  margin-left: 10px;                /* point 7: space gap before СБ group */
+  margin-right: 1px;
+  flex-shrink: 0;
+}
+
+/* Multi-select (pick 2 of 3) */
+.mech-bg-ms-wrap {
+  position: relative;
+  padding-top: 6px;
+  width: 40%;
+}
+.mech-bg-ms-trigger {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 5px 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: border-color var(--t-fast);
+}
+.mech-bg-ms-trigger:hover { border-color: var(--border-2); color: var(--text-primary); }
+.mech-bg-ms-arrow { font-size: 10px; transition: transform var(--t-fast); flex-shrink: 0; }
+.mech-bg-ms-panel {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0; right: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  z-index: 50;
+  overflow: hidden;
+}
+.mech-bg-ms-group {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-muted);
+  padding: 8px 12px 3px;
+  border-top: 1px solid var(--border);
+}
+.mech-bg-ms-group:first-child { border-top: none; padding-top: 6px; }
+.mech-bg-ms-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.mech-bg-ms-item:hover { background: var(--surface-3); color: var(--text-primary); }
+.mech-bg-ms-item.is-checked { color: var(--accent-soft); }
+.mech-bg-ms-item.is-disabled { opacity: 0.3; pointer-events: none; }
+.mech-bg-ms-check {
+  width: 14px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--accent);
+}
+
+/* ── Background choice hint (appears below choices) ── */
+.mech-bg-foot-hint {
+  font-size: 12px;
+  color: var(--accent-warn, #E8B84B);
+  margin: 6px 0 0;
+}
+
+/* ── Stat method row: selector + help + inline content ── */
+.stat-method-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 8px;
+  flex-wrap: wrap;
+  max-width: 540px;
+}
+.stat-inline-pb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 120px;
+}
+.stat-inline-pb-track {
+  flex: 1 !important;
+}
+.stat-method-sel {
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  padding: 6px 10px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--t-fast);
+}
+.stat-method-sel:focus { border-color: var(--accent); }
+.stat-method-sel option { background: var(--surface-2); }
+.stat-method-help {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color var(--t-fast), border-color var(--t-fast);
+}
+.stat-method-help:hover { color: var(--text-secondary); border-color: var(--text-muted); }
+
+/* ── Ability control wrapper (keeps stepper + cost on one line) ── */
+.ab-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ── Fixed ab-name width for vertical column alignment ── */
+.mech-stats-grid .ab-name {
+  width: 120px;
+  min-width: 120px;
+}
+
+/* ── Assigned select highlight (std / random) ── */
+.ab-control.is-assigned .stat-assign-sel {
+  border-color: #35A862;
+  color: #52C87A;
+}
+
+/* ── Method desc + max-width constraint ── */
+.stat-method-section {
+  max-width: 540px;
+  padding-bottom: 10px;
+}
+.stat-method-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.mech-stats-grid    { max-width: 540px; }
+.pb-header          { max-width: 540px; }
+
+/* ── Standard array chips ── */
+.stat-std-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.stat-std-chip {
+  background: var(--surface-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  padding: 3px 10px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--accent-soft);
+  transition: opacity var(--t-fast);
+}
+.stat-std-chip.is-used {
+  opacity: 0.28;
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
+/* ── Random roll blocks ── */
+.stat-rnd-blocks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.stat-rnd-roll-btn {
+  background: var(--surface-2);
+  border: 1px dashed var(--border-2);
+  border-radius: var(--r-md);
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color var(--t-fast), color var(--t-fast);
+}
+.stat-rnd-roll-btn:hover { border-color: var(--accent); color: var(--accent-soft); }
+.stat-rnd-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 4px 10px 4px 8px;
+}
+.stat-rnd-dice {
+  display: flex;
+  gap: 3px;
+}
+.stat-rnd-die {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 16px;
+  text-align: center;
+}
+.stat-rnd-die.is-top  { color: var(--text-primary); }
+.stat-rnd-die.is-drop { color: var(--text-disabled); text-decoration: line-through; font-weight: 400; }
+.stat-rnd-total {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent-soft);
+  min-width: 22px;
+  text-align: right;
+}
+.stat-rnd-reroll {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color var(--t-fast);
+}
+.stat-rnd-reroll:hover { color: var(--text-secondary); }
+
+/* ── Assignment select (standard / random) ── */
+.stat-assign-sel {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  padding: 3px 8px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--t-fast);
+  width: 80px;
+}
+.stat-assign-sel:focus { border-color: var(--accent); }
+.stat-assign-sel option { background: var(--surface-2); }
+
+/* ── Random roll chip (same visual as std-chip, cursor indicates hover tip) ── */
+.stat-rnd-val { cursor: default; }
 
 /* WIP placeholder */
 .cnew-wip {

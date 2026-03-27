@@ -36,6 +36,7 @@ body {
 .main-content {
   flex: 1;
   padding-top: 74px; /* header height + padding */
+  overflow-x: hidden;
 }
 
 /* ════════════════════════════════
