@@ -216,7 +216,29 @@ function buildConcept(st, go) {
       el('div', { class: 'cnew-identity-row' },
         field('Имя персонажа', 'name',       st, { placeholder: 'Как зовут героя?' }),
         field('Имя игрока',    'playerName', st, { placeholder: 'Кто за ним?' }),
-        field('Мировоззрение', 'alignment',  st, { placeholder: 'Нейтральный…' }),
+        (() => {
+          const ALIGNMENTS = [
+            'Законопослушно-добрый',
+            'Законопослушно-нейтральный',
+            'Законопослушно-злой',
+            'Нейтрально-добрый',
+            'Истинно нейтральный',
+            'Нейтрально-злой',
+            'Хаотично-добрый',
+            'Хаотично-нейтральный',
+            'Хаотично-злой',
+          ];
+          const sel = el('select', { class: 'cnew-input cnew-alignment-sel' },
+            el('option', { value: '' }, '— Мировоззрение —'),
+            ...ALIGNMENTS.map(a => el('option', { value: a }, a)),
+          );
+          sel.value = st.alignment || '';
+          sel.addEventListener('change', () => { st.alignment = sel.value; scheduleSave(st); });
+          return el('div', { class: 'cnew-field' },
+            el('label', { class: 'cnew-label' }, 'Мировоззрение'),
+            sel,
+          );
+        })(),
       ),
     ),
 

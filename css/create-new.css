@@ -350,6 +350,8 @@
 .cnew-input:focus,
 .cnew-textarea:focus { border-color: var(--accent); }
 .cnew-textarea       { min-height: 80px; line-height: 1.5; }
+select.cnew-input    { cursor: pointer; appearance: auto; }
+select.cnew-input option { background: var(--surface-3); }
 
 /* ── Mechanics screen ── */
 
