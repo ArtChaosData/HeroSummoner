@@ -50,8 +50,8 @@ function applyFilters(chars) {
     case 'fav':     return result.filter(c => c.favorite);
     case 'active':  return result.filter(c => c.status === 'active' && !c.favorite);
     case 'dead':    return result.filter(c => c.status === 'dead');
-    case 'archive': return result.filter(c => c.status === 'archive');
-    default:        return result.filter(c => c.status !== 'archive');
+    case 'archive': return result.filter(c => c.status === 'archive' || c.status === 'draft');
+    default:        return result.filter(c => c.status !== 'archive' && c.status !== 'draft');
   }
 }
 
@@ -61,11 +61,11 @@ function tabCounts(chars) {
     ? chars
     : chars.filter(c => (c.edition || '2014') === _editionFilter);
   return {
-    all:     base.filter(c => c.status !== 'archive').length,
+    all:     base.filter(c => c.status !== 'archive' && c.status !== 'draft').length,
     fav:     base.filter(c => c.favorite).length,
     active:  base.filter(c => c.status === 'active').length,
     dead:    base.filter(c => c.status === 'dead').length,
-    archive: base.filter(c => c.status === 'archive').length,
+    archive: base.filter(c => c.status === 'archive' || c.status === 'draft').length,
   };
 }
 
@@ -82,6 +82,7 @@ function editionCounts(chars) {
 
 function buildCard(char, router) {
   const isDead  = char.status === 'dead';
+  const isDraft = char.status === 'draft';
   const isFav   = char.favorite;
   const edition = char.edition || '2014';
   const color   = classColor(char.class);
@@ -138,10 +139,14 @@ function buildCard(char, router) {
   // Info block
   const subParts = [char.class, char.subclass].filter(Boolean);
 
+  if (isDraft) {
+    portrait.append(el('span', { class: 'badge badge-draft' }, 'Черновик'));
+  }
+
   const card = el('div', {
-    class: `char-card${isDead ? ' is-dead' : ''}`,
+    class: `char-card${isDead ? ' is-dead' : ''}${isDraft ? ' is-draft' : ''}`,
     style: `--card-accent: ${color}`,
-    onClick: () => router.navigate(`/sheet/${char.id}`),
+    onClick: () => router.navigate(isDraft ? `/edit/${char.id}` : `/sheet/${char.id}`),
   },
     portrait,
     el('div', { class: 'card-info' },
@@ -153,9 +158,9 @@ function buildCard(char, router) {
       el('div', { class: 'card-background' }, char.background || ''),
     ),
     el('div', { class: 'card-actions' },
-      el('button', { class: 'card-action action-open', 'data-tip': 'Открыть',
-        onClick: e => { e.stopPropagation(); router.navigate(`/sheet/${char.id}`); },
-      }, '▶', el('span', {}, 'Открыть')),
+      el('button', { class: 'card-action action-open', 'data-tip': isDraft ? 'Редактировать' : 'Открыть',
+        onClick: e => { e.stopPropagation(); router.navigate(isDraft ? `/edit/${char.id}` : `/sheet/${char.id}`); },
+      }, isDraft ? '✎' : '▶', el('span', {}, isDraft ? 'Редактировать' : 'Открыть')),
       el('button', { class: 'card-action action-pdf', 'data-tip': 'PDF',
         onClick: e => { e.stopPropagation(); toast('PDF-экспорт — Этап 5', 'default'); },
       }, '📄'),
@@ -216,9 +221,40 @@ function buildEmpty(filter) {
 
 // ─── Grid ─────────────────────────────────────────────────────────────────────
 
+function buildArchiveSubsection(title, chars, router, emptyText) {
+  const sub = el('div', { class: 'archive-sub' },
+    el('div', { class: 'archive-sub-hd' },
+      el('span', { class: 'archive-sub-title' }, title),
+      el('span', { class: 'archive-sub-count' }, String(chars.length)),
+    ),
+  );
+  if (chars.length === 0) {
+    sub.append(el('p', { class: 'archive-sub-empty' }, emptyText));
+  } else {
+    const inner = el('div', { class: 'char-grid archive-sub-grid' });
+    for (const c of chars) inner.append(buildCard(c, router));
+    sub.append(inner);
+  }
+  return sub;
+}
+
 function renderGrid(grid, router) {
   grid.innerHTML = '';
   const visible = applyFilters(_allChars);
+
+  if (_currentFilter === 'archive') {
+    const drafts   = visible.filter(c => c.status === 'draft');
+    const resting  = visible.filter(c => c.status === 'archive');
+    if (drafts.length === 0 && resting.length === 0) {
+      grid.append(buildEmpty('archive'));
+      return;
+    }
+    grid.append(
+      buildArchiveSubsection('Черновики', drafts, router, 'Нет черновиков призыва.'),
+      buildArchiveSubsection('На отдыхе', resting, router, 'Нет персонажей в архиве.'),
+    );
+    return;
+  }
 
   if (visible.length === 0) {
     grid.append(buildEmpty(_currentFilter));

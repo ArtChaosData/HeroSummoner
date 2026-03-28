@@ -2,7 +2,8 @@
  * HeroSummoner — Create Character (new flow)
  * Steps: landing → concept | mechanics
  */
-import { el } from '../utils.js';
+import { el, toast } from '../utils.js';
+import { DB } from '../db.js';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -31,8 +32,9 @@ function freshState() {
     mecRolls:       [],
     mecRollAssign:  {},
     mecBgChoiceData: {},
-    mecEquipMode: 'standard',
-    mecEquipGold: null,
+    mecEquipMode:    'standard',
+    mecEquipGold:    null,
+    mecEquipChoices: {},
   };
 }
 
@@ -91,6 +93,32 @@ function buildLanding(st, go) {
   nameInp.value = st.name;
   nameInp.addEventListener('input', () => { st.name = nameInp.value; scheduleSave(st); });
 
+  const conceptDone = isConceptDone(st);
+  const mechDone    = isMechDone(st);
+  const allDone     = conceptDone && mechDone;
+
+  function statusBadge(done) {
+    return el('span', { class: 'cnew-big-btn-status' + (done ? ' is-done' : '') },
+      done ? '✓ Заполнено' : 'Не заполнено',
+    );
+  }
+
+  const ctaBtn = allDone
+    ? el('button', { class: 'btn btn-primary cnew-cta-btn', onClick: async () => {
+        await saveCharToDB(st, 'active');
+        toast('Персонаж создан!', 'success');
+        go('characters');
+      }},
+        'Создать персонажа',
+      )
+    : el('button', { class: 'btn btn-ghost cnew-cta-btn', onClick: async () => {
+        await saveCharToDB(st, 'draft');
+        toast('Черновик сохранён', 'success');
+        go('characters');
+      }},
+        'Сохранить черновик призыва',
+      );
+
   return el('div', { class: 'cnew-landing' },
     el('div', { class: 'cnew-landing-card' },
 
@@ -102,21 +130,25 @@ function buildLanding(st, go) {
       ),
 
       el('p', { class: 'cnew-order-hint' },
-        'Начните с концепта или механики — порядок не важен, мы сохраним ваш прогресс.'
+        'Начните с концепта или механики — порядок не важен. Если есть идеи, но нет полного представления — сохраните черновик призыва: его можно будет найти в архиве.',
       ),
 
       el('div', { class: 'cnew-big-btns' },
-        el('button', { class: 'cnew-big-btn', onClick: () => go('concept') },
+        el('button', { class: 'cnew-big-btn' + (conceptDone ? ' is-done' : ''), onClick: () => go('concept') },
           el('span', { class: 'cnew-big-btn-icon',  html: SVG_CONCEPT }),
           el('span', { class: 'cnew-big-btn-title' }, 'Концепт'),
           el('span', { class: 'cnew-big-btn-sub'   }, 'Внешность, история, характер'),
+          statusBadge(conceptDone),
         ),
-        el('button', { class: 'cnew-big-btn cnew-big-btn--secondary', onClick: () => go('mechanics') },
+        el('button', { class: 'cnew-big-btn cnew-big-btn--secondary' + (mechDone ? ' is-done' : ''), onClick: () => go('mechanics') },
           el('span', { class: 'cnew-big-btn-icon',  html: SVG_MECHANICS }),
           el('span', { class: 'cnew-big-btn-title' }, 'Механика'),
           el('span', { class: 'cnew-big-btn-sub'   }, 'Класс, характеристики, умения'),
+          statusBadge(mechDone),
         ),
       ),
+
+      el('div', { class: 'cnew-landing-cta' }, ctaBtn),
     ),
   );
 }
@@ -237,9 +269,72 @@ const MECH_STEPS = [
   { id: 'stats',      label: 'Характеристики' },
   { id: 'spells',     label: 'Заклинания', magic: true },
   { id: 'equipment',  label: 'Снаряжение' },
-  { id: 'abilities',  label: 'Способности' },
   { id: 'final',      label: 'Финал' },
 ];
+
+function isConceptDone(st) {
+  return !!(
+    st.name?.trim() && st.playerName?.trim() && st.alignment?.trim() &&
+    st.traits?.trim() && st.ideals?.trim() && st.bonds?.trim() && st.flaws?.trim() &&
+    st.backstory?.trim()
+  );
+}
+function isMechDone(st) {
+  return (st.mecMaxStep || 0) >= MECH_STEPS.findIndex(s => s.id === 'final');
+}
+
+const CLASS_HP_DIE = {
+  'Варвар':12, 'Воин':10, 'Паладин':10, 'Следопыт':10,
+  'Бард':8, 'Жрец':8, 'Друид':8, 'Монах':8, 'Плут':8, 'Колдун':8, 'Изобретатель':8,
+  'Чародей':6, 'Волшебник':6,
+};
+
+async function saveCharToDB(st, status) {
+  const clsObj   = CLASS_DATA.find(c => c.id === st.mecClass);
+  const clsName  = clsObj?.name ?? '';
+  const bgName   = st.mecBackground ? st.mecBackground.split('::')[1] : '';
+  const raceName = st.mecRace       ? st.mecRace.split('::')[1]       : '';
+  const asiMap   = mecRacialAsi(st);
+  const bgSkillsList = mecBgSkills(st);
+  const edition  = st.mecEdition === 'one-dnd' ? '2024' : '2014';
+
+  const stats = {};
+  for (const key of ['str','dex','con','int','wis','cha']) {
+    stats[key] = (effectiveBase(st, key) ?? 8) + (asiMap[key] || 0);
+  }
+  const conMod = Math.floor(((stats.con || 8) - 10) / 2);
+  const die    = CLASS_HP_DIE[clsName] || 8;
+  const maxHp  = Math.max(1, die + conMod);
+
+  // Capture wizard state for edit-draft flow (exclude portrait to save space)
+  const { portrait: _p, ...wizardSnap } = st;
+
+  const record = {
+    name:       st.name?.trim() || 'Без имени',
+    playerName: st.playerName?.trim() || '',
+    alignment:  st.alignment || '',
+    edition,
+    class:      clsName,
+    subclass:   '',
+    race:       raceName,
+    subrace:    st.mecSubrace || '',
+    background: bgName,
+    level:      1,
+    stats,
+    skills:     [...(st.mecChosen || []), ...bgSkillsList],
+    maxHp,
+    hp:         maxHp,
+    portrait:   st.portrait || null,
+    status,
+    favorite:   false,
+    _wizardState: wizardSnap,
+  };
+  if (st._charId) record.id = st._charId;
+  const saved = await DB.put(record);
+  st._charId = saved.id;
+  localStorage.removeItem(DRAFT_KEY);
+  return saved;
+}
 
 const SOURCEBOOKS = {
   '5e': [
@@ -480,21 +575,29 @@ function showSrcTip(e, src) {
     el('span',   { class: 'src-tip-desc' }, src.desc),
   );
   document.body.append(_srcTip);
-  const r = e.target.getBoundingClientRect();
+  const r  = e.target.getBoundingClientRect();
+  const th = _srcTip.offsetHeight;
+  const top = (r.bottom + 6 + th > window.innerHeight)
+    ? r.top - th - 6
+    : r.bottom + 6;
   _srcTip.style.left = r.left + 'px';
-  _srcTip.style.top  = (r.bottom + 6) + 'px';
+  _srcTip.style.top  = top + 'px';
 }
 function hideSrcTip() { _srcTip?.remove(); _srcTip = null; }
 
 // ─── Mechanics: progress bar ──────────────────────────────────────────────────
 
 function buildMechProgress(st, goMech, magic) {
-  const steps  = MECH_STEPS.filter(s => !s.magic || magic);
-  const cur    = steps.findIndex(s => s.id === (st.mecStep || 'edition'));
-  const maxIdx = st.mecMaxStep || 0;
+  const steps     = MECH_STEPS.filter(s => !s.magic || magic);
+  const cur       = steps.findIndex(s => s.id === (st.mecStep || 'edition'));
+  const maxIdx    = st.mecMaxStep || 0;
+  const statsIdx  = steps.findIndex(s => s.id === 'stats');
   return el('nav', { class: 'mech-progress' },
     ...steps.flatMap((s, i) => {
-      const reachable = i <= maxIdx && (s.id !== 'stats' || st.mecBgOk !== false);
+      const afterStats = statsIdx >= 0 && i > statsIdx;
+      const reachable  = i <= maxIdx
+        && (s.id !== 'stats' || st.mecBgOk !== false)
+        && (!afterStats || st.mecStatsOk);
       const cls = 'mech-step' + (i === cur ? ' is-current' : reachable ? ' is-past' : ' is-future');
       const attrs = { class: cls };
       if (!reachable) attrs.disabled = 'true';
@@ -585,6 +688,293 @@ function buildEditionStep(st, goMech) {
   );
 }
 
+// ─── Final step ───────────────────────────────────────────────────────────────
+
+function buildFinalStep(st, goMech, go) {
+  const ALIGNMENTS = [
+    'Законопослушный добрый',    'Нейтральный добрый',     'Хаотичный добрый',
+    'Законопослушный нейтральный','Истинно нейтральный',   'Хаотичный нейтральный',
+    'Законопослушный злой',      'Нейтральный злой',       'Хаотичный злой',
+  ];
+
+  const clsObj   = CLASS_DATA.find(c => c.id === st.mecClass);
+  const clsName  = clsObj?.name ?? null;
+  const bgName   = st.mecBackground ? st.mecBackground.split('::')[1] : null;
+  const raceName = st.mecRace ? st.mecRace.split('::')[1] : null;
+  const subrace  = st.mecSubrace ?? null;
+
+  const asiMap   = mecRacialAsi(st);
+  const clsData  = mecClsData(st);
+  const bgSkills = mecBgSkills(st);
+
+  function eStat(key) {
+    return (effectiveBase(st, key) ?? 8) + (asiMap[key] || 0);
+  }
+
+  function editBtn(step) {
+    return el('button', { class: 'final-edit-btn', onClick: () => goMech(step) }, 'изменить');
+  }
+
+  // ── Identity ──────────────────────────────────────────────────────────────
+  function textField(field, placeholder) {
+    const inp = el('input', { class: 'final-inp', type: 'text', placeholder });
+    inp.value = st[field] || '';
+    inp.addEventListener('input', () => { st[field] = inp.value; scheduleSave(st); });
+    return inp;
+  }
+  const alignSel = el('select', { class: 'final-inp final-select' },
+    el('option', { value: '' }, '— не выбрано —'),
+    ...ALIGNMENTS.map(a => el('option', { value: a }, a)),
+  );
+  alignSel.value = st.alignment || '';
+  alignSel.addEventListener('change', () => { st.alignment = alignSel.value; scheduleSave(st); });
+
+  const identSec = el('div', { class: 'final-ident' },
+    el('div', { class: 'final-ident-field is-name' },
+      el('label', { class: 'final-field-label' }, 'Имя персонажа'),
+      textField('name', 'Введите имя'),
+    ),
+    el('div', { class: 'final-ident-field' },
+      el('label', { class: 'final-field-label' }, 'Игрок'),
+      textField('playerName', 'Имя игрока'),
+    ),
+    el('div', { class: 'final-ident-field' },
+      el('label', { class: 'final-field-label' }, 'Мировоззрение'),
+      alignSel,
+    ),
+  );
+
+  // ── Overview (class / race / background) ────────────────────────────────
+  function overviewCard(label, value, step) {
+    return el('div', { class: 'final-card' },
+      el('span', { class: 'final-card-label' }, label),
+      el('span', { class: `final-card-value${!value ? ' is-empty' : ''}` }, value ?? '—'),
+      editBtn(step),
+    );
+  }
+  const overviewRow = el('div', { class: 'final-overview' },
+    overviewCard('Класс',      clsName,                         'class'),
+    overviewCard('Раса',       subrace ? `${subrace} ${raceName}` : raceName, 'race'),
+    overviewCard('Предыстория', bgName,                         'background'),
+  );
+
+  // ── Stats + Skills (ab-block style, read-only) ───────────────────────────
+  const clsOpts = clsData ? (clsData.list ?? Object.values(SKILLS_BY_AB).flat()) : [];
+
+  function buildFinalAbBlock({ key, label }) {
+    const base    = effectiveBase(st, key) ?? 8;
+    const asi     = asiMap[key] || 0;
+    const total   = base + asi;
+    const mod     = statMod(total);
+    const hasSave = clsData?.saves.includes(key) ?? false;
+    const saveVal = mod + (hasSave ? 2 : 0);
+
+    const statRow = el('div', { class: 'ab-stat-row' },
+      el('span', { class: 'ab-name' }, label),
+      el('div',  { class: 'ab-stepper' },
+        el('span', { class: 'ab-base-val' }, String(base)),
+      ),
+      el('div', { class: 'ab-vsep' }),
+      el('div', { class: 'ab-derived' },
+        ...(asi !== 0 ? [
+          el('span', { class: 'ab-racial-badge' }, asi > 0 ? `+${asi}` : String(asi)),
+          el('span', { class: 'ab-arrow' }, '→'),
+        ] : []),
+        el('span', { class: 'ab-total' }, String(total)),
+        el('span', { class: 'ab-deriv-lbl' }, 'МОД'),
+        el('span', { class: 'ab-mod' },  signNum(mod)),
+        el('div',  { class: `ms-pip${hasSave ? ' active' : ''}` }),
+        el('span', { class: 'ab-deriv-lbl' }, 'СБ'),
+        el('span', { class: `ab-save${hasSave ? ' prof' : ''}` }, signNum(saveVal)),
+      ),
+    );
+
+    const skills = SKILLS_BY_AB[key] || [];
+    const sorted = [...skills].sort((a, b) => a.localeCompare(b, 'ru'));
+    const skillEls = sorted.map(name => {
+      const fromBg    = bgSkills.includes(name);
+      const fromClass = (st.mecChosen || []).includes(name);
+      const prof      = fromBg || fromClass;
+      const bonus     = mod + (prof ? 2 : 0);
+      let cbCls = 'sk-cb';
+      if (fromBg)         cbCls += ' src-bg has-check';
+      else if (fromClass) cbCls += ' src-class has-check';
+      return el('div', { class: `skill-row locked` },
+        el('div',  { class: cbCls }),
+        el('span', { class: `sk-name${prof ? ' proficient' : ''}` }, name),
+        el('div',  { class: 'sk-bonus-wrap' },
+          el('span', { class: `sk-bonus${fromClass ? ' col-class' : fromBg ? ' col-bg' : ''}` }, signNum(bonus)),
+        ),
+      );
+    });
+
+    if (key === 'wis') {
+      const percProf = bgSkills.includes('Восприятие') || (st.mecChosen || []).includes('Восприятие');
+      skillEls.push(el('div', { class: 'skill-row locked passive-row' },
+        el('div',  { class: 'sk-cb sk-cb-passive' }),
+        el('span', { class: 'sk-name' }, 'Пасс. Внимательность'),
+        el('div',  { class: 'sk-bonus-wrap' },
+          el('span', { class: 'sk-bonus' }, String(10 + mod + (percProf ? 2 : 0))),
+        ),
+      ));
+    }
+
+    return el('div', { class: 'ab-block' },
+      statRow,
+      skills.length ? el('div', { class: 'ab-skills-grid' }, ...skillEls) : null,
+    );
+  }
+
+  const absSec = el('div', { class: 'final-section' },
+    el('div', { class: 'final-section-hd' },
+      el('span', { class: 'final-section-title' }, 'Характеристики и навыки'),
+      editBtn('stats'),
+    ),
+    el('div', { class: 'mech-stats-grid' }, ...ABILITIES.map(buildFinalAbBlock)),
+  );
+
+  // ── Equipment ────────────────────────────────────────────────────────────
+  const classItems = clsName ? (CLASS_EQUIP[clsName] || []) : [];
+  const srcBgName  = bgName === 'Собственная предыстория'
+    ? ((st.mecEquipChoices || {})['bgch_bg_equipment'] ?? null)
+    : bgName;
+  const bgItems    = srcBgName ? (BG_EQUIP[srcBgName] || []) : [];
+
+  // Material choice items (instrument/artisan/gaming) selected on equip step
+  function matChoiceEls(resolvedBgName) {
+    if (!resolvedBgName) return [];
+    const bgObj = Object.values(BACKGROUND_DATA).flat().find(b => b.name === resolvedBgName);
+    return (bgObj?.choices || [])
+      .filter(ch => ['instrument', 'artisan', 'gaming'].includes(ch.type))
+      .map(ch => makeChoiceSel(bgChoiceOptions(ch.type), `bgch_${ch.type}`, st));
+  }
+
+  function equipCol(sourceLabel, sourceClass, items, prefix, extraEls) {
+    const itemEls = items.flatMap((item, idx) => {
+      const kit = EQUIP_KITS[item];
+      if (kit) return [el('div', { class: 'final-equip-item is-kit' },
+        el('span', { class: 'final-equip-kit-hd' }, item),
+        el('span', { class: 'final-equip-kit-items' }, kit.join(', ')),
+      )];
+      const opts = resolveEquipOpts(item);
+      if (opts) return [makeChoiceSel(opts, `${prefix}_${idx}`, st)];
+      return [el('div', { class: 'final-equip-item' }, item)];
+    });
+    return el('div', { class: 'final-equip-col' },
+      el('div', { class: `final-equip-source ${sourceClass}` }, sourceLabel),
+      ...[...itemEls, ...(extraEls || [])],
+    );
+  }
+
+  const goldLine = st.mecEquipMode === 'standard'
+    ? `${BG_GOLD[bgName] ?? 0} зм — стартовые монеты`
+    : (st.mecEquipGold != null ? `${st.mecEquipGold} зм — стартовый капитал` : '— зм (не брошено)');
+
+  const equipSec = el('div', { class: 'final-section' },
+    el('div', { class: 'final-section-hd' },
+      el('span', { class: 'final-section-title' }, 'Снаряжение'),
+      editBtn('equipment'),
+    ),
+    el('div', { class: 'final-equip-cols' },
+      clsName   ? equipCol(clsName,              'is-class', classItems, 'cls', []) : null,
+      srcBgName ? equipCol(srcBgName ?? bgName,  'is-bg',   bgItems,    'bg',  matChoiceEls(srcBgName)) : null,
+    ),
+    el('div', { class: 'final-gold-line' }, goldLine),
+  );
+
+  // ── Proficiencies (languages / tools from bg choices) ────────────────────
+  const langs  = [];
+  const tools  = [];
+  if (st.mecBackground) {
+    const [srcId, bName] = st.mecBackground.split('::');
+    const bgObj = (BACKGROUND_DATA[srcId] || []).find(b => b.name === bName);
+    const EQUIP_TYPES = new Set(['instrument', 'artisan', 'gaming', 'bg_equipment']);
+    let ci = 0;
+    (bgObj?.choices || []).forEach(ch => {
+      if (EQUIP_TYPES.has(ch.type)) { ci++; return; }
+      const data = st.mecBgChoiceData?.[ci];
+      ci++;
+      if (!data) return;
+      if (Array.isArray(data)) {
+        data.forEach(key => {
+          const [type, ...rest] = key.split('::');
+          const val = rest.join('::');
+          if (type === 'language') langs.push(val);
+          else tools.push(val);
+        });
+      } else if (typeof data === 'string' && data) {
+        if (ch.type === 'language') langs.push(data);
+        else tools.push(data);
+      }
+    });
+  }
+  // Also add tool choices made on equip step (instrument/artisan/gaming)
+  if (st.mecBackground) {
+    const [srcId, bName] = st.mecBackground.split('::');
+    const bgObj = Object.values(BACKGROUND_DATA).flat().find(b => b.name === bName);
+    (bgObj?.choices || [])
+      .filter(ch => ['instrument', 'artisan', 'gaming'].includes(ch.type))
+      .forEach(ch => {
+        const val = (st.mecEquipChoices || {})[`bgch_${ch.type}`];
+        if (val) tools.push(val);
+      });
+  }
+
+  // Class profs
+  const AB_SHORT2 = { str:'Сила', dex:'Ловкость', con:'Телосложение', int:'Интеллект', wis:'Мудрость', cha:'Харизма' };
+  const clsSavesStr  = (clsData?.saves || []).map(k => AB_SHORT2[k] ?? k).join(', ');
+  const clsSkillsStr = (st.mecChosen || []).join(', ');
+
+  function profCol(sourceLabel, sourceClass, rows) {
+    return el('div', { class: 'final-profs-col' },
+      el('span', { class: `final-profs-source ${sourceClass}` }, sourceLabel),
+      ...rows.filter(Boolean),
+    );
+  }
+  function profRow(type, values) {
+    return el('div', { class: 'final-prof-row' },
+      el('span', { class: 'final-prof-type' }, type),
+      el('span', { class: 'final-prof-values' }, values),
+    );
+  }
+
+  const clsProfCol = (clsData && (clsSavesStr || clsSkillsStr)) ? profCol(clsName, 'is-class', [
+    clsSavesStr  ? profRow('Спасброски', clsSavesStr)  : null,
+    clsSkillsStr ? profRow('Навыки',     clsSkillsStr) : null,
+  ]) : null;
+
+  const bgProfCol = (langs.length || tools.length) ? profCol(bgName ?? 'Предыстория', 'is-bg', [
+    langs.length  ? profRow('Языки',        langs.join(', '))  : null,
+    tools.length  ? profRow('Инструменты',  tools.join(', '))  : null,
+  ]) : null;
+
+  const profSec = (clsProfCol || bgProfCol) ? el('div', { class: 'final-section final-profs-sec' },
+    el('div', { class: 'final-section-hd' },
+      el('span', { class: 'final-section-title' }, 'Владения'),
+    ),
+    el('div', { class: 'final-profs-grid' }, clsProfCol, bgProfCol),
+  ) : null;
+
+  // ── Save button ───────────────────────────────────────────────────────────
+  const saveBtn = el('button', {
+    class: 'cnew-save-btn final-save-btn',
+    onClick: () => { scheduleSave(st); go('landing'); },
+  }, '← Назад к призыву');
+
+  // ── Layout ────────────────────────────────────────────────────────────────
+  return el('div', { class: 'mech-step-body final-body' },
+    el('div', { class: 'final-scroll' },
+      el('h2', { class: 'mech-step-title' }, 'Финал'),
+      identSec,
+      overviewRow,
+      profSec,
+      absSec,
+      equipSec,
+    ),
+    el('div', { class: 'mech-foot' }, saveBtn),
+  );
+}
+
 // ─── Mechanics: main wrapper ──────────────────────────────────────────────────
 
 function buildMechanics(st, go, container) {
@@ -615,6 +1005,7 @@ function buildMechanics(st, go, container) {
         : st.mecStep === 'background' ? buildBackgroundStep(st, goMech)
         : st.mecStep === 'stats'      ? buildStatsStep(st, goMech)
         : st.mecStep === 'equipment'  ? buildEquipStep(st, goMech)
+        : st.mecStep === 'final'     ? buildFinalStep(st, goMech, go)
         : el('div', { class: 'cnew-wip' }, st.mecStep + ' — скоро'),
     ),
   );
@@ -839,16 +1230,21 @@ const RACE_DATA = {
 
 // ─── Background data ──────────────────────────────────────────────────────────
 
-const LANGUAGES   = ['Бездны','Великанский','Гномский','Гоблинский','Глубокая речь','Дварфский','Драконий','Инфернальный','Небесный','Орочий','Первозданный','Полуросликов','Сильван','Общий Подземья','Эльфийский'];
-const INSTRUMENTS = ['Барабан','Виола','Волынка','Лира','Лютня','Рог','Скрипка','Флейта','Цимбалы','Шалмей'];
+const LANGUAGES     = ['Бездны','Великанский','Гномский','Гоблинский','Глубокая речь','Дварфский','Драконий','Инфернальный','Небесный','Орочий','Первозданный','Полуросликов','Сильван','Общий Подземья','Эльфийский'];
+const INSTRUMENTS   = ['Барабан','Виола','Волынка','Лира','Лютня','Рог','Скрипка','Флейта','Цимбалы','Шалмей'];
+const SIMPLE_WEAPONS = ['Булава','Дубина','Дротик','Жезл','Копьё','Кинжал','Кулак друида','Лёгкий арбалет','Посох','Праща','Ручной арбалет','Серп','Топор дровосека'];
 const GAMING_SETS = ['Игральные кости','Карты','Три Дракона Анти','Шахматы Дракона'];
 const ARTISAN_TOOLS = ['Инструменты алхимика','Инструменты бондаря','Инструменты гончара','Инструменты кожевника','Инструменты кузнеца','Инструменты каллиграфа','Инструменты каменщика','Инструменты плотника','Инструменты повара','Инструменты пивовара','Инструменты резчика','Инструменты сапожника','Инструменты стеклодува','Инструменты ткача','Инструменты ювелира'];
 
 function bgChoiceOptions(type) {
-  if (type === 'language')   return LANGUAGES;
-  if (type === 'instrument') return INSTRUMENTS;
-  if (type === 'gaming')     return GAMING_SETS;
-  if (type === 'artisan')    return ARTISAN_TOOLS;
+  if (type === 'language')    return LANGUAGES;
+  if (type === 'instrument')  return INSTRUMENTS;
+  if (type === 'gaming')      return GAMING_SETS;
+  if (type === 'artisan')     return ARTISAN_TOOLS;
+  if (type === 'skill')       return Object.values(SKILLS_BY_AB).flat().sort((a, b) => a.localeCompare(b, 'ru'));
+  if (type === 'any_prof')    return [...LANGUAGES, ...INSTRUMENTS, ...GAMING_SETS, ...ARTISAN_TOOLS].sort((a, b) => a.localeCompare(b, 'ru'));
+  if (type === 'all_tools')   return [...INSTRUMENTS, ...GAMING_SETS, ...ARTISAN_TOOLS].sort((a, b) => a.localeCompare(b, 'ru'));
+  if (type === 'bg_equipment') return Object.values(BACKGROUND_DATA).flat().map(b => b.name).filter(n => n !== 'Собственная предыстория').sort((a, b) => a.localeCompare(b, 'ru'));
   return [];
 }
 
@@ -944,6 +1340,20 @@ const BACKGROUND_DATA = {
       equipment: 'Значок воинского звания, трофей с поверженного врага, транспортные средства (наземные), обычная одежда, кошель с 10 зм',
       choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }],
       desc: 'Вы долгие годы служили в армии — регулярных войсках, городской страже или наёмном отряде. Война научила вас дисциплине, тактике и тому, как выжить в хаосе битвы. У вас есть звание и послужной список: солдаты и ветераны признают в вас своего, офицеры уважают ваш опыт, а военные лагеря и гарнизоны готовы принять вас.',
+    },
+    {
+      name: 'Собственная предыстория',
+      skills: null,
+      equipment: 'Снаряжение от любой другой стандартной предыстории — выберите его на этапе «Снаряжение»',
+      choices: [
+        { label: 'Навык', displayLabel: 'Навыки (выберите 2)', type: 'skill', count: 2 },
+        { label: 'Владение', type: 'any_prof', count: 2, maxPerGroup: 2, groups: [
+          { label: 'Языки', type: 'language' },
+          { label: 'Инструменты', type: 'all_tools' },
+        ]},
+        { label: 'Снаряжение от предыстории', type: 'bg_equipment', count: 1 },
+      ],
+      desc: 'Возможно, вы захотите изменить некоторые особенности предыстории, чтобы они лучше подходили вашему персонажу или игровому миру. Для создания собственной предыстории вы можете изменить одно умение на любое другое, выбрать два любых навыка и выбрать владение инструментами и языками, чтобы в сумму их было не больше двух, из образцов других предысторий. Вы можете взять набор снаряжения из выбранной предыстории или потратить золото для закупки снаряжения, как сказано в главе 5. И наконец, выберите две черты характера, один идеал, одну привязанность и одну слабость.',
     },
   ],
   SCAG: [
@@ -1141,6 +1551,10 @@ function buildRaceStep(st, goMech) {
     const needsSub = raceObj?.sub?.length > 0;
     const btn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('background') }, 'Далее → Предыстория');
     btn.disabled = needsSub && !st.mecSubrace;
+    btn.addEventListener('mouseenter', e => {
+      if (btn.disabled) showSrcTip(e, { name: '', desc: 'Выберите подрасу, чтобы продолжить' });
+    });
+    btn.addEventListener('mouseleave', hideSrcTip);
     footEl.append(btn);
   }
 
@@ -1316,19 +1730,30 @@ function buildBackgroundStep(st, goMech) {
 
     // Choice rows — with completion tracking
     const checkers = [];
-    const hintEl  = el('p', { class: 'mech-bg-foot-hint', hidden: true }, 'Заполните все выборы, чтобы продолжить');
+    const hintEl   = el('p', { class: 'mech-bg-foot-hint', hidden: true });
     const nextBtn  = el('button', { class: 'cnew-save-btn', onClick: () => goMech('stats') }, 'Далее → Характеристики');
+    nextBtn.addEventListener('mouseenter', e => {
+      if (nextBtn.disabled) showSrcTip(e, { name: '', desc: 'Заполните все выборы, чтобы продолжить' });
+    });
+    nextBtn.addEventListener('mouseleave', hideSrcTip);
     const recheckFoot = () => {
       const ok = checkers.length === 0 || checkers.every(fn => fn());
       nextBtn.disabled = !ok;
-      hintEl.hidden = ok;
       st.mecBgOk = ok;
     };
 
     if (!st.mecBgChoiceData) st.mecBgChoiceData = {};
     let choiceIdx = 0;
+    const EQUIP_CHOICE_TYPES = new Set(['instrument', 'artisan', 'gaming', 'bg_equipment']); // shown on equipment screen
     const choiceEls = (bgObj.choices || []).flatMap(ch => {
       const ci = choiceIdx++;
+      if (EQUIP_CHOICE_TYPES.has(ch.type)) {
+        if (ch.type === 'bg_equipment') return [];
+        return [el('div', { class: 'mech-bg-row' },
+          el('span', { class: 'mech-bg-row-label' }, ch.label),
+          el('span', { class: 'mech-bg-row-value is-deferred' }, '→ выбор на шаге «Снаряжение»'),
+        )];
+      }
       if (ch.type === 'pick2of3') {
         const saved = st.mecBgChoiceData[ci] || [];
         let cnt = saved.length;
@@ -1342,9 +1767,10 @@ function buildBackgroundStep(st, goMech) {
         let cnt = saved.length;
         checkers.push(() => cnt >= ch.count);
         return [buildBgMultiSel({
-          label: ch.label + ' × ' + ch.count,
+          label: ch.displayLabel || (ch.label + ' × ' + ch.count),
           max: ch.count,
-          groups: [{ label: ch.label, type: ch.type }],
+          maxPerGroup: ch.maxPerGroup,
+          groups: ch.groups || [{ label: ch.label, type: ch.type }],
           initialSelected: saved,
           onChange: (n, keys) => { cnt = n; st.mecBgChoiceData[ci] = keys; recheckFoot(); },
         })];
@@ -1372,7 +1798,7 @@ function buildBackgroundStep(st, goMech) {
     footEl.innerHTML = '';
     footEl.append(nextBtn);
 
-    detailEl.append(
+    detailEl.append(...[
       el('div', { class: 'mech-cls-header' },
         el('h3', { class: 'mech-cls-name' }, bgObj.name),
         badge,
@@ -1382,13 +1808,13 @@ function buildBackgroundStep(st, goMech) {
         eqLabel,
         el('p', { class: 'mech-bg-eq-text' }, bgObj.equipment),
       ),
-      el('div', { class: 'mech-bg-row' },
+      bgObj.skills ? el('div', { class: 'mech-bg-row' },
         el('span', { class: 'mech-bg-row-label' }, 'Навыки'),
         el('span', { class: 'mech-bg-row-value' }, bgObj.skills),
-      ),
+      ) : null,
       ...choiceEls,
       hintEl,
-    );
+    ].filter(Boolean));
   }
 
   function selectBg(srcId, bgName) {
@@ -1408,7 +1834,11 @@ function buildBackgroundStep(st, goMech) {
     b.locked || st.mecSources.includes(b.id)
   );
   allBooks.forEach(book => {
-    const bgs = (BACKGROUND_DATA[book.id] || []).slice().sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+    const bgs = (BACKGROUND_DATA[book.id] || []).slice().sort((a, b) => {
+      if (a.name === 'Собственная предыстория') return 1;
+      if (b.name === 'Собственная предыстория') return -1;
+      return a.name.localeCompare(b.name, 'ru');
+    });
     if (!bgs.length) return;
 
     const chevron = el('span', { class: 'mech-race-chevron' }, '▾');
@@ -1536,7 +1966,7 @@ function mecBgSkills(st) {
   if (!st.mecBackground) return [];
   const [srcId, bgName] = st.mecBackground.split('::');
   const bgObj = (BACKGROUND_DATA[srcId] || []).find(b => b.name === bgName);
-  return bgObj ? bgObj.skills.split(', ').map(s => s.trim()) : [];
+  return bgObj?.skills ? bgObj.skills.split(', ').map(s => s.trim()) : [];
 }
 
 function mecClsData(st) {
@@ -1565,10 +1995,20 @@ function buildStatsStep(st, goMech) {
   if (!st.mecRollAssign) st.mecRollAssign = {};
 
   const STD_ARRAY = [15, 14, 13, 12, 10, 8];
-  const bodyEl = el('div', { class: 'mech-stats-scroll' });
-  const footEl = el('div', { class: 'mech-foot' },
-    el('button', { class: 'cnew-save-btn', onClick: () => goMech('equipment') }, 'Далее → Снаряжение'),
-  );
+  const bodyEl  = el('div', { class: 'mech-stats-scroll' });
+  const footBtn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('equipment') }, 'Далее → Снаряжение');
+  footBtn.addEventListener('mouseenter', e => {
+    if (footBtn.disabled) showSrcTip(e, { name: '', desc: 'Заполните все характеристики, чтобы продолжить' });
+  });
+  footBtn.addEventListener('mouseleave', hideSrcTip);
+  const footEl  = el('div', { class: 'mech-foot' }, footBtn);
+
+  function allAssigned() {
+    const m = st.mecStatMethod;
+    if (m === 'pointbuy') return pbSpent(st.mecStats) === PB_POOL;
+    if (m === 'standard') return Object.keys(st.mecStdAssign).length === ABILITIES.length;
+    return st.mecRolls.every(r => r !== null) && Object.keys(st.mecRollAssign).length === ABILITIES.length;
+  }
 
   function switchMethod(id) { st.mecStatMethod = id; scheduleSave(st); refresh(); }
 
@@ -1664,12 +2104,16 @@ function buildStatsStep(st, goMech) {
       const btnInc = el('button', { class: 'ab-btn', onClick: () => { if (canInc) { st.mecStats[key]++; scheduleSave(st); refresh(); } } }, '+');
       if (!canDec) btnDec.disabled = true;
       if (!canInc) btnInc.disabled = true;
+      const nextCost = base < PB_MAX ? (PB_COST[base + 1] ?? 0) - PB_COST[base] : null;
       const costSpan = el('span', { class: 'ab-cost' }, `(${PB_COST[base]})`);
-      costSpan.addEventListener('mouseenter', e => showSrcTip(e, { name: '', desc: `Потрачено очков: ${PB_COST[base]}` }));
+      const tipDesc = nextCost === 2
+        ? `Потрачено очков: ${PB_COST[base]}\nВнимание: повышение до ${base + 1} стоит 2 очка`
+        : `Потрачено очков: ${PB_COST[base]}`;
+      costSpan.addEventListener('mouseenter', e => showSrcTip(e, { name: '', desc: tipDesc }));
       costSpan.addEventListener('mouseleave', hideSrcTip);
       controlEl = el('div', { class: 'ab-control ab-control-pb' },
         el('div', { class: 'ab-stepper' }, btnDec, el('span', { class: 'ab-base-val' }, base), btnInc),
-        costSpan, // stays right of + on same row via flex
+        costSpan,
       );
     } else if (method === 'standard') {
       const takenVals = Object.entries(st.mecStdAssign).filter(([k]) => k !== key).map(([, v]) => v);
@@ -1786,12 +2230,14 @@ function buildStatsStep(st, goMech) {
   }
 
   function refresh() {
+    st.mecStatsOk = allAssigned();
     bodyEl.innerHTML = '';
     bodyEl.append(
       buildMethodRow(),
       el('div', { class: 'mech-stats-grid' }, ...ABILITIES.map(buildAbBlock)),
       footEl,
     );
+    footBtn.disabled = !st.mecStatsOk;
   }
 
   refresh();
@@ -1866,27 +2312,55 @@ const CLASS_EQUIP = {
 };
 
 const BG_EQUIP = {
-  'Аколит':           ['Символ веры', 'Молитвенник', '5 свечей', 'Облачение'],
-  'Артист':           ['Музыкальный инструмент', 'Сувенир', 'Дорожный костюм'],
+  'Аколит':           ['Символ веры', 'Молитвенник или 5 палочек благовоний', '5 свечей', 'Облачение'],
+  'Артист':           ['Сувенир', 'Дорожный костюм'],
   'Беспризорник':     ['Небольшой нож', 'Карта города', 'Тёмный плащ'],
   'Благородный':      ['Тонкие одежды', 'Перстень с гербом', 'Рекомендательное письмо'],
-  'Гильдейский мастер': ['Инструменты ремесла', 'Письмо от гильдии', 'Опрятная одежда'],
-  'Городская стража': ['Форменная одежда', 'Рожок', 'Кандалы'],
+  'Гильдейский мастер': ['Письмо от гильдии', 'Опрятная одежда'],
+  'Городская стража':    ['Форменная одежда', 'Рожок', 'Кандалы'],
+  'Клановый мастер':     ['Памятный предмет клана', 'Обычная одежда'],
+  'Монастырский учёный': ['Письмо о принятии', 'Записная книжка', 'Перо и чернила', 'Обычная одежда'],
+  'Придворный':          ['Придворная одежда', 'Рекомендательное письмо'],
+  'Дальний странник':    ['Реликвия из дома', 'Записная книжка', 'Путевые вещи'],
+  'Наследник':           ['Предмет наследства', 'Путевая одежда'],
+  'Рыцарь ордена':       ['Символ ордена', 'Путевая одежда'],
+  'Ветеран наёмника':    ['Знак воинского звания', 'Значок отряда', 'Обычная одежда'],
+  'Городской охотник':   ['Подходящая одежда'],
+  'Член племени Угтардов': ['Охотничий трофей', 'Дорожная одежда'],
+  'Дворянин Уотердипа':  ['Отличная одежда', 'Рекомендательное письмо'],
+  'Агент Азория':        ['Форменная одежда', 'Чернила и перо'],
+  'Культист Груула':     ['Ритуальный тотем', 'Оружие с надписями', 'Путевая одежда'],
+  'Дитя Диммира':        ['Тёмный плащ', 'Набор для грима'],
+  'Преследуемый':        ['Амулет с именем любимого', 'Одежда с мирного дня'],
+  'Следователь':         ['Записная книжка', 'Чернила и перо', 'Обычная одежда'],
+  'Работник балагана':   ['Маскировочный костюм', 'Набор для грима', 'Путевая одежда'],
   'Жулик':            ['Шулерские карты', 'Одежда разных сословий'],
   'Матрос':           ['Дубина', '50 фут. канат', 'Дорожная одежда'],
   'Мудрец':           ['Чернила', 'Перо', 'Нож для бумаги', 'Письмо с вопросом'],
-  'Народный герой':   ['Инструменты ремесла', 'Лопата', 'Горшок', 'Дорожная одежда'],
+  'Народный герой':   ['Лопата', 'Горшок', 'Дорожная одежда'],
   'Отшельник':        ['Свитки с заметками', 'Зимнее одеяло', 'Огниво'],
   'Преступник':       ['Воровские инструменты', 'Тёмная одежда с капюшоном'],
   'Скиталец':         ['Путевые дневники', 'Карты родной земли', 'Дорожные одежды'],
-  'Солдат':           ['Знак воинского звания', 'Трофей с врага', 'Кости', 'Дорожная одежда'],
+  'Солдат':           ['Знак воинского звания', 'Трофей с врага', 'Дорожная одежда'],
 };
 
 const BG_GOLD = {
+  // PHB
   'Аколит': 15, 'Артист': 15, 'Беспризорник': 10, 'Благородный': 25,
-  'Гильдейский мастер': 15, 'Городская стража': 10, 'Жулик': 15,
-  'Матрос': 10, 'Мудрец': 10, 'Народный герой': 10, 'Отшельник': 5,
-  'Преступник': 15, 'Скиталец': 10, 'Солдат': 10,
+  'Гильдейский мастер': 15, 'Жулик': 15, 'Матрос': 10, 'Мудрец': 10,
+  'Народный герой': 10, 'Отшельник': 5, 'Преступник': 15, 'Скиталец': 10,
+  'Солдат': 10, 'Собственная предыстория': 0,
+  // SCAG
+  'Городская стража': 10, 'Клановый мастер': 5, 'Монастырский учёный': 10,
+  'Придворный': 5, 'Дальний странник': 5, 'Наследник': 15,
+  'Рыцарь ордена': 10, 'Ветеран наёмника': 10, 'Городской охотник': 20,
+  'Член племени Угтардов': 10, 'Дворянин Уотердипа': 20,
+  // GGR
+  'Агент Азория': 10, 'Культист Груула': 10, 'Дитя Диммира': 15,
+  // VRGR
+  'Преследуемый': 1, 'Следователь': 10,
+  // WBW
+  'Работник балагана': 8,
 };
 
 const CLASS_GOLD = {
@@ -1905,6 +2379,60 @@ const CLASS_GOLD = {
   'Чародей':      { formula: '3к4×10', rolls: 3, die: 4, mult: 10 },
 };
 
+// ─── Equipment step: kit contents ─────────────────────────────────────────────
+
+const EQUIP_KITS = {
+  'Набор дипломата':       ['Сундук', 'Чернила ×2', 'Перо', 'Бумага ×5', 'Духи', 'Воск для печатей', 'Придворная одежда'],
+  'Набор путешественника': ['Ранец', 'Спальный мешок', 'Кружка', 'Дорожная одежда ×2', 'Огниво', 'Факелы ×10', 'Паёк ×10', 'Фляга воды', 'Верёвка 15 м'],
+  'Набор учёного':         ['Книга', 'Чернила', 'Перо', 'Нож для бумаги', 'Мешочек с песком', 'Небольшой нож'],
+  'Набор взломщика':       ['Ломик', 'Молоток', 'Стальные колья ×10', 'Фонарь с заслонкой', 'Масло ×2', 'Паёк ×5', 'Верёвка 15 м'],
+  'Набор священника':      ['Одеяло', 'Свечи ×10', 'Огниво', 'Кадильница', 'Ладан', 'Стихарь', 'Паёк ×2'],
+  'Набор мага':            ['Записная книжка', 'Чернила', 'Перо', 'Нож для бумаги', 'Мешочек с песком', 'Небольшой нож'],
+  'Набор подземелья':      ['Ломик', 'Молоток', 'Стальные колья ×10', 'Свечи ×10', 'Огниво', 'Масло ×1', 'Паёк ×5', 'Верёвка 15 м'],
+};
+
+function makeChoiceSel(opts, key, st, onChange) {
+  if (!st.mecEquipChoices) st.mecEquipChoices = {};
+  const sel = el('select', { class: 'equip-choice-sel' },
+    ...opts.map(o => el('option', { value: o }, o)),
+  );
+  sel.value = st.mecEquipChoices[key] ?? opts[0];
+  sel.addEventListener('change', () => { st.mecEquipChoices[key] = sel.value; scheduleSave(st); if (onChange) onChange(); });
+  return el('div', { class: 'equip-item is-choice' },
+    el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾')),
+  );
+}
+
+const EQUIP_FREE_CHOICES = {
+  'Любое простое оружие':   SIMPLE_WEAPONS,
+  'Музыкальный инструмент': INSTRUMENTS,
+};
+
+function resolveEquipOpts(item) {
+  if (EQUIP_FREE_CHOICES[item]) return EQUIP_FREE_CHOICES[item];
+  if (item.includes(' или ')) return item.split(' или ');
+  return null;
+}
+
+function equipItemEls(items, st, prefix) {
+  return items.map((item, idx) => {
+    const kitItems = EQUIP_KITS[item];
+    if (kitItems) {
+      return el('div', { class: 'equip-kit' },
+        el('span', { class: 'equip-kit-label' }, item),
+        el('ul', { class: 'equip-kit-list' }, ...kitItems.map(ki => el('li', {}, ki))),
+      );
+    }
+    const opts = resolveEquipOpts(item);
+    if (opts) return makeChoiceSel(opts, `${prefix}_${idx}`, st);
+    return el('div', { class: 'equip-item' }, item);
+  });
+}
+
+function renderEquipItems(items, st, prefix) {
+  return el('div', { class: 'equip-items' }, ...equipItemEls(items, st, prefix));
+}
+
 // ─── Equipment step ───────────────────────────────────────────────────────────
 
 function buildEquipStep(st, goMech) {
@@ -1914,8 +2442,11 @@ function buildEquipStep(st, goMech) {
   const clsName  = clsData?.name ?? null;
   const bgName   = st.mecBackground ? st.mecBackground.split('::')[1] : null;
 
-  const classItems = clsName ? (CLASS_EQUIP[clsName] || []) : [];
-  const bgItems    = bgName  ? (BG_EQUIP[bgName]     || []) : [];
+  const classItems   = clsName ? (CLASS_EQUIP[clsName] || []) : [];
+  const bgObj        = bgName  ? Object.values(BACKGROUND_DATA).flat().find(b => b.name === bgName) : null;
+  const EQUIP_STEP_CHOICE_TYPES = ['instrument', 'artisan', 'gaming', 'bg_equipment'];
+  const bgMatChoices = (bgObj?.choices || []).filter(ch => EQUIP_STEP_CHOICE_TYPES.includes(ch.type));
+
   const bgGold     = bgName  ? (BG_GOLD[bgName]      ?? null) : null;
   const goldInfo   = clsName ? (CLASS_GOLD[clsName]  ?? null) : null;
 
@@ -1941,17 +2472,34 @@ function buildEquipStep(st, goMech) {
           el('span', { class: 'equip-section-name' }, clsName ?? 'не выбран'),
         ),
         classItems.length
-          ? el('ul', { class: 'equip-items' }, ...classItems.map(i => el('li', {}, i)))
+          ? renderEquipItems(classItems, st, 'cls')
           : el('p', { class: 'equip-empty' }, 'Выберите класс'),
       );
 
+      let bgItems = bgName ? (BG_EQUIP[bgName] || []) : [];
+      let activeBgMatChoices = bgMatChoices;
+      if (bgName === 'Собственная предыстория') {
+        const srcBg = (st.mecEquipChoices || {})['bgch_bg_equipment'] ?? null;
+        bgItems = srcBg ? (BG_EQUIP[srcBg] || []) : [];
+        if (srcBg) {
+          const srcBgObj = Object.values(BACKGROUND_DATA).flat().find(b => b.name === srcBg);
+          const srcMatChoices = (srcBgObj?.choices || []).filter(ch =>
+            EQUIP_STEP_CHOICE_TYPES.includes(ch.type) && ch.type !== 'bg_equipment',
+          );
+          activeBgMatChoices = [...bgMatChoices, ...srcMatChoices];
+        }
+      }
+      const bgChoiceEls = activeBgMatChoices.map(ch =>
+        makeChoiceSel(bgChoiceOptions(ch.type), `bgch_${ch.type}`, st, ch.type === 'bg_equipment' ? renderBody : null),
+      );
+      const bgAllEls = [...bgChoiceEls, ...equipItemEls(bgItems, st, 'bg')];
       const bgSec = el('div', { class: 'equip-section' },
         el('div', { class: 'equip-section-hd' },
           el('span', { class: 'equip-section-source is-bg' }, 'Предыстория'),
           el('span', { class: 'equip-section-name' }, bgName ?? 'не выбрана'),
         ),
-        bgItems.length
-          ? el('ul', { class: 'equip-items' }, ...bgItems.map(i => el('li', {}, i)))
+        bgAllEls.length
+          ? el('div', { class: 'equip-items' }, ...bgAllEls)
           : el('p', { class: 'equip-empty' }, 'Выберите предысторию'),
       );
 
@@ -1960,32 +2508,23 @@ function buildEquipStep(st, goMech) {
     } else {
       const rolled = st.mecEquipGold !== null && st.mecEquipGold !== undefined;
 
-      const rollOrResult = rolled
-        ? el('div', { class: 'equip-money' },
-            el('span', { class: 'equip-money-val' }, `${st.mecEquipGold} зм`),
-            el('span', { class: 'equip-money-label' }, 'начальный капитал'),
-          )
-        : (() => {
-            const btn = el('button', { class: 'cnew-save-btn equip-roll-btn',
-              onClick: () => {
-                if (!goldInfo || rolled) return;
-                st.mecEquipGold = Array.from({ length: goldInfo.rolls },
-                  () => Math.floor(Math.random() * goldInfo.die) + 1
-                ).reduce((a, b) => a + b, 0) * goldInfo.mult;
-                scheduleSave(st);
-                renderBody();
-              },
-            }, '🎲 Бросить кубики');
-            if (!goldInfo) btn.disabled = true;
-            return btn;
-          })();
+      const rollBtn = el('button', { class: 'equip-roll-btn',
+        onClick: () => {
+          if (!goldInfo || rolled) return;
+          st.mecEquipGold = Array.from({ length: goldInfo.rolls },
+            () => Math.floor(Math.random() * goldInfo.die) + 1
+          ).reduce((a, b) => a + b, 0) * goldInfo.mult;
+          scheduleSave(st);
+          renderBody();
+        },
+      }, goldInfo ? `Бросить ${goldInfo.formula}` : 'Бросить');
+      rollBtn.disabled = !goldInfo || rolled;
 
-      const goldBlock = el('div', { class: 'equip-gold-block' },
-        rollOrResult,
-        el('div', { class: 'equip-gold-hd' },
-          el('span', { class: 'equip-gold-label' }, 'Закуп'),
-          goldInfo ? el('span', { class: 'equip-gold-formula' }, goldInfo.formula + ' зм') : null,
-        ),
+      const moneyBuyEl = el('div', { class: 'equip-money' },
+        el('span', { class: `equip-money-val${!rolled ? ' is-pending' : ''}` },
+          rolled ? `${st.mecEquipGold} зм` : '— зм'),
+        el('span', { class: 'equip-money-label' }, 'стартовый капитал'),
+        !rolled ? rollBtn : null,
       );
 
       const wipBlock = el('div', { class: 'equip-wip-block' },
@@ -1993,9 +2532,16 @@ function buildEquipStep(st, goMech) {
         el('p', { class: 'equip-wip-desc' }, 'В разработке'),
       );
 
-      bodyEl.append(goldBlock, wipBlock, footEl);
+      bodyEl.append(moneyBuyEl, wipBlock, footEl);
     }
   }
+
+  const equipHelp = el('button', { class: 'stat-method-help' }, '?');
+  equipHelp.addEventListener('mouseenter', e => showSrcTip(e, {
+    name: 'Как выбрать снаряжение?',
+    desc: 'Стандарт — готовый набор вещей от класса и предыстории плюс стартовые монеты.\n\nЗакуп — бросаете кубики по таблице класса и тратите золото на снаряжение самостоятельно.',
+  }));
+  equipHelp.addEventListener('mouseleave', hideSrcTip);
 
   const modeBar = el('div', { class: 'equip-mode-bar' },
     ...['standard', 'buy'].map(m => {
@@ -2013,6 +2559,7 @@ function buildEquipStep(st, goMech) {
       btn.dataset.mode = m;
       return btn;
     }),
+    equipHelp,
   );
 
   renderBody();
@@ -2034,7 +2581,19 @@ const SVG_CAMERA    = `<svg width="22" height="22" viewBox="0 0 24 24" fill="non
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
-export function renderCreateNew(container, router, step = 'landing') {
+export async function renderCreateNew(container, router, step = 'landing', params = {}) {
+  // If editing an existing draft, load it from DB
+  if (params?.id && (!_st || _st._charId !== params.id)) {
+    const char = await DB.get(params.id).catch(() => null);
+    if (char) {
+      // Always carry _charId so re-save updates the same record, not creates new
+      _st = Object.assign(
+        freshState(),
+        char._wizardState ?? {},
+        { _charId: char.id },
+      );
+    }
+  }
   // Restore draft or init fresh; step always comes from URL
   if (!_st) {
     const draft = loadDraft();
@@ -2048,7 +2607,8 @@ export function renderCreateNew(container, router, step = 'landing') {
   if (headerActions) headerActions.innerHTML = '';
 
   function go(newStep) {
-    if (newStep === 'landing') router.navigate('/create');
+    if (newStep === 'landing')         router.navigate('/create');
+    else if (newStep === 'characters') { _st = null; router.navigate('/'); }
     else router.navigate('/create/' + newStep);
   }
 
