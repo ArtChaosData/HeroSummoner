@@ -5,6 +5,7 @@
 import { el, toast } from '../utils.js';
 import { DB } from '../db.js';
 import { ARMOUR, WEAPONS, EQUIPMENT, TOOLS } from '../data/equipment.js';
+import { getCantripsForClass, getLevel1SpellsForClass } from '../data/spells.js';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -2689,6 +2690,322 @@ function fmtGp(n) {
   const r = Math.round(n * 100) / 100;
   return r % 1 === 0 ? String(r) : r.toFixed(2);
 }
+
+// ─── Spells step ─────────────────────────────────────────────────────────────
+
+// Per-class spellcasting configuration (5e14)
+const SPELL_CONFIG = {
+  'Бард':        { type: 'known',    stat: 'cha', cantripCount: 2, spellCount: 4 },
+  'Волшебник':   { type: 'book',     stat: 'int', cantripCount: 3, spellCount: 6, preparedCount: 2 },
+  'Друид':       { type: 'prepared', stat: 'wis', cantripCount: 2, spellCount: null /* wis+level */ },
+  'Жрец':        { type: 'prepared', stat: 'wis', cantripCount: 3, spellCount: null /* wis+level */ },
+  'Изобретатель':{ type: 'prepared', stat: 'int', cantripCount: 2, spellCount: null /* int+half_level */ },
+  'Колдун':      { type: 'pact',     stat: 'cha', cantripCount: 2, spellCount: 2 },
+  'Паладин':     { type: 'prepared', stat: 'cha', cantripCount: 0, spellCount: null /* cha+half_level */ },
+  'Следопыт':    { type: 'known',    stat: 'wis', cantripCount: 0, spellCount: 2 },
+  'Чародей':     { type: 'known',    stat: 'cha', cantripCount: 4, spellCount: 2 },
+};
+
+const STAT_LABEL = { str: 'Сила', dex: 'Ловкость', con: 'Телосложение',
+                     int: 'Интеллект', wis: 'Мудрость', cha: 'Харизма' };
+const STAT_SHORT = { str: 'СИЛ', dex: 'ЛОВ', con: 'ТЕЛ',
+                     int: 'ИНТ', wis: 'МДР', cha: 'ХАР' };
+
+const CAST_TYPE_LABEL = {
+  known:    'Известные заклинания',
+  prepared: 'Подготовленные заклинания',
+  book:     'Книга заклинаний',
+  pact:     'Заклинания пакта',
+};
+
+const SPELL_FLAVOR = {
+  'Бард':        'Магия — твоё искусство. Знаешь небольшой набор заклинаний наизусть. На каждом новом уровне можешь заменить одно из них.',
+  'Волшебник':   'Ты учёный магии. Заклинания записаны в Книге заклинаний. Каждое утро выбираешь, какие изучить — найденные свитки можно копировать в книгу.',
+  'Друид':       'Природа говорит с тобой. Весь пул заклинаний открыт — каждый день подготавливаешь нужные по ситуации.',
+  'Жрец':        'Твоя магия — дар бога. Весь пул доступен всегда. Каждое утро заново выбираешь, какие молитвы подготовить.',
+  'Изобретатель':'Магия через изобретения. Подготавливаешь заклинания каждый день из открытого пула.',
+  'Колдун':      'Твоя сила — договор с Покровителем. Мало заклинаний, но твои слоты восполняются уже на коротком отдыхе.',
+  'Паладин':     'Твои заклинания — клятва, воплощённая в силе. Пул открыт, каждый день выбираешь подготовленные.',
+  'Следопыт':    'Магия природы поддерживает путь охотника. Знаешь заклинания наизусть, менять ежедневно не нужно.',
+  'Чародей':     'Магия в твоей крови — врождённая сила. Знаешь заклинания наизусть. Особая механика: Очки Чародейства для дополнительных слотов.',
+};
+
+function statMod(st, key) {
+  const base = (effectiveBase(st, key) ?? 10) + (mecRacialAsi(st)[key] || 0);
+  return Math.floor((base - 10) / 2);
+}
+
+function computePreparedCount(cfg, st) {
+  if (cfg.spellCount !== null) return cfg.spellCount;
+  const mod = statMod(st, cfg.stat);
+  if (cfg.type === 'prepared' && (cfg.stat === 'wis' || cfg.stat === 'cha')) {
+    return Math.max(1, mod + 1); // +level, but at level 1 that's 1
+  }
+  return Math.max(1, Math.floor(1 / 2) + mod); // half_level = 0 at level 1, so just mod
+}
+
+function buildSpellsStep(st, goMech) {
+  const className = st.mecClass ? st.mecClass.split('::')[1] : '';
+  const cfg = SPELL_CONFIG[className];
+  if (!cfg) {
+    return el('div', { class: 'mech-step-wrap' },
+      el('p', { style: 'color:var(--text-muted);padding:32px' }, 'Класс не выбран — вернись к шагу «Класс».'),
+    );
+  }
+
+  const cantrips   = getCantripsForClass(className);
+  const lvl1spells = getLevel1SpellsForClass(className);
+
+  // Init state
+  if (!st.mecSpellsCantrips) st.mecSpellsCantrips = [];
+  if (!st.mecSpellsLevel1)   st.mecSpellsLevel1   = [];
+  if (!st.mecSpellsBook)     st.mecSpellsBook     = [];
+  if (!st.mecSpellsPrepared) st.mecSpellsPrepared = [];
+
+  const preparedCount = computePreparedCount(cfg, st);
+  const statLabel     = STAT_LABEL[cfg.stat];
+  const statShort     = STAT_SHORT[cfg.stat];
+  const statModVal    = statMod(st, cfg.stat);
+
+  // ── Validation ──────────────────────────────────────────────────────────
+  function isValid() {
+    if (cfg.cantripCount > 0 && st.mecSpellsCantrips.length < cfg.cantripCount) return false;
+    if (cfg.type === 'known' && cfg.spellCount !== null && st.mecSpellsLevel1.length < cfg.spellCount) return false;
+    if (cfg.type === 'pact'  && st.mecSpellsLevel1.length < cfg.spellCount) return false;
+    if (cfg.type === 'book'  && st.mecSpellsBook.length < cfg.spellCount)    return false;
+    if (cfg.type === 'book'  && st.mecSpellsPrepared.length < cfg.preparedCount) return false;
+    return true;
+  }
+
+  // ── Rebuild on selection ─────────────────────────────────────────────────
+  function rebuild() {
+    scheduleSave(st);
+    const wrap = document.querySelector('.mech-spell-wrap');
+    if (wrap) {
+      const newStep = buildSpellsStep(st, goMech);
+      wrap.replaceWith(newStep);
+    }
+  }
+
+  // ── Spell card builder ───────────────────────────────────────────────────
+  function spellCard(spell, selectedSet, limit) {
+    const isSelected = selectedSet.includes(spell.name);
+    const isDisabled = !isSelected && selectedSet.length >= limit;
+    const badges = [];
+    if (spell.ritual)        badges.push(el('span', { class: 'mech-spell-badge mech-spell-badge--ritual' }, 'Ритуал'));
+    if (spell.concentration) badges.push(el('span', { class: 'mech-spell-badge mech-spell-badge--conc' },   'Конц.'));
+    const cardAttrs = {
+      class: 'mech-spell-card' + (isSelected ? ' is-selected' : '') + (isDisabled ? ' is-disabled' : ''),
+    };
+    if (!isDisabled) {
+      cardAttrs.onClick = () => {
+        if (isSelected) selectedSet.splice(selectedSet.indexOf(spell.name), 1);
+        else             selectedSet.push(spell.name);
+        rebuild();
+      };
+    }
+    return el('div', cardAttrs,
+      el('div', { class: 'mech-spell-card-head' },
+        el('span', { class: 'mech-spell-name' }, spell.name),
+        el('span', { class: 'mech-spell-school' }, spell.school),
+      ),
+      el('p', { class: 'mech-spell-desc' }, spell.description),
+      badges.length ? el('div', { class: 'mech-spell-badges' }, ...badges) : null,
+    );
+  }
+
+  // ── ① Passport ───────────────────────────────────────────────────────────
+  const passport = el('div', { class: 'mech-spell-passport' },
+    el('div', { class: 'mech-spell-passport-head' },
+      el('span', { class: 'mech-spell-class-name' }, className),
+      el('span', { class: 'mech-spell-type-badge' }, CAST_TYPE_LABEL[cfg.type]),
+    ),
+    el('div', { class: 'mech-spell-stat-line' },
+      el('span', { class: 'mech-spell-stat-chip' }, statShort),
+      el('span', { class: 'mech-spell-stat-hint' },
+        `${statLabel} — ключевая характеристика. Сложность твоих заклинаний: ${8 + statModVal + 2} (обычно). Бонус атаки заклинанием: +${statModVal + 2}.`,
+      ),
+    ),
+    el('p', { class: 'mech-spell-flavor' }, SPELL_FLAVOR[className] || ''),
+  );
+
+  // ── ② Counter bar ────────────────────────────────────────────────────────
+  const counterParts = [];
+  if (cfg.cantripCount > 0) {
+    counterParts.push(`Кантрипов: ${st.mecSpellsCantrips.length} / ${cfg.cantripCount}`);
+  }
+  if (cfg.type === 'book') {
+    counterParts.push(`В книге: ${st.mecSpellsBook.length} / ${cfg.spellCount}`);
+    counterParts.push(`Подготовлено: ${st.mecSpellsPrepared.length} / ${cfg.preparedCount}`);
+  } else if (cfg.type === 'prepared' && cfg.spellCount === null) {
+    counterParts.push(`Подготовлено: ${st.mecSpellsLevel1.length} (рекомендуется ≤ ${preparedCount})`);
+  } else if (cfg.type !== 'prepared') {
+    const cnt = cfg.spellCount;
+    if (cnt > 0) counterParts.push(`Заклинаний 1 ур.: ${st.mecSpellsLevel1.length} / ${cnt}`);
+  }
+
+  const counter = el('div', { class: 'mech-spell-counter' },
+    ...counterParts.map(t => el('span', { class: 'mech-spell-counter-item' }, t)),
+  );
+
+  // ── ③ Cantrips ───────────────────────────────────────────────────────────
+  const cantripSection = cfg.cantripCount > 0
+    ? el('div', { class: 'mech-spell-section' },
+        el('h3', { class: 'mech-spell-section-title' },
+          `Кантрипы — выберите ${cfg.cantripCount}`,
+          el('span', { class: 'mech-spell-section-hint' }, ' (заговоры — заклинания без расхода слотов)'),
+        ),
+        el('div', { class: 'mech-spell-grid' },
+          ...cantrips.map(s => spellCard(s, st.mecSpellsCantrips, cfg.cantripCount)),
+        ),
+      )
+    : null;
+
+  // ── ④ Level 1 spells ─────────────────────────────────────────────────────
+  let spellSection = null;
+
+  if (cfg.type === 'known' || cfg.type === 'pact') {
+    const cnt = cfg.spellCount;
+    spellSection = el('div', { class: 'mech-spell-section' },
+      el('h3', { class: 'mech-spell-section-title' },
+        `Заклинания 1 уровня — выберите ${cnt}`,
+      ),
+      el('div', { class: 'mech-spell-grid' },
+        ...lvl1spells.map(s => spellCard(s, st.mecSpellsLevel1, cnt)),
+      ),
+    );
+
+  } else if (cfg.type === 'book') {
+    // Wizard: choose 6 in book, mark 2 prepared
+    const prepCard = (spell) => {
+      const inBook = st.mecSpellsBook.includes(spell.name);
+      const isPrepared = st.mecSpellsPrepared.includes(spell.name);
+      const isDisabledBook = !inBook && st.mecSpellsBook.length >= cfg.spellCount;
+      const bookAttrs = {
+        class: 'mech-spell-card mech-spell-card--book' + (inBook ? ' is-in-book' : '') + (isDisabledBook ? ' is-disabled' : ''),
+      };
+      if (!isDisabledBook) {
+        bookAttrs.onClick = () => {
+          if (inBook) {
+            st.mecSpellsBook.splice(st.mecSpellsBook.indexOf(spell.name), 1);
+            st.mecSpellsPrepared = st.mecSpellsPrepared.filter(n => n !== spell.name);
+          } else {
+            st.mecSpellsBook.push(spell.name);
+          }
+          rebuild();
+        };
+      }
+      const card = el('div', bookAttrs,
+        el('div', { class: 'mech-spell-card-head' },
+          el('span', { class: 'mech-spell-name' }, spell.name),
+          el('span', { class: 'mech-spell-school' }, spell.school),
+        ),
+        el('p', { class: 'mech-spell-desc' }, spell.description),
+        inBook ? el('button', {
+          class: 'mech-spell-prep-btn' + (isPrepared ? ' is-prepped' : ''),
+          onClick: (e) => {
+            e.stopPropagation();
+            if (isPrepared) {
+              st.mecSpellsPrepared = st.mecSpellsPrepared.filter(n => n !== spell.name);
+            } else if (st.mecSpellsPrepared.length < cfg.preparedCount) {
+              st.mecSpellsPrepared.push(spell.name);
+            }
+            rebuild();
+          },
+        }, isPrepared ? '✓ В подготовке' : `Подготовить (${st.mecSpellsPrepared.length}/${cfg.preparedCount})`)
+        : null,
+      );
+      return card;
+    };
+    spellSection = el('div', { class: 'mech-spell-section' },
+      el('h3', { class: 'mech-spell-section-title' }, 'Книга заклинаний — выберите 6'),
+      el('p', { class: 'mech-spell-section-sub' }, `Из выбранных отметьте 2 подготовленными — их можно использовать сегодня.`),
+      el('div', { class: 'mech-spell-grid' },
+        ...lvl1spells.map(prepCard),
+      ),
+    );
+
+  } else if (cfg.type === 'prepared') {
+    const formula = cfg.spellCount === null
+      ? `${statLabel} (${statModVal >= 0 ? '+' : ''}${statModVal}) + уровень (1) = рекомендуется ${preparedCount}`
+      : `${preparedCount}`;
+    spellSection = el('div', { class: 'mech-spell-section' },
+      el('h3', { class: 'mech-spell-section-title' }, 'Заклинания 1 уровня'),
+      el('p', { class: 'mech-spell-section-sub' },
+        `Можно использовать любое заклинание своего класса. Формула подготовки: ${formula}. `,
+        el('em', {}, 'Отметь те, что возьмёшь на сегодня — остальные тоже доступны завтра.'),
+      ),
+      el('div', { class: 'mech-spell-grid' },
+        ...lvl1spells.map(s => spellCard(s, st.mecSpellsLevel1, 99)),
+      ),
+    );
+  }
+
+  // ── ⑤ Spell features (read-only) ─────────────────────────────────────────
+  const hasRitual = ['Бард', 'Волшебник', 'Жрец', 'Друид', 'Изобретатель', 'Следопыт', 'Паладин'].includes(className);
+  const focusMap  = {
+    'Бард': 'Музыкальный инструмент', 'Волшебник': 'Магический фокус или компонентный мешочек',
+    'Жрец': 'Священный символ', 'Паладин': 'Священный символ', 'Друид': 'Друидский фокус',
+    'Колдун': 'Магический фокус', 'Чародей': 'Магический фокус',
+    'Следопыт': 'Компонентный мешочек', 'Изобретатель': 'Воровские инструменты или набор умельца',
+  };
+  const featureCards = [];
+  if (hasRitual) {
+    featureCards.push(el('div', { class: 'mech-spell-feature-card' },
+      el('strong', {}, 'Ритуальное колдовство'),
+      el('p', {}, 'Некоторые заклинания можно накладывать как ритуал — на 10 мин дольше, но без расхода слотов.'),
+    ));
+  }
+  if (focusMap[className]) {
+    featureCards.push(el('div', { class: 'mech-spell-feature-card' },
+      el('strong', {}, 'Заклинательная фокусировка'),
+      el('p', {}, `Используй ${focusMap[className]} вместо материальных компонентов.`),
+    ));
+  }
+  if (className === 'Колдун') {
+    featureCards.push(el('div', { class: 'mech-spell-feature-card' },
+      el('strong', {}, 'Мистические воззвания'),
+      el('p', {}, 'На 2-м уровне выбираешь Воззвания — пассивные улучшения и особые способности от Покровителя.'),
+    ));
+  }
+  if (className === 'Чародей') {
+    featureCards.push(el('div', { class: 'mech-spell-feature-card' },
+      el('strong', {}, 'Метамагия и Очки Чародейства'),
+      el('p', {}, 'На 3-м уровне открывается Метамагия — усиляй заклинания, тратя Очки Чародейства.'),
+    ));
+  }
+
+  const featuresSection = featureCards.length
+    ? el('div', { class: 'mech-spell-section' },
+        el('h3', { class: 'mech-spell-section-title' }, 'Особенности заклинателя'),
+        el('div', { class: 'mech-spell-features-grid' }, ...featureCards),
+      )
+    : null;
+
+  // ── Next button ───────────────────────────────────────────────────────────
+  const nextBtn = el('button', {
+    class: 'btn btn-primary mech-next-btn' + (isValid() ? '' : ' is-disabled'),
+    disabled: !isValid(),
+    onClick: () => {
+      scheduleSave(st);
+      goMech('equipment');
+    },
+  }, 'Далее →');
+
+  return el('div', { class: 'mech-spell-wrap' },
+    el('div', { class: 'mech-step-header' },
+      el('h2', { class: 'mech-step-title' }, '🔮 Заклинания'),
+    ),
+    passport,
+    counter,
+    cantripSection,
+    spellSection,
+    featuresSection,
+    el('div', { class: 'mech-step-footer' }, nextBtn),
+  );
+}
+
+// ─── Equipment step ───────────────────────────────────────────────────────────
 
 const SHOP_CATS = [
   { id: 'weapons', label: 'Оружие',       items: WEAPONS   },
