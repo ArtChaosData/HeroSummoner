@@ -72,8 +72,8 @@
 
 | # | Задача | Файл | Статус |
 |---|--------|------|--------|
-| 1 | Жаргон в чертах рас | race_descriptions.js | ⬜ |
-| 2 | 3 сухих интро классов | class_descriptions.js | ⬜ |
-| 3 | feature.text: польза перед механикой | class_descriptions.js | ⬜ |
-| 4 | 6 непонятных подкластов | subclass_descriptions.js | ⬜ |
-| 5 | Упрощение feature в предысториях | background_descriptions.js | ⬜ |
+| 1 | Жаргон в чертах рас | race_descriptions.js | ✅ e5731bd |
+| 2 | 3 сухих интро классов | class_descriptions.js | ✅ 42b2d62 |
+| 3 | feature.text: польза перед механикой | class_descriptions.js | ✅ 42b2d62 |
+| 4 | 6 непонятных подклассов | subclass_descriptions.js | ✅ a6c0d5b |
+| 5 | Упрощение feature в предысториях | background_descriptions.js | ✅ 9cd1381 |
