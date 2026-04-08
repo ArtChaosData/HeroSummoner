@@ -4,6 +4,7 @@
  */
 import { el, toast } from '../utils.js';
 import { DB } from '../db.js';
+import { ARMOUR, WEAPONS, EQUIPMENT, TOOLS } from '../data/equipment.js';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -35,6 +36,8 @@ function freshState() {
     mecEquipMode:    'standard',
     mecEquipGold:    null,
     mecEquipChoices: {},
+    mecCart:         [],
+    mecHomebrew:     [],
   };
 }
 
@@ -667,40 +670,42 @@ function buildEditionStep(st, goMech) {
   };
 
   return el('div', { class: 'mech-step-body' },
-    el('h2', { class: 'mech-step-title' }, 'Выберите редакцию'),
+    el('div', { class: 'mech-edition-scroll' },
+      el('h2', { class: 'mech-step-title' }, 'Выберите редакцию'),
 
-    el('div', { class: 'mech-ed-cards' },
-      ...Object.entries(ED_META).map(([val, [year, name, sub]]) =>
-        el('button', {
-          class: `mech-ed-card${ed === val ? ' is-selected' : ''}`,
-          onClick: () => selectEd(val),
-        },
-          el('span', { class: 'mech-ed-year' }, year),
-          el('span', { class: 'mech-ed-name' }, name),
-          el('span', { class: 'mech-ed-sub'  }, sub),
-        )
+      el('div', { class: 'mech-ed-cards' },
+        ...Object.entries(ED_META).map(([val, [year, name, sub]]) =>
+          el('button', {
+            class: `mech-ed-card${ed === val ? ' is-selected' : ''}`,
+            onClick: () => selectEd(val),
+          },
+            el('span', { class: 'mech-ed-year' }, year),
+            el('span', { class: 'mech-ed-name' }, name),
+            el('span', { class: 'mech-ed-sub'  }, sub),
+          )
+        ),
       ),
+
+      srcs ? el('div', { class: 'mech-sources' },
+        el('p', { class: 'mech-sources-label' }, 'Дополнения'),
+        el('div', { class: 'mech-src-chips' },
+          ...srcs.map(src => {
+            const chipAttrs = {
+              class: `mech-src-chip${st.mecSources.includes(src.id) ? ' is-active' : ''}${src.locked ? ' is-locked' : ''}`,
+            };
+            if (src.locked) chipAttrs.disabled = 'true';
+            else chipAttrs.onClick = e => toggleSrc(src.id, e.currentTarget);
+            const chip = el('button', chipAttrs, src.id);
+            chip.addEventListener('mouseenter', e => showSrcTip(e, src));
+            chip.addEventListener('mouseleave', hideSrcTip);
+            return chip;
+          }),
+        ),
+        el('p', { class: 'mech-src-hint' }, 'Если вы не знаете, что выбрать — уточните у Мастера.'),
+      ) : null,
+
+      previewWrap,
     ),
-
-    srcs ? el('div', { class: 'mech-sources' },
-      el('p', { class: 'mech-sources-label' }, 'Дополнения'),
-      el('div', { class: 'mech-src-chips' },
-        ...srcs.map(src => {
-          const chipAttrs = {
-            class: `mech-src-chip${st.mecSources.includes(src.id) ? ' is-active' : ''}${src.locked ? ' is-locked' : ''}`,
-          };
-          if (src.locked) chipAttrs.disabled = 'true';
-          else chipAttrs.onClick = e => toggleSrc(src.id, e.currentTarget);
-          const chip = el('button', chipAttrs, src.id);
-          chip.addEventListener('mouseenter', e => showSrcTip(e, src));
-          chip.addEventListener('mouseleave', hideSrcTip);
-          return chip;
-        }),
-      ),
-      el('p', { class: 'mech-src-hint' }, 'Если вы не знаете, что выбрать — уточните у Мастера.'),
-    ) : null,
-
-    previewWrap,
 
     ed ? el('div', { class: 'mech-foot' },
       ed === 'one-dnd'
@@ -708,6 +713,202 @@ function buildEditionStep(st, goMech) {
         : el('button', { class: 'cnew-save-btn', onClick: () => goMech('class') }, 'Далее → Класс'),
     ) : null,
   );
+}
+
+// ─── Buy mode: shop + inventory panel ────────────────────────────────────────
+
+function buildBuyMode(st, footBtn) {
+  if (!Array.isArray(st.mecCart))     st.mecCart     = [];
+  if (!Array.isArray(st.mecHomebrew)) st.mecHomebrew = [];
+  let _q = '';
+
+  const goldEl    = el('span', {});
+  const weightEl  = el('span', {});
+  const invListEl = el('div',  { class: 'shop-inv-list' });
+  const catalogEl = el('div',  { class: 'shop-cat-body' });
+
+  const gl  = () => st.mecEquipGold !== null ? cartGoldLeft(st) : -Infinity;
+  const tw  = () => cartTotalLb(st);
+  const cap = () => charCarryCap(st);
+
+  function refreshInv() {
+    const g = gl(), t = tw(), c = cap();
+    goldEl.textContent = isFinite(g) ? `${fmtGp(g)} зм` : '— зм';
+    goldEl.className   = `shop-stat-v${isFinite(g) && g < 0 ? ' is-danger' : ''}`;
+    weightEl.textContent = `${t} / ${c} фнт.`;
+    weightEl.className   = `shop-stat-v${t > c ? ' is-danger' : ''}`;
+    invListEl.innerHTML  = '';
+    if (!st.mecCart.length) {
+      invListEl.append(el('p', { class: 'shop-inv-empty' }, 'Инвентарь пуст'));
+    } else {
+      st.mecCart.forEach(item => invListEl.append(
+        el('div', { class: 'shop-inv-item' },
+          el('div', { class: 'shop-inv-name' }, item.name),
+          el('div', { class: 'shop-inv-info' },
+            el('span', {}, `${fmtGp(item.costGp * item.qty)} зм`),
+            el('span', {}, `${Math.round(item.weightLb * item.qty * 10) / 10} фнт.`),
+          ),
+          el('div', { class: 'shop-inv-ctrl' },
+            el('button', { class: 'shop-qty-btn', onClick: () => changeQty(item.id, -1) }, '−'),
+            el('span',   { class: 'shop-qty-n' },  `×${item.qty}`),
+            el('button', { class: 'shop-qty-btn', onClick: () => changeQty(item.id, +1) }, '+'),
+            el('button', { class: 'shop-rm-btn',  onClick: () => removeItem(item.id)    }, '×'),
+          ),
+        ),
+      ));
+    }
+    footBtn.disabled = t > c;
+    footBtn.title    = t > c ? `Перегрузка: ${t} / ${c} фнт. Продайте часть снаряжения.` : '';
+  }
+
+  function refreshBuyBtns() {
+    const g = gl();
+    catalogEl.querySelectorAll('[data-cost]').forEach(btn => {
+      const cant = parseFloat(btn.dataset.cost) > g;
+      btn.disabled = cant;
+      btn.classList.toggle('is-broke', cant);
+      btn.style.cursor = cant ? 'not-allowed' : '';
+      btn.title = cant ? 'Недостаточно монет' : '';
+    });
+  }
+
+  function changeQty(id, delta) {
+    const item = st.mecCart.find(i => i.id === id);
+    if (!item) return;
+    if (delta > 0 && item.costGp > gl()) return;
+    item.qty += delta;
+    if (item.qty <= 0) st.mecCart = st.mecCart.filter(i => i.id !== id);
+    scheduleSave(st); refreshInv(); refreshBuyBtns();
+  }
+
+  function removeItem(id) {
+    st.mecCart = st.mecCart.filter(i => i.id !== id);
+    scheduleSave(st); refreshInv(); refreshBuyBtns();
+  }
+
+  function addItem(item) {
+    if (item.costGp > gl()) return;
+    const ex = st.mecCart.find(i => i.id === item.id);
+    if (ex) ex.qty++;
+    else st.mecCart.push({ ...item, qty: 1 });
+    scheduleSave(st); refreshInv(); refreshBuyBtns();
+  }
+
+  function buildCatalog() {
+    catalogEl.innerHTML = '';
+    const q = _q.toLowerCase();
+    const g = gl();
+
+    const allCats = [...SHOP_CATS];
+    if (st.mecHomebrew.length) {
+      allCats.push({ id: 'homebrew', label: 'Homebrew', items: st.mecHomebrew.map(it => ({
+        ...it, type: 'Homebrew',
+        weight: it.weightLb > 0 ? `${it.weightLb} фнт.` : '—',
+        cost: it.costStr || `${fmtGp(it.costGp)} зм`,
+      })) });
+    }
+
+    allCats.forEach(cat => {
+      let items = cat.items.filter(it => it.costGp !== null);
+      if (q) items = items.filter(it =>
+        it.name.toLowerCase().includes(q) || (it.type || '').toLowerCase().includes(q),
+      );
+      if (!items.length) return;
+
+      const byType = {};
+      items.forEach(it => { (byType[it.type] = byType[it.type] || []).push(it); });
+
+      const catDet = el('details', { class: 'shop-cat-det' });
+      catDet.open = true;
+      catDet.append(el('summary', { class: 'shop-cat-sum' },
+        el('span', {}, cat.label),
+        el('span', { class: 'shop-count' }, `${items.length}`),
+      ));
+
+      Object.entries(byType).forEach(([type, tItems]) => {
+        const subDet = el('details', { class: 'shop-sub-det' });
+        subDet.open = true;
+        subDet.append(el('summary', { class: 'shop-sub-sum' }, type));
+        tItems.forEach(it => {
+          const id   = `${cat.id}::${it.name}`;
+          const cant = it.costGp > g;
+          const btn  = el('button', {
+            class: `shop-buy-btn${cant ? ' is-broke' : ''}`,
+            onClick: () => addItem({ id, name: it.name, costGp: it.costGp, weightLb: parseWeightLb(it.weight), category: cat.label }),
+          }, '+');
+          btn.dataset.cost = it.costGp;
+          if (cant) { btn.disabled = true; btn.style.cursor = 'not-allowed'; btn.title = 'Недостаточно монет'; }
+          subDet.append(el('div', { class: 'shop-row' },
+            el('span', { class: 'shop-row-name' }, it.name),
+            el('span', { class: 'shop-row-cost' }, it.cost),
+            el('span', { class: 'shop-row-wt'   }, it.weight),
+            btn,
+          ));
+        });
+        catDet.append(subDet);
+      });
+      catalogEl.append(catDet);
+    });
+  }
+
+  const searchInp = el('input', { class: 'shop-search', type: 'search', placeholder: 'Поиск предмета...' });
+  searchInp.addEventListener('input', e => { _q = e.target.value; buildCatalog(); });
+  const addBtn = el('button', { class: 'shop-add-btn', onClick: () => openHomebrewModal(st, buildCatalog) }, '+ Свой предмет');
+
+  refreshInv();
+  buildCatalog();
+
+  return el('div', { class: 'shop-wrap' },
+    el('div', { class: 'shop-inv' },
+      el('div', { class: 'shop-inv-hd' },
+        el('div', { class: 'shop-stat-row' }, el('span', { class: 'shop-stat-l' }, 'Осталось'), goldEl),
+        el('div', { class: 'shop-stat-row' }, el('span', { class: 'shop-stat-l' }, 'Вес'),      weightEl),
+      ),
+      invListEl,
+    ),
+    el('div', { class: 'shop-panel' },
+      el('div', { class: 'shop-bar' }, searchInp, addBtn),
+      catalogEl,
+    ),
+  );
+}
+
+const COIN_TO_GP = { зм: 1, см: 0.1, мм: 0.01 };
+
+function openHomebrewModal(st, onAdded) {
+  const nameInp = el('input', { class: 'shop-modal-inp', type: 'text',   placeholder: 'Название'    });
+  const costInp = el('input', { class: 'shop-modal-cost-inp', type: 'number', placeholder: 'Цена', min: '0', step: '1' });
+  const coinSel = el('select', { class: 'shop-modal-coin' },
+    el('option', { value: 'зм' }, 'зм'),
+    el('option', { value: 'см' }, 'см'),
+    el('option', { value: 'мм' }, 'мм'),
+  );
+  const wtInp = el('input', { class: 'shop-modal-inp', type: 'number', placeholder: 'Вес (фнт.)', min: '0', step: '0.1' });
+  const overlay = el('div', { class: 'shop-modal-bg' },
+    el('div', { class: 'shop-modal' },
+      el('h3', { class: 'shop-modal-title' }, 'Свой предмет'),
+      nameInp,
+      el('div', { class: 'shop-modal-cost-row' }, costInp, coinSel),
+      wtInp,
+      el('div', { class: 'shop-modal-btns' },
+        el('button', { class: 'shop-modal-cancel', onClick: () => overlay.remove() }, 'Отмена'),
+        el('button', { class: 'shop-modal-save', onClick: () => {
+          const name = nameInp.value.trim();
+          if (!name) { nameInp.focus(); return; }
+          const amount = parseFloat(costInp.value) || 0;
+          const coin   = coinSel.value;
+          const costGp = Math.round(amount * COIN_TO_GP[coin] * 100) / 100;
+          const costStr = amount > 0 ? `${amount} ${coin}.` : '—';
+          st.mecHomebrew.push({ name, costGp, costStr, weightLb: parseFloat(wtInp.value) || 0 });
+          scheduleSave(st);
+          overlay.remove();
+          onAdded();
+        }}, 'Добавить'),
+      ),
+    ),
+  );
+  document.body.append(overlay);
+  nameInp.focus();
 }
 
 // ─── Final step ───────────────────────────────────────────────────────────────
@@ -999,11 +1200,19 @@ function buildFinalStep(st, goMech, go) {
 
 // ─── Mechanics: main wrapper ──────────────────────────────────────────────────
 
+// Magical classes that require the Spells step
+const MAGIC_CLASSES = new Set([
+  'Бард', 'Волшебник', 'Друид', 'Жрец',
+  'Изобретатель', 'Колдун', 'Паладин', 'Следопыт', 'Чародей',
+]);
+
 function buildMechanics(st, go, container) {
   if (!st.mecStep)    st.mecStep    = 'edition';
   if (!st.mecSources) st.mecSources = [];
 
-  const magic = false; // will be true once a spellcasting class is selected
+  // Dynamically determine if the selected class is a spellcaster
+  const selectedClassName = st.mecClass ? st.mecClass.split('::')[1] : null;
+  const magic = !!(selectedClassName && MAGIC_CLASSES.has(selectedClassName));
 
   function goMech(step) {
     st.mecStep = step;
@@ -1026,6 +1235,7 @@ function buildMechanics(st, go, container) {
         : st.mecStep === 'race'       ? buildRaceStep(st, goMech)
         : st.mecStep === 'background' ? buildBackgroundStep(st, goMech)
         : st.mecStep === 'stats'      ? buildStatsStep(st, goMech)
+        : st.mecStep === 'spells'     ? buildSpellsStep(st, goMech)
         : st.mecStep === 'equipment'  ? buildEquipStep(st, goMech)
         : st.mecStep === 'final'     ? buildFinalStep(st, goMech, go)
         : el('div', { class: 'cnew-wip' }, st.mecStep + ' — скоро'),
@@ -2455,6 +2665,38 @@ function renderEquipItems(items, st, prefix) {
   return el('div', { class: 'equip-items' }, ...equipItemEls(items, st, prefix));
 }
 
+// ─── Equipment shop helpers ───────────────────────────────────────────────────
+
+function parseWeightLb(w) {
+  if (!w || w === '—') return 0;
+  const m = w.match(/([\d,.]+)\s*фнт/);
+  if (!m) return 0;
+  const s = m[1].replace(',', '.');
+  if (s.includes('/')) { const [a, b] = s.split('/'); return +a / +b; }
+  return parseFloat(s) || 0;
+}
+function cartGoldLeft(st) {
+  return Math.round(((st.mecEquipGold || 0) - (st.mecCart || []).reduce((a, i) => a + i.costGp * i.qty, 0)) * 100) / 100;
+}
+function cartTotalLb(st) {
+  return Math.round((st.mecCart || []).reduce((a, i) => a + i.weightLb * i.qty, 0) * 10) / 10;
+}
+function charCarryCap(st) {
+  const s = (effectiveBase(st, 'str') ?? 10) + (mecRacialAsi(st).str || 0);
+  return s * 15;
+}
+function fmtGp(n) {
+  const r = Math.round(n * 100) / 100;
+  return r % 1 === 0 ? String(r) : r.toFixed(2);
+}
+
+const SHOP_CATS = [
+  { id: 'weapons', label: 'Оружие',       items: WEAPONS   },
+  { id: 'armour',  label: 'Доспехи',      items: ARMOUR    },
+  { id: 'equip',   label: 'Снаряжение',   items: EQUIPMENT },
+  { id: 'tools',   label: 'Инструменты',  items: TOOLS     },
+];
+
 // ─── Equipment step ───────────────────────────────────────────────────────────
 
 function buildEquipStep(st, goMech) {
@@ -2472,13 +2714,15 @@ function buildEquipStep(st, goMech) {
   const bgGold     = bgName  ? (BG_GOLD[bgName]      ?? null) : null;
   const goldInfo   = clsName ? (CLASS_GOLD[clsName]  ?? null) : null;
 
-  const bodyEl = el('div', { class: 'equip-scroll' });
-  const footEl = el('div', { class: 'mech-foot equip-foot' },
-    el('button', { class: 'cnew-save-btn', onClick: () => goMech('final') }, 'Далее → Финал'),
-  );
+  const bodyEl  = el('div', {});
+  const footBtn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('final') }, 'Далее → Финал');
+  const footEl  = el('div', { class: 'mech-foot equip-foot' }, footBtn);
 
   function renderBody() {
     bodyEl.innerHTML = '';
+    bodyEl.className = st.mecEquipMode === 'standard' ? 'equip-scroll' : 'equip-buy-body';
+    footBtn.disabled = false;
+    footBtn.title    = '';
 
     if (st.mecEquipMode === 'standard') {
       const moneyEl = el('div', { class: 'equip-money' },
@@ -2549,12 +2793,7 @@ function buildEquipStep(st, goMech) {
         !rolled ? rollBtn : null,
       );
 
-      const wipBlock = el('div', { class: 'equip-wip-block' },
-        el('p', { class: 'equip-wip-title' }, 'Магазин снаряжения'),
-        el('p', { class: 'equip-wip-desc' }, 'В разработке'),
-      );
-
-      bodyEl.append(moneyBuyEl, wipBlock, footEl);
+      bodyEl.append(moneyBuyEl, buildBuyMode(st, footBtn), footEl);
     }
   }
 
