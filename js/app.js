@@ -3,7 +3,6 @@
  */
 import { Router }           from './router.js';
 import { renderCharacters } from './screens/characters.js';
-// import { renderCreate }     from './screens/create.js';  // WIP — отцеплен
 import { renderCreateNew }  from './screens/create-new.js';
 import { renderSheet }      from './screens/sheet.js';
 
