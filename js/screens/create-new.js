@@ -3071,14 +3071,16 @@ function buildSpellsStep(st, goMech) {
   }
 
   // ── Next button ───────────────────────────────────────────────────────────
+  // Note: disabled must be set as DOM property, not attribute —
+  // setAttribute('disabled', false) still disables the button in HTML.
   const nextBtn = el('button', {
     class: 'btn btn-primary mech-next-btn' + (isValid() ? '' : ' is-disabled'),
-    disabled: !isValid(),
     onClick: () => {
       scheduleSave(st);
       goMech('equipment');
     },
   }, 'Далее →');
+  nextBtn.disabled = !isValid();
 
   return el('div', { class: 'mech-spell-wrap' },
     el('div', { class: 'mech-step-header' },
