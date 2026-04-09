@@ -3048,6 +3048,7 @@ function buildSpellsStep(st, goMech) {
     ),
     passport,
     counter,
+    filterBar,
     cantripSection,
     spellSection,
     featuresSection,
