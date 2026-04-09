@@ -2953,10 +2953,10 @@ function buildSpellsStep(st, goMech) {
       }
       const card = el('div', bookAttrs,
         el('div', { class: 'mech-spell-card-head' },
-          el('span', { class: 'mech-spell-name' }, spell.name),
-          el('span', { class: 'mech-spell-school' }, spell.school),
+          el('span', { class: 'mech-spell-card-name' }, spell.name),
+          el('span', { class: 'mech-spell-card-school' }, spell.school),
         ),
-        el('p', { class: 'mech-spell-desc' }, spell.description),
+        el('p', { class: 'mech-spell-card-desc' }, spell.description),
         inBook ? el('button', {
           class: 'mech-spell-prep-btn' + (isPrepared ? ' is-prepped' : ''),
           onClick: (e) => {

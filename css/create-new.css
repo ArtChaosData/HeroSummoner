@@ -2289,6 +2289,12 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   pointer-events: none;
 }
 
+.mech-spell-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .mech-spell-card-name {
   font-size: 13px;
   font-weight: 600;
