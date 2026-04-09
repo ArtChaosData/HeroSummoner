@@ -2977,7 +2977,7 @@ function buildSpellsStep(st, goMech) {
       el('h3', { class: 'mech-spell-section-title' }, 'Книга заклинаний — выберите 6'),
       el('p', { class: 'mech-spell-section-sub' }, `Из выбранных отметьте 2 подготовленными — их можно использовать сегодня.`),
       el('div', { class: 'mech-spell-grid' },
-        ...lvl1spells.map(prepCard),
+        ...(filteredLvl1.length ? filteredLvl1.map(prepCard) : [el('p', { class: 'mech-spell-empty' }, 'Ничего не найдено')]),
       ),
     );
 
