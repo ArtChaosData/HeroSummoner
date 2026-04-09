@@ -2874,14 +2874,20 @@ function buildSpellsStep(st, goMech) {
   const allSpellsList = [...cantrips, ...lvl1spells];
   const schools = [...new Set(allSpellsList.map(s => s.school).filter(Boolean))].sort();
 
+  const searchInp = el('input', {
+    class: 'mech-spell-search',
+    type: 'text',
+    placeholder: '🔍 Поиск по названию...',
+  });
+  // Set value as DOM property (setAttribute sets default, not current value)
+  searchInp.value = filterText;
+  searchInp.addEventListener('input', () => {
+    st._spellFilter = searchInp.value;
+    rebuildFilter();
+  });
+
   const filterBar = el('div', { class: 'mech-spell-filter-bar' },
-    el('input', {
-      class: 'mech-spell-search',
-      type: 'text',
-      placeholder: '🔍 Поиск по названию...',
-      value: filterText,
-      onInput: e => { st._spellFilter = e.target.value; rebuildFilter(); },
-    }),
+    searchInp,
     el('div', { class: 'mech-spell-schools' },
       el('button', {
         class: 'mech-spell-school-chip' + (!filterSchool ? ' is-active' : ''),
