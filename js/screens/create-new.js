@@ -2889,21 +2889,35 @@ function buildSpellsStep(st, goMech) {
     ));
   }
 
+  if (st._spellPassportOpen === undefined) st._spellPassportOpen = true;
+  const isOpen = st._spellPassportOpen;
+
+  const toggleBtn = el('button', {
+    class: 'mech-spell-passport-toggle',
+    onClick: () => { st._spellPassportOpen = !st._spellPassportOpen; rebuild(); },
+  }, isOpen ? '▲' : '▼');
+
   const passport = el('div', { class: 'mech-spell-passport' },
-    el('div', { class: 'mech-spell-passport-head' },
+    el('div', { class: 'mech-spell-passport-header' },
       el('span', { class: 'mech-spell-class-name' }, className),
-      el('span', { class: 'mech-spell-type-badge' }, CAST_TYPE_LABEL[cfg.type]),
-    ),
-    el('div', { class: 'mech-spell-stat-line' },
-      el('span', { class: 'mech-spell-stat-chip' }, statShort),
-      el('span', { class: 'mech-spell-stat-hint' },
-        `${statLabel} — ключевая характеристика. Сложность твоих заклинаний: ${8 + statModVal + 2} (обычно). Бонус атаки заклинанием: +${statModVal + 2}.`,
+      el('span', { class: 'mech-spell-type-badge' },
+        el('span', { class: 'mech-spell-type-badge-label' }, 'Тип: '),
+        CAST_TYPE_LABEL[cfg.type],
       ),
+      toggleBtn,
     ),
-    el('p', { class: 'mech-spell-flavor' }, SPELL_FLAVOR[className] || ''),
-    passportFeatures.length
-      ? el('div', { class: 'mech-spell-passport-features' }, ...passportFeatures)
-      : null,
+    isOpen ? el('div', { class: 'mech-spell-passport-body' },
+      el('div', { class: 'mech-spell-stat-line' },
+        el('span', { class: 'mech-spell-stat-chip' }, statShort),
+        el('span', { class: 'mech-spell-stat-hint' },
+          `${statLabel} — ключевая характеристика. Сложность твоих заклинаний: ${8 + statModVal + 2} (обычно). Бонус атаки заклинанием: +${statModVal + 2}.`,
+        ),
+      ),
+      el('p', { class: 'mech-spell-flavor' }, SPELL_FLAVOR[className] || ''),
+      passportFeatures.length
+        ? el('div', { class: 'mech-spell-passport-features' }, ...passportFeatures)
+        : null,
+    ) : null,
   );
 
   // ── ② Counter bar ────────────────────────────────────────────────────────

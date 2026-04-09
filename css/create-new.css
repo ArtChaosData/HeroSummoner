@@ -2133,6 +2133,36 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   gap: 10px;
 }
 
+.mech-spell-passport-toggle {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color var(--t-fast), background var(--t-fast);
+  flex-shrink: 0;
+}
+.mech-spell-passport-toggle:hover {
+  color: var(--text-secondary);
+  background: var(--surface-3);
+}
+
+.mech-spell-passport-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mech-spell-type-badge-label {
+  font-weight: 400;
+  opacity: 0.75;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .mech-spell-class-icon {
   font-size: 22px;
   line-height: 1;
