@@ -1203,8 +1203,8 @@ function buildFinalStep(st, goMech, go) {
 
 // Magical classes that require the Spells step
 const MAGIC_CLASSES = new Set([
-  'Бард', 'Волшебник', 'Друид', 'Жрец',
-  'Изобретатель', 'Колдун', 'Паладин', 'Следопыт', 'Чародей',
+  'bard', 'wizard', 'druid', 'cleric',
+  'artificer', 'warlock', 'paladin', 'ranger', 'sorcerer',
 ]);
 
 function buildMechanics(st, go, container) {
@@ -1212,8 +1212,7 @@ function buildMechanics(st, go, container) {
   if (!st.mecSources) st.mecSources = [];
 
   // Dynamically determine if the selected class is a spellcaster
-  const selectedClassName = st.mecClass ? st.mecClass.split('::')[1] : null;
-  const magic = !!(selectedClassName && MAGIC_CLASSES.has(selectedClassName));
+  const magic = !!(st.mecClass && MAGIC_CLASSES.has(st.mecClass));
 
   function goMech(step) {
     st.mecStep = step;
@@ -2695,15 +2694,15 @@ function fmtGp(n) {
 
 // Per-class spellcasting configuration (5e14)
 const SPELL_CONFIG = {
-  'Бард':        { type: 'known',    stat: 'cha', cantripCount: 2, spellCount: 4 },
-  'Волшебник':   { type: 'book',     stat: 'int', cantripCount: 3, spellCount: 6, preparedCount: 2 },
-  'Друид':       { type: 'prepared', stat: 'wis', cantripCount: 2, spellCount: null /* wis+level */ },
-  'Жрец':        { type: 'prepared', stat: 'wis', cantripCount: 3, spellCount: null /* wis+level */ },
-  'Изобретатель':{ type: 'prepared', stat: 'int', cantripCount: 2, spellCount: null /* int+half_level */ },
-  'Колдун':      { type: 'pact',     stat: 'cha', cantripCount: 2, spellCount: 2 },
-  'Паладин':     { type: 'prepared', stat: 'cha', cantripCount: 0, spellCount: null /* cha+half_level */ },
-  'Следопыт':    { type: 'known',    stat: 'wis', cantripCount: 0, spellCount: 2 },
-  'Чародей':     { type: 'known',    stat: 'cha', cantripCount: 4, spellCount: 2 },
+  'bard':      { type: 'known',    stat: 'cha', cantripCount: 2, spellCount: 4 },
+  'wizard':    { type: 'book',     stat: 'int', cantripCount: 3, spellCount: 6, preparedCount: 2 },
+  'druid':     { type: 'prepared', stat: 'wis', cantripCount: 2, spellCount: null },
+  'cleric':    { type: 'prepared', stat: 'wis', cantripCount: 3, spellCount: null },
+  'artificer': { type: 'prepared', stat: 'int', cantripCount: 2, spellCount: null },
+  'warlock':   { type: 'pact',     stat: 'cha', cantripCount: 2, spellCount: 2 },
+  'paladin':   { type: 'prepared', stat: 'cha', cantripCount: 0, spellCount: null },
+  'ranger':    { type: 'known',    stat: 'wis', cantripCount: 0, spellCount: 2 },
+  'sorcerer':  { type: 'known',    stat: 'cha', cantripCount: 4, spellCount: 2 },
 };
 
 const STAT_LABEL = { str: 'Сила', dex: 'Ловкость', con: 'Телосложение',
@@ -2730,14 +2729,14 @@ const SPELL_FLAVOR = {
   'Чародей':     'Магия в твоей крови — врождённая сила. Знаешь заклинания наизусть. Особая механика: Очки Чародейства для дополнительных слотов.',
 };
 
-function statMod(st, key) {
+function spellStatMod(st, key) {
   const base = (effectiveBase(st, key) ?? 10) + (mecRacialAsi(st)[key] || 0);
   return Math.floor((base - 10) / 2);
 }
 
 function computePreparedCount(cfg, st) {
   if (cfg.spellCount !== null) return cfg.spellCount;
-  const mod = statMod(st, cfg.stat);
+  const mod = spellStatMod(st, cfg.stat);
   if (cfg.type === 'prepared' && (cfg.stat === 'wis' || cfg.stat === 'cha')) {
     return Math.max(1, mod + 1); // +level, but at level 1 that's 1
   }
@@ -2745,8 +2744,10 @@ function computePreparedCount(cfg, st) {
 }
 
 function buildSpellsStep(st, goMech) {
-  const className = st.mecClass ? st.mecClass.split('::')[1] : '';
-  const cfg = SPELL_CONFIG[className];
+  const clsId  = st.mecClass || '';
+  const cfg    = SPELL_CONFIG[clsId];
+  const clsObj = CLASS_DATA.find(c => c.id === clsId);
+  const className = clsObj ? clsObj.name : clsId;
   if (!cfg) {
     return el('div', { class: 'mech-step-wrap' },
       el('p', { style: 'color:var(--text-muted);padding:32px' }, 'Класс не выбран — вернись к шагу «Класс».'),
@@ -2765,7 +2766,7 @@ function buildSpellsStep(st, goMech) {
   const preparedCount = computePreparedCount(cfg, st);
   const statLabel     = STAT_LABEL[cfg.stat];
   const statShort     = STAT_SHORT[cfg.stat];
-  const statModVal    = statMod(st, cfg.stat);
+  const statModVal    = spellStatMod(st, cfg.stat);
 
   // ── Validation ──────────────────────────────────────────────────────────
   function isValid() {
