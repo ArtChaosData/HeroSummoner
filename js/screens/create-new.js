@@ -2763,6 +2763,19 @@ function buildSpellsStep(st, goMech) {
   if (!st.mecSpellsBook)     st.mecSpellsBook     = [];
   if (!st.mecSpellsPrepared) st.mecSpellsPrepared = [];
 
+  // Filter state (UI-only, not persisted to DB)
+  const filterText   = st._spellFilter  || '';
+  const filterSchool = st._spellSchool  || null;
+
+  function applyFilter(list) {
+    return list.filter(s => {
+      const q = filterText.trim().toLowerCase();
+      if (q && !s.name.toLowerCase().includes(q)) return false;
+      if (filterSchool && s.school !== filterSchool) return false;
+      return true;
+    });
+  }
+
   const preparedCount = computePreparedCount(cfg, st);
   const statLabel     = STAT_LABEL[cfg.stat];
   const statShort     = STAT_SHORT[cfg.stat];
@@ -2785,6 +2798,16 @@ function buildSpellsStep(st, goMech) {
     if (wrap) {
       const newStep = buildSpellsStep(st, goMech);
       wrap.replaceWith(newStep);
+    }
+  }
+  function rebuildFilter() {
+    const prevVal = st._spellFilter;
+    rebuild();
+    if (prevVal !== undefined) {
+      setTimeout(() => {
+        const inp = document.querySelector('.mech-spell-search');
+        if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+      }, 0);
     }
   }
 
@@ -2847,6 +2870,34 @@ function buildSpellsStep(st, goMech) {
     ...counterParts.map(t => el('span', { class: 'mech-spell-counter-item' }, t)),
   );
 
+  // ── Filter bar ──────────────────────────────────────────────────────────
+  const allSpellsList = [...cantrips, ...lvl1spells];
+  const schools = [...new Set(allSpellsList.map(s => s.school).filter(Boolean))].sort();
+
+  const filterBar = el('div', { class: 'mech-spell-filter-bar' },
+    el('input', {
+      class: 'mech-spell-search',
+      type: 'text',
+      placeholder: '🔍 Поиск по названию...',
+      value: filterText,
+      onInput: e => { st._spellFilter = e.target.value; rebuildFilter(); },
+    }),
+    el('div', { class: 'mech-spell-schools' },
+      el('button', {
+        class: 'mech-spell-school-chip' + (!filterSchool ? ' is-active' : ''),
+        onClick: () => { st._spellSchool = null; rebuildFilter(); },
+      }, 'Все'),
+      ...schools.map(sch => el('button', {
+        class: 'mech-spell-school-chip' + (filterSchool === sch ? ' is-active' : ''),
+        onClick: () => { st._spellSchool = filterSchool === sch ? null : sch; rebuildFilter(); },
+      }, sch)),
+    ),
+  );
+
+  // Apply filters to spell lists
+  const filteredCantrips  = applyFilter(cantrips);
+  const filteredLvl1      = applyFilter(lvl1spells);
+
   // ── ③ Cantrips ───────────────────────────────────────────────────────────
   const cantripSection = cfg.cantripCount > 0
     ? el('div', { class: 'mech-spell-section' },
@@ -2855,7 +2906,7 @@ function buildSpellsStep(st, goMech) {
           el('span', { class: 'mech-spell-section-hint' }, ' (заговоры — заклинания без расхода слотов)'),
         ),
         el('div', { class: 'mech-spell-grid' },
-          ...cantrips.map(s => spellCard(s, st.mecSpellsCantrips, cfg.cantripCount)),
+          ...(filteredCantrips.length ? filteredCantrips.map(s => spellCard(s, st.mecSpellsCantrips, cfg.cantripCount)) : [el('p', { class: 'mech-spell-empty' }, 'Ничего не найдено')]),
         ),
       )
     : null;
@@ -2870,7 +2921,7 @@ function buildSpellsStep(st, goMech) {
         `Заклинания 1 уровня — выберите ${cnt}`,
       ),
       el('div', { class: 'mech-spell-grid' },
-        ...lvl1spells.map(s => spellCard(s, st.mecSpellsLevel1, cnt)),
+        ...(filteredLvl1.length ? filteredLvl1.map(s => spellCard(s, st.mecSpellsLevel1, cnt)) : [el('p', { class: 'mech-spell-empty' }, 'Ничего не найдено')]),
       ),
     );
 
@@ -2935,7 +2986,7 @@ function buildSpellsStep(st, goMech) {
         el('em', {}, 'Отметь те, что возьмёшь на сегодня — остальные тоже доступны завтра.'),
       ),
       el('div', { class: 'mech-spell-grid' },
-        ...lvl1spells.map(s => spellCard(s, st.mecSpellsLevel1, 99)),
+        ...(filteredLvl1.length ? filteredLvl1.map(s => spellCard(s, st.mecSpellsLevel1, 99)) : [el('p', { class: 'mech-spell-empty' }, 'Ничего не найдено')]),
       ),
     );
   }
