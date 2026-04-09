@@ -2836,7 +2836,59 @@ function buildSpellsStep(st, goMech) {
     );
   }
 
-  // ── ① Passport ───────────────────────────────────────────────────────────
+  // ── ① Passport (class card with inline features) ─────────────────────────
+  // Build feature rows for passport
+  const hasRitual = ['Бард', 'Волшебник', 'Жрец', 'Друид', 'Изобретатель', 'Следопыт', 'Паладин'].includes(className);
+  const focusMap  = {
+    'Бард': 'Музыкальный инструмент', 'Волшебник': 'Магический фокус или компонентный мешочек',
+    'Жрец': 'Священный символ', 'Паладин': 'Священный символ', 'Друид': 'Друидский фокус',
+    'Колдун': 'Магический фокус', 'Чародей': 'Магический фокус',
+    'Следопыт': 'Компонентный мешочек', 'Изобретатель': 'Воровские инструменты или набор умельца',
+  };
+
+  const passportFeatures = [];
+  // Spellbook comes first for wizards
+  if (cfg.type === 'book') {
+    passportFeatures.push(el('div', { class: 'mech-spell-passport-feature' },
+      el('span', { class: 'mech-spell-passport-feature-label' }, '📖 Книга заклинаний'),
+      el('span', { class: 'mech-spell-passport-feature-text' },
+        'Ты знаешь все заклинания из книги. Каждое утро выбираешь, какие подготовить — найденные свитки тоже можно скопировать.',
+      ),
+    ));
+  }
+  if (hasRitual) {
+    passportFeatures.push(el('div', { class: 'mech-spell-passport-feature' },
+      el('span', { class: 'mech-spell-passport-feature-label' }, '🕯 Ритуальное колдовство'),
+      el('span', { class: 'mech-spell-passport-feature-text' },
+        'Заклинания с тегом «ритуал» можно читать без расхода слота — на 10 мин дольше.',
+      ),
+    ));
+  }
+  if (focusMap[className]) {
+    passportFeatures.push(el('div', { class: 'mech-spell-passport-feature' },
+      el('span', { class: 'mech-spell-passport-feature-label' }, '🔮 Фокусировка'),
+      el('span', { class: 'mech-spell-passport-feature-text' },
+        `${focusMap[className]} — вместо материальных компонентов.`,
+      ),
+    ));
+  }
+  if (className === 'Колдун') {
+    passportFeatures.push(el('div', { class: 'mech-spell-passport-feature' },
+      el('span', { class: 'mech-spell-passport-feature-label' }, '✦ Воззвания'),
+      el('span', { class: 'mech-spell-passport-feature-text' },
+        'На 2-м уровне выбираешь Воззвания — пассивные улучшения и способности от Покровителя.',
+      ),
+    ));
+  }
+  if (className === 'Чародей') {
+    passportFeatures.push(el('div', { class: 'mech-spell-passport-feature' },
+      el('span', { class: 'mech-spell-passport-feature-label' }, '✦ Метамагия'),
+      el('span', { class: 'mech-spell-passport-feature-text' },
+        'На 3-м уровне: усиляй заклинания, тратя Очки Чародейства.',
+      ),
+    ));
+  }
+
   const passport = el('div', { class: 'mech-spell-passport' },
     el('div', { class: 'mech-spell-passport-head' },
       el('span', { class: 'mech-spell-class-name' }, className),
@@ -2849,6 +2901,9 @@ function buildSpellsStep(st, goMech) {
       ),
     ),
     el('p', { class: 'mech-spell-flavor' }, SPELL_FLAVOR[className] || ''),
+    passportFeatures.length
+      ? el('div', { class: 'mech-spell-passport-features' }, ...passportFeatures)
+      : null,
   );
 
   // ── ② Counter bar ────────────────────────────────────────────────────────
@@ -2997,47 +3052,6 @@ function buildSpellsStep(st, goMech) {
     );
   }
 
-  // ── ⑤ Spell features (read-only) ─────────────────────────────────────────
-  const hasRitual = ['Бард', 'Волшебник', 'Жрец', 'Друид', 'Изобретатель', 'Следопыт', 'Паладин'].includes(className);
-  const focusMap  = {
-    'Бард': 'Музыкальный инструмент', 'Волшебник': 'Магический фокус или компонентный мешочек',
-    'Жрец': 'Священный символ', 'Паладин': 'Священный символ', 'Друид': 'Друидский фокус',
-    'Колдун': 'Магический фокус', 'Чародей': 'Магический фокус',
-    'Следопыт': 'Компонентный мешочек', 'Изобретатель': 'Воровские инструменты или набор умельца',
-  };
-  const featureCards = [];
-  if (hasRitual) {
-    featureCards.push(el('div', { class: 'mech-spell-feature-card' },
-      el('strong', {}, 'Ритуальное колдовство'),
-      el('p', {}, 'Некоторые заклинания можно накладывать как ритуал — на 10 мин дольше, но без расхода слотов.'),
-    ));
-  }
-  if (focusMap[className]) {
-    featureCards.push(el('div', { class: 'mech-spell-feature-card' },
-      el('strong', {}, 'Заклинательная фокусировка'),
-      el('p', {}, `Используй ${focusMap[className]} вместо материальных компонентов.`),
-    ));
-  }
-  if (className === 'Колдун') {
-    featureCards.push(el('div', { class: 'mech-spell-feature-card' },
-      el('strong', {}, 'Мистические воззвания'),
-      el('p', {}, 'На 2-м уровне выбираешь Воззвания — пассивные улучшения и особые способности от Покровителя.'),
-    ));
-  }
-  if (className === 'Чародей') {
-    featureCards.push(el('div', { class: 'mech-spell-feature-card' },
-      el('strong', {}, 'Метамагия и Очки Чародейства'),
-      el('p', {}, 'На 3-м уровне открывается Метамагия — усиляй заклинания, тратя Очки Чародейства.'),
-    ));
-  }
-
-  const featuresSection = featureCards.length
-    ? el('div', { class: 'mech-spell-section' },
-        el('h3', { class: 'mech-spell-section-title' }, 'Особенности заклинателя'),
-        el('div', { class: 'mech-spell-features-grid' }, ...featureCards),
-      )
-    : null;
-
   // ── Next button ───────────────────────────────────────────────────────────
   const nextBtn = el('button', {
     class: 'btn btn-primary mech-next-btn' + (isValid() ? '' : ' is-disabled'),
@@ -3057,7 +3071,6 @@ function buildSpellsStep(st, goMech) {
     filterBar,
     cantripSection,
     spellSection,
-    featuresSection,
     el('div', { class: 'mech-step-footer' }, nextBtn),
   );
 }
