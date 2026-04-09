@@ -2806,11 +2806,9 @@ function buildSpellsStep(st, goMech) {
       };
     }
     return el('div', cardAttrs,
-      el('div', { class: 'mech-spell-card-head' },
-        el('span', { class: 'mech-spell-name' }, spell.name),
-        el('span', { class: 'mech-spell-school' }, spell.school),
-      ),
-      el('p', { class: 'mech-spell-desc' }, spell.description),
+      el('div', { class: 'mech-spell-card-name' }, spell.name),
+      el('div', { class: 'mech-spell-card-school' }, spell.school || ''),
+      el('p',   { class: 'mech-spell-card-desc' }, spell.description || ''),
       badges.length ? el('div', { class: 'mech-spell-badges' }, ...badges) : null,
     );
   }
