@@ -2796,8 +2796,12 @@ function buildSpellsStep(st, goMech) {
     scheduleSave(st);
     const wrap = document.querySelector('.mech-spell-wrap');
     if (wrap) {
+      const scrollTop = wrap.scrollTop;
       const newStep = buildSpellsStep(st, goMech);
       wrap.replaceWith(newStep);
+      // Restore scroll position after DOM swap
+      const newWrap = document.querySelector('.mech-spell-wrap');
+      if (newWrap) newWrap.scrollTop = scrollTop;
     }
   }
   function rebuildFilter() {
