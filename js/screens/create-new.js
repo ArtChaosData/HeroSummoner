@@ -1281,6 +1281,26 @@ function buildClassStep(st, goMech) {
   const listEl   = el('div', { class: 'mech-cls-list' });
   const detailEl = el('div', { class: 'mech-cls-detail' });
 
+  const ALL_SKILLS = Object.values(SKILLS_BY_AB).flat();
+
+  function skillsReady() {
+    const clsData = mecClsData(st);
+    if (!clsData) return false;
+    const chosen   = st.mecChosen || [];
+    const opts     = clsData.list ?? ALL_SKILLS;
+    const clsPicks = chosen.filter(s => opts.includes(s));
+    return clsPicks.length >= clsData.count;
+  }
+
+  function updateFoot() {
+    footEl.innerHTML = '';
+    if (!st.mecClass) return;
+    const btn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('race') }, 'Далее → Раса');
+    btn.disabled = !skillsReady();
+    if (!skillsReady()) btn.classList.add('is-disabled');
+    footEl.append(btn);
+  }
+
   function updateDetail() {
     detailEl.innerHTML = '';
     const cls = CLASS_DATA.find(c => c.id === st.mecClass);
@@ -1294,6 +1314,38 @@ function buildClassStep(st, goMech) {
       b.addEventListener('mouseleave', hideSrcTip);
       return b;
     });
+
+    const clsData = mecClsData(st);
+    const opts     = clsData ? (clsData.list ?? ALL_SKILLS) : [];
+    const count    = clsData?.count ?? 0;
+    const chosen   = new Set(st.mecChosen || []);
+    const clsPicks = [...chosen].filter(s => opts.includes(s));
+    const atLimit  = clsPicks.length >= count;
+
+    const skillChips = [...opts].sort((a, b) => a.localeCompare(b, 'ru')).map(name => {
+      const isPicked = chosen.has(name);
+      const isDisabled = !isPicked && atLimit;
+      const chip = el('button', {
+        class: 'cls-skill-chip' + (isPicked ? ' is-picked' : '') + (isDisabled ? ' is-dim' : ''),
+        onClick: () => {
+          const s = new Set(st.mecChosen || []);
+          if (isPicked) {
+            s.delete(name);
+          } else if (!atLimit) {
+            s.add(name);
+          } else return;
+          st.mecChosen = [...s];
+          scheduleSave(st);
+          updateDetail();
+          updateFoot();
+        },
+      }, (isPicked ? '✓ ' : '') + name);
+      chip.disabled = isDisabled;
+      return chip;
+    });
+
+    const counterText = `Выбрано навыков: ${clsPicks.length} / ${count}`;
+
     detailEl.append(
       el('div', { class: 'mech-cls-header' },
         el('h3', { class: 'mech-cls-name' }, cls.name),
@@ -1302,6 +1354,13 @@ function buildClassStep(st, goMech) {
       el('p', { class: `mech-cls-rp rp-${cls.rp}` }, rpLabel(cls)),
       el('p', { class: 'mech-cls-rp rp-1' }, 'Ключевые характеристики: ' + cls.stats),
       el('p', { class: 'mech-cls-desc' }, cls.desc),
+      el('div', { class: 'cls-skill-block' },
+        el('div', { class: 'cls-skill-block-header' },
+          el('span', { class: 'cls-skill-block-title' }, 'Навыки владения'),
+          el('span', { class: 'cls-skill-counter' + (atLimit ? ' is-done' : '') }, counterText),
+        ),
+        el('div', { class: 'cls-skill-chips' }, ...skillChips),
+      ),
     );
   }
 
@@ -1314,14 +1373,15 @@ function buildClassStep(st, goMech) {
       const btn = el('button', {
         class: `mech-cls-item${st.mecClass === cls.id ? ' is-selected' : ''}`,
         onClick: () => {
+          // Reset skill picks when class changes
+          if (st.mecClass !== cls.id) st.mecChosen = [];
           st.mecClass = cls.id;
           scheduleSave(st);
           listEl.querySelectorAll('.mech-cls-item').forEach(b =>
             b.classList.toggle('is-selected', b.dataset.id === cls.id)
           );
           updateDetail();
-          footEl.innerHTML = '';
-          footEl.append(el('button', { class: 'cnew-save-btn', onClick: () => goMech('race') }, 'Далее → Раса'));
+          updateFoot();
         },
       },
         cls.name,
@@ -1333,12 +1393,10 @@ function buildClassStep(st, goMech) {
   }
 
   const footEl = el('div', { class: 'mech-foot' });
-  if (st.mecClass) {
-    footEl.append(el('button', { class: 'cnew-save-btn', onClick: () => goMech('race') }, 'Далее → Раса'));
-  }
 
   updateList();
   updateDetail();
+  updateFoot();
 
   return el('div', { class: 'mech-step-body' },
     el('h2', { class: 'mech-step-title' }, 'Выберите класс'),
@@ -2412,29 +2470,16 @@ function buildStatsStep(st, goMech) {
     const maxPicks = clsData?.count ?? 0;
     const picked   = [...chosen].filter(s => clsOpts.includes(s)).length;
 
+    // Skills are chosen at the class step — read-only here
     const skillEls = [...skills].sort((a, b) => a.localeCompare(b, 'ru')).map(name => {
       const fromBg     = bgProfs.includes(name);
       const fromClass  = chosen.has(name);
       const proficient = fromBg || fromClass;
-      const canPick    = clsOpts.includes(name) && !fromBg;
-      const atLimit    = picked >= maxPicks;
       const bonus      = mod + (proficient ? 2 : 0);
       let cbCls = 'sk-cb';
       if (fromBg)         cbCls += ' src-bg has-check';
       else if (fromClass) cbCls += ' src-class has-check';
-      else if (canPick)   cbCls += ' opt-class';
-      const locked = fromBg || (!fromClass && (!canPick || atLimit));
-      return el('div', {
-        class: `skill-row${locked ? ' locked' : ''}`,
-        onClick: () => {
-          if (fromBg) return;
-          const s = new Set(st.mecChosen);
-          if (fromClass)                s.delete(name);
-          else if (canPick && !atLimit) s.add(name);
-          else return;
-          st.mecChosen = [...s]; scheduleSave(st); refresh();
-        },
-      },
+      return el('div', { class: 'skill-row locked' },
         el('div',  { class: cbCls }),
         el('span', { class: `sk-name${proficient ? ' proficient' : ''}` }, name),
         el('div',  { class: 'sk-bonus-wrap' },

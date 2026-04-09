@@ -812,6 +812,67 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   line-height: 1.6;
   margin: 0;
 }
+
+/* ── Class step: skill picker ── */
+.cls-skill-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border-2);
+  border-radius: var(--r-lg);
+}
+.cls-skill-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cls-skill-block-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.cls-skill-counter {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: color var(--t-fast);
+}
+.cls-skill-counter.is-done { color: var(--accent); }
+.cls-skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.cls-skill-chip {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 99px;
+  border: 1.5px solid var(--border-2);
+  background: var(--surface-3);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+.cls-skill-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.cls-skill-chip.is-picked {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.cls-skill-chip.is-dim {
+  opacity: 0.35;
+  cursor: default;
+}
 .mech-cls-roles {
   display: flex;
   flex-wrap: nowrap;
