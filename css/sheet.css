@@ -1,0 +1,302 @@
+/* ══════════════════════════════════════════
+   HeroSummoner — Character Sheet
+══════════════════════════════════════════ */
+
+.cs-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 20px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Header ── */
+.cs-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+}
+.cs-portrait {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-lg);
+  background: var(--surface-3) center/cover no-repeat;
+  flex-shrink: 0;
+  border: 1px solid var(--border-2);
+}
+.cs-portrait.is-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent-soft);
+  background: var(--accent-bg);
+}
+.cs-header-info { flex: 1; min-width: 0; }
+.cs-name {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cs-sub { font-size: 13px; color: var(--text-secondary); margin-top: 3px; }
+.cs-back-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  padding: 7px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.cs-back-btn:hover { background: var(--surface-3); color: var(--text-primary); }
+
+/* ── Body grid ── */
+.cs-body {
+  display: grid;
+  grid-template-columns: 148px 1fr 220px;
+  gap: 12px;
+  align-items: start;
+}
+.cs-col { display: flex; flex-direction: column; gap: 12px; }
+
+/* ── Generic card ── */
+.cs-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.cs-card-title {
+  padding: 6px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Ability scores ── */
+.cs-abilities {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.cs-ability {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 10px 6px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+  transition: border-color var(--t-fast);
+}
+.cs-ability:hover { border-color: var(--border-3); }
+.cs-ability-mod {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+.cs-ability-score { font-size: 11px; color: var(--text-secondary); }
+.cs-ability-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* ── Common row (saves + skills) ── */
+.cs-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.cs-row:last-child { border-bottom: none; }
+.cs-row.is-prof { background: rgba(108,99,255,0.04); }
+.cs-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-3);
+  flex-shrink: 0;
+}
+.cs-dot.is-filled { background: var(--accent); border-color: var(--accent); }
+.cs-row-val {
+  font-weight: 700;
+  font-size: 12px;
+  min-width: 28px;
+  text-align: right;
+}
+.cs-row-label { flex: 1; color: var(--text-secondary); }
+.cs-row-ab {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ── HP Tracker ── */
+.cs-hp-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.cs-hp-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 16px 10px;
+}
+.cs-hp-display {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.cs-hp-val {
+  font-family: var(--font-display);
+  font-size: 52px;
+  font-weight: 700;
+  color: var(--hp-full);
+  line-height: 1;
+  min-width: 64px;
+  text-align: center;
+  transition: color var(--t-fast);
+}
+.cs-hp-val.is-low  { color: var(--hp-mid); }
+.cs-hp-val.is-dead { color: var(--hp-low); }
+.cs-hp-max { font-size: 16px; color: var(--text-muted); }
+.cs-hp-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
+  font-size: 22px;
+  line-height: 1;
+  border: 1px solid var(--border-2);
+  background: var(--surface-2);
+  color: var(--danger);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--t-fast);
+  flex-shrink: 0;
+}
+.cs-hp-btn.is-heal { color: var(--hp-full); }
+.cs-hp-btn:hover { background: var(--surface-3); }
+.cs-hp-quick-row {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+.cs-hp-inp {
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  padding: 5px 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  text-align: center;
+  outline: none;
+  min-width: 0;
+}
+.cs-hp-inp:focus { border-color: var(--accent); }
+.cs-hp-quick {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity var(--t-fast);
+}
+.cs-hp-quick.is-heal {
+  background: rgba(58,184,112,0.08);
+  border-color: var(--hp-full);
+  color: var(--hp-full);
+}
+.cs-hp-quick:hover { opacity: 0.78; }
+
+/* ── Combat stats ── */
+.cs-combat-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.cs-combat-cell {
+  flex: 1;
+  min-width: 44px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 9px 6px;
+  text-align: center;
+}
+.cs-combat-val {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+.cs-combat-label {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* ── Identity ── */
+.cs-ident-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.cs-ident-row:last-child { border-bottom: none; }
+.cs-ident-label { color: var(--text-muted); flex-shrink: 0; }
+.cs-ident-val   { color: var(--text-primary); font-weight: 500; text-align: right; }
+
+/* ── Mobile ── */
+@media (max-width: 800px) {
+  .cs-body { grid-template-columns: 1fr; }
+  .cs-col-left { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .cs-abilities { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 480px) {
+  .cs-col-left { grid-template-columns: 1fr; }
+  .cs-abilities { grid-template-columns: repeat(2, 1fr); }
+}

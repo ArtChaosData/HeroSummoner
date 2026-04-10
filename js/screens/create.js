@@ -629,74 +629,37 @@ function makeSel(opts, cur, onChange, placeholder = '— Выбрать —') {
 }
 
 function buildIdRow(state, refresh) {
-  const classNames = Object.keys(CLASSES).sort((a,b) => a.localeCompare(b, 'ru'));
-  const raceNames  = Object.keys(RACES).sort((a,b) => a.localeCompare(b, 'ru'));
-  const bgNames    = Object.keys(BACKGROUNDS).sort((a,b) => a.localeCompare(b, 'ru'));
-
-  const subData     = state.class ? SUBCLASSES[state.class] : null;
-  const showSub     = subData && state.level >= subData.level;
-
-  const lvlDec = el('button', { class:'ab-btn', onClick:()=>{ if(state.level>1){ state.level--; refresh(); } } }, '−');
-  const lvlInc = el('button', { class:'ab-btn', onClick:()=>{ if(state.level<20){ state.level++; refresh(); } } }, '+');
-  if (state.level <= 1)  lvlDec.disabled = true;
-  if (state.level >= 20) lvlInc.disabled = true;
-  if (subData && state.level >= subData.level && !state.subclass) lvlInc.disabled = true;
-
+  const subData  = state.class ? SUBCLASSES[state.class] : null;
+  const showSub  = subData && state.level >= subData.level;
   const raceData = state.race ? RACES[state.race] : null;
   const subraces = raceData?.sub || [];
 
   const fields = [
-    // Edition toggle — leftmost
-    el('div', { class:'id-field id-edition' },
-      el('label',{}, 'Редакция'),
-      el('div', { class:'edition-toggle' },
-        ...['2014','2024'].map(ed =>
-          el('button', {
-            class: `edition-btn${state.edition === ed ? ' active' : ''}`,
-            onClick: () => { state.edition = ed; refresh(); },
-          }, ed)
-        )
-      )
-    ),
-    el('div', { class:'id-field id-tasha' },
-      el('label', { class: 'tasha-toggle' },
-        (() => {
-          const cb = el('input', { type: 'checkbox', class: 'tasha-cb' });
-          cb.checked = state.tasha;
-          cb.addEventListener('change', () => { state.tasha = cb.checked; refresh(); });
-          return cb;
-        })(),
-        el('span', { class: 'tasha-check' }),
-        'Учитывать Ташу',
-      )
-    ),
     el('div', { class:'id-field id-class-f is-class' }, el('label',{}, 'Класс'),
-      makeSel(classNames, state.class, v => { state.class = v; state.subclass = ''; state.chosen.clear(); refresh(); })
+      el('span', { class:'id-val' }, state.class || '—')
     ),
     el('div', { class:'id-field' }, el('label',{}, 'Уровень'),
-      el('div', { class:'level-stepper' }, lvlDec, el('div',{ class:'level-badge' }, String(state.level)), lvlInc)
+      el('span', { class:'id-val' }, String(state.level || 1))
     ),
     ...(showSub ? [
       el('div', { class:'id-field is-class' }, el('label',{}, 'Подкласс'),
-        makeSel(subData.list, state.subclass, v => { state.subclass = v; refresh(); })
+        el('span', { class:'id-val' }, state.subclass || '—')
       ),
     ] : []),
     el('div', { class:'id-field id-race-f is-race' }, el('label',{}, 'Раса'),
-      makeSel(raceNames, state.race, v => {
-        state.race = v;
-        state.subrace = RACES[v]?.sub?.[0] || '';
-        refresh();
-      })
+      el('span', { class:'id-val' }, state.race || '—')
     ),
-    ...(subraces.length ? [
+    ...(subraces.length && state.subrace ? [
       el('div', { class:'id-field id-subrace-f is-race' }, el('label',{}, 'Подраса'),
-        makeSel(subraces, state.subrace, v => { state.subrace = v; refresh(); })
+        el('span', { class:'id-val' }, state.subrace || '—')
       ),
     ] : []),
     el('div', { class:'id-field id-bg-f is-bg' }, el('label',{}, 'Предыстория'),
-      makeSel(bgNames, state.background, v => { state.background = v; refresh(); })
+      el('span', { class:'id-val' }, state.background || '—')
     ),
-    buildAlignWidget(state, refresh),
+    el('div', { class:'id-field id-align-f' }, el('label',{}, 'Мировоззрение'),
+      el('span', { class:'id-val' }, state.alignment || '—')
+    ),
   ];
 
   return el('div', { class: 'id-row' }, ...fields);
@@ -729,6 +692,26 @@ function buildAbBlock(state, ability, refresh) {
   const hasSave  = state.class ? CLASSES[state.class]?.saves.includes(key) : false;
   const saveVal  = modifier + (hasSave ? 2 : 0);
 
+  let statRow;
+  if (state.gameMode) {
+    statRow = el('div', { class: 'ab-stat-row' },
+      el('span', { class: 'ab-name' }, label),
+      el('span', { class: 'ab-base-val' }, String(base)),
+      el('div',  { class: 'ab-vsep' }),
+      el('div',  { class: 'ab-derived' },
+        ...(asi !== 0 ? [
+          el('span', { class: 'ab-racial-badge' }, asi > 0 ? `+${asi}` : asi),
+          el('span', { class: 'ab-arrow' }, '→'),
+        ] : []),
+        el('span', { class: 'ab-total' }, total),
+        el('span', { class: 'ab-deriv-lbl' }, 'МОД'),
+        el('span', { class: 'ab-mod' }, sign(modifier)),
+        el('span', { class: 'ab-deriv-lbl' }, 'СБ'),
+        el('span', { class: `ab-save${hasSave ? ' prof' : ''}` }, sign(saveVal)),
+        el('div',  { class: `ms-pip${hasSave ? ' active' : ''}` }),
+      ),
+    );
+  } else {
   const spent  = pbSpent(state.stats);
   const canDec = base > PB_MIN;
   const canInc = base < PB_MAX && (PB_POOL - spent) >= ((PB_COST[base + 1] ?? 99) - PB_COST[base]);
@@ -738,7 +721,7 @@ function buildAbBlock(state, ability, refresh) {
   if (!canDec) btnDec.disabled = true;
   if (!canInc) btnInc.disabled = true;
 
-  const statRow = el('div', { class: 'ab-stat-row' },
+  statRow = el('div', { class: 'ab-stat-row' },
     el('span', { class: 'ab-name' }, label),
     el('div',  { class: 'ab-stepper' }, btnDec, el('span', { class: 'ab-base-val' }, base), btnInc),
     el('span', { class: 'ab-cost' }, `(${PB_COST[base]})`),
@@ -756,6 +739,7 @@ function buildAbBlock(state, ability, refresh) {
     el('div',  { class: `ms-pip${hasSave ? ' active' : ''}` }),
   ),
   );
+  } // end else (non-gameMode)
 
   const skills   = SKILLS_BY_AB[key];
   const bgProfs  = bgSkills(state);
@@ -769,24 +753,34 @@ function buildAbBlock(state, ability, refresh) {
     const fromBg    = bgProfs.includes(name);
     const fromClass = state.chosen.has(name);
     const proficient = fromBg || fromClass;
-    const canPick   = opts.includes(name) && !fromBg;
-    const atLimit   = picked >= maxPicks;
     const bonus     = modifier + (proficient ? 2 : 0);
 
     let cbCls = 'sk-cb';
     if (fromBg)         cbCls += ' src-bg has-check';
     else if (fromClass) cbCls += ' src-class has-check';
-    else if (canPick)   cbCls += ' opt-class';
 
-    const locked = fromBg || (!fromClass && (!canPick || atLimit));
-    return el('div', {
-      class: `skill-row${locked ? ' locked' : ''}`,
-      onClick: () => {
-        if (fromBg) return;
-        if (fromClass) { state.chosen.delete(name); refresh(); }
-        else if (canPick && !atLimit) { state.chosen.add(name); refresh(); }
+    if (!state.gameMode) {
+      const canPick = opts.includes(name) && !fromBg;
+      const atLimit = picked >= maxPicks;
+      if (canPick && !fromBg && !fromClass) cbCls += ' opt-class';
+      const locked = fromBg || (!fromClass && (!canPick || atLimit));
+      return el('div', {
+        class: `skill-row${locked ? ' locked' : ''}`,
+        onClick: () => {
+          if (fromBg) return;
+          if (fromClass) { state.chosen.delete(name); refresh(); }
+          else if (canPick && !atLimit) { state.chosen.add(name); refresh(); }
+        },
       },
-    },
+        el('div', { class: cbCls }),
+        el('span', { class: `sk-name${proficient ? ' proficient' : ''}` }, name),
+        el('div', { class: 'sk-bonus-wrap' },
+          el('span', { class: `sk-bonus${fromClass ? ' col-class' : fromBg ? ' col-bg' : ''}` }, sign(bonus))
+        )
+      );
+    }
+
+    return el('div', { class: 'skill-row locked' },
       el('div', { class: cbCls }),
       el('span', { class: `sk-name${proficient ? ' proficient' : ''}` }, name),
       el('div', { class: 'sk-bonus-wrap' },
@@ -1370,15 +1364,118 @@ function buildHeaderCombat(state) {
   );
 }
 
+function buildGameEquipPanel(state, char, refresh) {
+  const COIN_TO_GP = { зм: 1, см: 0.1, мм: 0.01 };
+
+  function fmtGold(gp) {
+    if (gp >= 1)   return `${+gp.toFixed(2)} зм`;
+    if (gp >= 0.1) return `${+(gp * 10).toFixed(1)} см`;
+    return `${Math.round(gp * 100)} мм`;
+  }
+
+  async function saveGameState() {
+    char.gameGold = state.gameGold;
+    char.gameCart = state.gameCart;
+    await DB.put(char);
+  }
+
+  let txCoin = 'зм';
+  const goldValEl = el('span', { class: 'game-gold-val' }, fmtGold(state.gameGold));
+
+  const txInp = el('input', { class: 'game-tx-inp', type: 'number', placeholder: '0', min: '0', step: 'any' });
+  const coinSel = el('select', { class: 'game-tx-coin' });
+  ['зм','см','мм'].forEach(c => {
+    const o = el('option', { value: c }, c);
+    if (c === txCoin) o.selected = true;
+    coinSel.append(o);
+  });
+  coinSel.addEventListener('change', () => { txCoin = coinSel.value; });
+
+  function applyTx(sign) {
+    const v = parseFloat(txInp.value);
+    if (isNaN(v) || v <= 0) return;
+    const gp = v * COIN_TO_GP[txCoin];
+    state.gameGold = Math.max(0, state.gameGold + sign * gp);
+    goldValEl.textContent = fmtGold(state.gameGold);
+    txInp.value = '';
+    saveGameState();
+  }
+
+  const moneyBlock = el('div', { class: 'game-money-block' },
+    el('div', { class: 'game-money-hd' },
+      el('span', { class: 'game-money-title' }, 'Деньги'),
+      goldValEl,
+    ),
+    el('div', { class: 'game-tx-row' },
+      txInp,
+      coinSel,
+      el('button', { class: 'game-tx-btn is-spend', onClick: () => applyTx(-1) }, '− Потратить'),
+      el('button', { class: 'game-tx-btn is-gain',  onClick: () => applyTx(+1) }, '+ Зачислить'),
+    ),
+  );
+
+  const itemsBody = el('div', { class: 'game-items-list' });
+
+  function refreshItems() {
+    itemsBody.innerHTML = '';
+    if (!state.gameCart.length) {
+      itemsBody.append(el('div', { class: 'equip-empty' }, 'Нет предметов'));
+      return;
+    }
+    state.gameCart.forEach((item, i) => {
+      const sellGp = (item.costGp || 0) * 0.5 * (item.qty || 1);
+      const row = el('div', { class: 'game-item-row' },
+        el('span', { class: 'game-item-name' }, item.name),
+        el('span', { class: 'game-item-qty' }, `×${item.qty || 1}`),
+        item.costGp ? el('span', { class: 'game-item-cost' }, item.costStr || `${item.costGp}зм`) : null,
+        el('button', { class: 'game-item-sell', onClick: () => {
+          state.gameGold += sellGp;
+          state.gameCart.splice(i, 1);
+          goldValEl.textContent = fmtGold(state.gameGold);
+          saveGameState();
+          refreshItems();
+        }}, 'Продать'),
+      );
+      itemsBody.append(row);
+    });
+  }
+  refreshItems();
+
+  const collapsed = state.equipCollapsed;
+  return el('div', { class: 'panel' },
+    el('div', { class: 'panel-head' },
+      el('span', { class: 'panel-title' }, 'Снаряжение'),
+      el('button', { class: 'collapse-btn',
+        onClick: () => { state.equipCollapsed = !state.equipCollapsed; refresh(); },
+      }, collapsed ? '∨' : '∧'),
+    ),
+    collapsed ? null : el('div', { class: 'panel-body game-equip-body' },
+      moneyBlock,
+      el('div', { class: 'game-items-hd' }, 'Предметы'),
+      itemsBody,
+    ),
+  );
+}
+
 function buildRightPanel(state, refresh) {
   return el('div', { class: 'create-right' },
     buildMagicPanel(state),
     buildSpellsPanel(state),
-    buildEquipPanel(state, refresh),
+    state.gameMode
+      ? buildGameEquipPanel(state, state._char, refresh)
+      : buildEquipPanel(state, refresh),
   );
 }
 
 function buildActionBar(state, router) {
+  if (state.gameMode) {
+    return el('div', { class: 'create-action-bar' },
+      el('div', { class: 'bar-btns' },
+        el('button', { class: 'btn btn-ghost', onClick: () => router.navigate('/') }, '← Назад'),
+      )
+    );
+  }
+
   const spent = pbSpent(state.stats);
   const valid = state.class && state.race && state.background && spent <= PB_POOL;
   const hint  = !state.class                    ? 'Выбери класс'
@@ -1437,13 +1534,18 @@ function cleanupCreateHeader() {
   document.querySelector('.app-header')?.classList.remove('app-header--create');
 }
 
-export function renderCreate(container, router, _params = {}) {
+export async function renderCreate(container, router, _params = {}) {
   container.innerHTML = '';
   cleanupCreateHeader();
   const ha = document.getElementById('header-actions');
   if (ha) ha.innerHTML = '';
 
+  // Load existing character if ID provided
+  const char = _params?.id ? await DB.get(_params.id).catch(() => null) : null;
+
   const state = {
+    gameMode:   !!char,
+    _char:      char,
     edition:    '2014',
     tasha:      false,
     name:       '',
@@ -1465,7 +1567,35 @@ export function renderCreate(container, router, _params = {}) {
     featExpanded:  {},
     profChoices:   {},
     weapons:       [],
+    gameGold:    0,
+    gameCart:    [],
   };
+
+  if (char) {
+    state.name       = char.name       || '';
+    state.playerName = char.playerName || '';
+    state.class      = char.class      || '';
+    state.subclass   = char.subclass   || '';
+    state.level      = char.level      || 1;
+    state.race       = char.race       || '';
+    state.subrace    = char.subrace    || '';
+    state.background = char.background || '';
+    state.alignment  = char.alignment  || '';
+    state.edition    = char.edition === '2024' ? '2024' : '2014';
+    if (char.stats) state.stats = { ...char.stats };
+    // Subtract background skills to get class-chosen skills
+    const bgSkillsArr = char.background ? (BACKGROUNDS[char.background]?.skills || []) : [];
+    state.chosen = new Set((char.skills || []).filter(s => !bgSkillsArr.includes(s)));
+    // Game-mode gold + cart
+    const ws = char._wizardState || {};
+    if (char.gameGold != null) {
+      state.gameGold = char.gameGold;
+    } else {
+      const spent = (ws.mecCart || []).reduce((s, i) => s + (i.costGp || 0) * (i.qty || 1), 0);
+      state.gameGold = Math.max(0, (ws.mecEquipGold || 0) - spent);
+    }
+    state.gameCart = char.gameCart ?? [...(ws.mecCart || [])];
+  }
 
   const appHeader = document.querySelector('.app-header');
   appHeader.classList.add('app-header--create');
@@ -1480,7 +1610,7 @@ export function renderCreate(container, router, _params = {}) {
     const feats = buildFeaturesBlock(st, refresh);
     return el('div', { class: 'create-body' },
       el('div', { class: 'stats-area' },
-        buildPbHeader(st),
+        st.gameMode ? null : buildPbHeader(st),
         el('div', { class: 'stats-grid' },
           ...['str','dex','con','int','wis','cha']
             .map(k => ABILITIES.find(a => a.key === k))
