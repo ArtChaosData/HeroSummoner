@@ -17,8 +17,8 @@ Thumbs.db
 .env.local
 
 # Push helper (contains token — never commit)
-_push_to_github.bat
-_push_to_github.sh
+*.bat
+*.ps1
 
 # Reference materials — not part of the app
 Мокапы/
