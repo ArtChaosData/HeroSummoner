@@ -2860,9 +2860,11 @@ function computePreparedCount(cfg, st) {
   if (cfg.spellCount !== null) return cfg.spellCount;
   const mod = spellStatMod(st, cfg.stat);
   if (cfg.type === 'prepared' && (cfg.stat === 'wis' || cfg.stat === 'cha')) {
-    return Math.max(1, mod + 1); // +level, but at level 1 that's 1
+    // Жрец/Друид/Паладин: мод + уровень (1)
+    return Math.max(1, mod + 1);
   }
-  return Math.max(1, Math.floor(1 / 2) + mod); // half_level = 0 at level 1, so just mod
+  // Изобретатель: ceil(уровень/2) + мод Интеллекта = ceil(1/2)+mod = 1+mod
+  return Math.max(1, Math.ceil(1 / 2) + mod);
 }
 
 function buildSpellsStep(st, goMech) {
@@ -2906,10 +2908,11 @@ function buildSpellsStep(st, goMech) {
   // ── Validation ──────────────────────────────────────────────────────────
   function isValid() {
     if (cfg.cantripCount > 0 && st.mecSpellsCantrips.length < cfg.cantripCount) return false;
-    if (cfg.type === 'known' && cfg.spellCount !== null && st.mecSpellsLevel1.length < cfg.spellCount) return false;
-    if (cfg.type === 'pact'  && st.mecSpellsLevel1.length < cfg.spellCount) return false;
-    if (cfg.type === 'book'  && st.mecSpellsBook.length < cfg.spellCount)    return false;
-    if (cfg.type === 'book'  && st.mecSpellsPrepared.length < cfg.preparedCount) return false;
+    if (cfg.type === 'known'     && cfg.spellCount !== null && st.mecSpellsLevel1.length < cfg.spellCount) return false;
+    if (cfg.type === 'pact'      && st.mecSpellsLevel1.length < cfg.spellCount) return false;
+    if (cfg.type === 'book'      && st.mecSpellsBook.length < cfg.spellCount)    return false;
+    if (cfg.type === 'book'      && st.mecSpellsPrepared.length < cfg.preparedCount) return false;
+    if (cfg.type === 'prepared'  && st.mecSpellsLevel1.length < preparedCount) return false;
     return true;
   }
 
@@ -3055,7 +3058,7 @@ function buildSpellsStep(st, goMech) {
     counterParts.push(`В книге: ${st.mecSpellsBook.length} / ${cfg.spellCount}`);
     counterParts.push(`Подготовлено: ${st.mecSpellsPrepared.length} / ${cfg.preparedCount}`);
   } else if (cfg.type === 'prepared' && cfg.spellCount === null) {
-    counterParts.push(`Подготовлено: ${st.mecSpellsLevel1.length} (рекомендуется ≤ ${preparedCount})`);
+    counterParts.push(`Подготовлено: ${st.mecSpellsLevel1.length} / ${preparedCount}`);
   } else if (cfg.type !== 'prepared') {
     const cnt = cfg.spellCount;
     if (cnt > 0) counterParts.push(`Заклинаний 1 ур.: ${st.mecSpellsLevel1.length} / ${cnt}`);
@@ -3177,17 +3180,16 @@ function buildSpellsStep(st, goMech) {
     );
 
   } else if (cfg.type === 'prepared') {
-    const formula = cfg.spellCount === null
-      ? `${statLabel} (${statModVal >= 0 ? '+' : ''}${statModVal}) + уровень (1) = рекомендуется ${preparedCount}`
-      : `${preparedCount}`;
+    const formula = `${statLabel} (${statModVal >= 0 ? '+' : ''}${statModVal}) + уровень (1) = ${preparedCount}`;
     spellSection = el('div', { class: 'mech-spell-section' },
-      el('h3', { class: 'mech-spell-section-title' }, 'Заклинания 1 уровня'),
+      el('h3', { class: 'mech-spell-section-title' },
+        `Заклинания 1 уровня — выберите ${preparedCount}`,
+      ),
       el('p', { class: 'mech-spell-section-sub' },
-        `Можно использовать любое заклинание своего класса. Формула подготовки: ${formula}. `,
-        el('em', {}, 'Отметь те, что возьмёшь на сегодня — остальные тоже доступны завтра.'),
+        `Формула подготовки: ${formula}. Завтра набор можно поменять из полного списка класса.`,
       ),
       el('div', { class: 'mech-spell-grid' },
-        ...(filteredLvl1.length ? filteredLvl1.map(s => spellCard(s, st.mecSpellsLevel1, 99)) : [el('p', { class: 'mech-spell-empty' }, 'Ничего не найдено')]),
+        ...(filteredLvl1.length ? filteredLvl1.map(s => spellCard(s, st.mecSpellsLevel1, preparedCount)) : [el('p', { class: 'mech-spell-empty' }, 'Ничего не найдено')]),
       ),
     );
   }
