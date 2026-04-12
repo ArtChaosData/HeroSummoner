@@ -2123,15 +2123,15 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
 }
 
 
-/* Filter bar */
+/* Filter bar — sticks below the counter */
 .mech-spell-filter-bar {
   display: flex;
   flex-direction: column;
   gap: 8px;
   position: sticky;
-  top: 0;
+  top: 47px; /* height of counter bar */
   background: var(--bg);
-  padding-bottom: 4px;
+  padding: 6px 0 4px;
   z-index: 1;
 }
 .mech-spell-search {
@@ -2322,6 +2322,10 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   background: var(--surface-2);
   border: 1px solid var(--border-1);
   border-radius: var(--r-lg);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin-bottom: 2px;
 }
 
 .mech-spell-counter-item {
@@ -2564,3 +2568,130 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   .mech-spell-passport { padding: 12px 14px; }
   .mech-spell-counter { gap: 4px; padding: 8px 10px; }
 }
+
+/* ─── Race traits & ASI bonuses ───────────────────────────────────────────── */
+.mech-race-asi {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-radius: var(--r-md);
+}
+.mech-race-asi--sub { background: var(--surface-3); margin-top: 8px; }
+.mech-race-asi-label { font-size: 11.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.mech-race-asi-badge {
+  font-size: 12px; font-weight: 700; padding: 2px 8px;
+  background: var(--accent-a12); color: var(--accent);
+  border-radius: 100px;
+}
+.mech-race-asi-sub-note { font-size: 11px; color: var(--text-muted); margin-left: 2px; }
+
+.mech-race-traits { margin-top: 14px; }
+.mech-race-trait-list { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.mech-race-trait-item { font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
+.mech-race-trait-title { font-weight: 700; color: var(--text-primary); }
+.mech-race-trait-text  { color: var(--text-secondary); }
+
+.mech-subrace-desc { margin-top: 10px; }
+.mech-subrace-desc-text { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; margin: 0 0 6px; }
+
+/* ─── Equipment: buy mode stats bar ──────────────────────────────────────── */
+.equip-buy-statsbar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-1);
+  flex-shrink: 0;
+}
+.equip-buy-statsbar.is-pre-roll {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.equip-buy-stat-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+.equip-buy-stat-l { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+.equip-buy-stat-v { font-size: 15px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.equip-buy-stat-v.is-danger { color: var(--clr-error, #e54545); }
+.equip-buy-stat-v.is-pending { color: var(--text-muted); }
+
+/* Roll row */
+.equip-roll-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.equip-roll-prompt { font-size: 13px; color: var(--text-secondary); }
+.equip-roll-dice-btn { display: flex; align-items: center; gap: 4px; font-size: 14px; }
+.equip-roll-dice-hint { font-size: 11px; color: var(--text-muted); }
+
+/* ─── Novice tips card ────────────────────────────────────────────────────── */
+.equip-tips-card {
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  margin: 10px 14px;
+  background: var(--surface-1);
+}
+.equip-tips-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+.equip-tips-toggle:hover { background: var(--surface-2); }
+.equip-tips-icon { font-size: 16px; }
+.equip-tips-arrow { margin-left: auto; font-size: 10px; color: var(--text-muted); }
+.equip-tips-body { padding: 0 14px 12px; }
+.equip-tips-intro { font-size: 12.5px; color: var(--text-secondary); margin: 0 0 8px; }
+.equip-tips-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.equip-tips-item { font-size: 12.5px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.equip-tips-name { font-weight: 600; color: var(--text-primary); }
+.equip-tips-hint { color: var(--text-muted); flex: 1; }
+.equip-tips-add-btn {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.equip-tips-add-btn:hover { background: var(--accent); color: #fff; }
+
+/* ─── Concept required fields ────────────────────────────────────────────── */
+.cnew-required-mark { color: var(--clr-error, #e54545); font-weight: 700; }
+.cnew-field--required .cnew-label { font-weight: 500; }
+
+/* ─── Equipment: reset row ───────────────────────────────────────────────── */
+.equip-reset-row {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+.equip-reset-btn {
+  font-size: 12px;
+  opacity: 0.7;
+}
+.equip-reset-btn:hover { opacity: 1; }

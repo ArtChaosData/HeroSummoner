@@ -6,6 +6,13 @@ import { el, toast } from '../utils.js';
 import { DB } from '../db.js';
 import { ARMOUR, WEAPONS, EQUIPMENT, TOOLS } from '../data/equipment.js';
 import { getCantripsForClass, getLevel1SpellsForClass } from '../data/spells.js';
+import { RACE_DESCRIPTIONS } from '../data/race_descriptions.js';
+
+// Maps RACE_DATA names that differ from RACE_DESCRIPTIONS keys
+const RACE_DESC_ALIASES = {
+  'Драконид': 'Дракорождённый',
+  'Duergar':  'Дуэргар',
+};
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -75,15 +82,17 @@ function scheduleSave(st) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function field(label, key, st, { rows, placeholder = '' } = {}) {
+function field(label, key, st, { rows, placeholder = '', required = false } = {}) {
   const isArea = rows > 1;
   const inp = isArea
     ? el('textarea', { class: 'cnew-textarea', rows: String(rows), placeholder })
     : el('input',    { class: 'cnew-input',    type: 'text',        placeholder });
   inp.value = st[key] || '';
   inp.addEventListener('input', () => { st[key] = inp.value; scheduleSave(st); });
-  return el('div', { class: 'cnew-field' },
-    el('label', { class: 'cnew-label' }, label),
+  const labelEl = el('label', { class: 'cnew-label' }, label);
+  if (required) labelEl.append(el('span', { class: 'cnew-required-mark' }, ' *'));
+  return el('div', { class: `cnew-field${required ? ' cnew-field--required' : ''}` },
+    labelEl,
     inp,
   );
 }
@@ -218,8 +227,8 @@ function buildConcept(st, go) {
     // ── Блок 1: Личность ─────────────────────────────────────────────────────
     sec('Личность',
       el('div', { class: 'cnew-identity-row' },
-        field('Имя персонажа', 'name',       st, { placeholder: 'Как зовут героя?' }),
-        field('Имя игрока',    'playerName', st, { placeholder: 'Кто за ним?' }),
+        field('Имя персонажа', 'name',       st, { placeholder: 'Как зовут героя?', required: true }),
+        field('Имя игрока',    'playerName', st, { placeholder: 'Кто за ним?',     required: true }),
         (() => {
           const ALIGNMENTS = [
             'Законопослушно-добрый',
@@ -258,15 +267,19 @@ function buildConcept(st, go) {
       ),
       // Характер — возвращён на место
       sec('Характер',
-        field('Черты характера', 'traits', st, { rows: 2, placeholder: 'Привычки, причуды…' }),
-        field('Идеалы',          'ideals', st, { rows: 2, placeholder: 'Во что верит персонаж…' }),
-        field('Привязанности',   'bonds',  st, { rows: 2, placeholder: 'Люди, места, предметы…' }),
-        field('Слабости',        'flaws',  st, { rows: 2, placeholder: 'Пороки, страхи…' }),
+        field('Черты характера', 'traits', st, { rows: 2, placeholder: 'Привычки, причуды…',          required: true }),
+        field('Идеалы',          'ideals', st, { rows: 2, placeholder: 'Во что верит персонаж…',      required: true }),
+        field('Привязанности',   'bonds',  st, { rows: 2, placeholder: 'Люди, места, предметы…',      required: true }),
+        field('Слабости',        'flaws',  st, { rows: 2, placeholder: 'Пороки, страхи…',             required: true }),
       ),
     ),
 
     // ── Блоки на всю ширину ───────────────────────────────────────────────────
-    sec('Предыстория',
+    el('div', { class: 'cnew-sec' },
+      el('p', { class: 'cnew-sec-title' },
+        'Предыстория',
+        el('span', { class: 'cnew-required-mark' }, ' *'),
+      ),
       field('', 'backstory', st, { rows: 6, placeholder: 'История до начала приключений…' }),
     ),
     sec('Союзники и организации',
@@ -718,7 +731,7 @@ function buildEditionStep(st, goMech) {
 
 // ─── Buy mode: shop + inventory panel ────────────────────────────────────────
 
-function buildBuyMode(st, footBtn) {
+function buildBuyMode(st, footBtn, onCartChange, ref = {}) {
   if (!Array.isArray(st.mecCart))     st.mecCart     = [];
   if (!Array.isArray(st.mecHomebrew)) st.mecHomebrew = [];
   let _q = '';
@@ -760,6 +773,7 @@ function buildBuyMode(st, footBtn) {
     }
     footBtn.disabled = t > c;
     footBtn.title    = t > c ? `Перегрузка: ${t} / ${c} фнт. Продайте часть снаряжения.` : '';
+    if (onCartChange) onCartChange();
   }
 
   function refreshBuyBtns() {
@@ -794,6 +808,7 @@ function buildBuyMode(st, footBtn) {
     else st.mecCart.push({ ...item, qty: 1 });
     scheduleSave(st); refreshInv(); refreshBuyBtns();
   }
+  ref.addItem = addItem;
 
   function buildCatalog() {
     catalogEl.innerHTML = '';
@@ -1803,15 +1818,72 @@ function buildRaceStep(st, goMech) {
       badge.addEventListener('mouseleave', hideSrcTip);
     }
 
+    // ── ASI block ──
+    const asiEntries = Object.entries(STAT_RACE_ASI[raceObj.name] || {});
+    const STAT_LABELS = { str:'Сила', dex:'Ловкость', con:'Телосложение', int:'Интеллект', wis:'Мудрость', cha:'Харизма' };
+    const asiBlock = asiEntries.length
+      ? el('div', { class: 'mech-race-asi' },
+          el('span', { class: 'mech-race-asi-label' }, 'Бонусы:'),
+          ...asiEntries.map(([k, v]) =>
+            el('span', { class: 'mech-race-asi-badge' }, `${STAT_LABELS[k] || k} ${v > 0 ? '+' : ''}${v}`),
+          ),
+          Object.keys(STAT_RACE_ASI[raceObj.name] || {}).length
+            ? el('span', { class: 'mech-race-asi-sub-note' }, raceObj.sub.length ? ' + подраса' : '')
+            : null,
+        )
+      : null;
+
+    // ── Traits block ──
+    const _rn = raceObj.name;
+    const raceDesc = RACE_DESCRIPTIONS[_rn]
+      || RACE_DESCRIPTIONS[RACE_DESC_ALIASES[_rn]]
+      || RACE_DESCRIPTIONS[_rn.replace(' (Чистокровный)', '')]
+      || RACE_DESCRIPTIONS[_rn.replace(/\s*\([^)]+\)$/, '')]; // strip any trailing (…) suffix
+    const traitsBlock = raceDesc?.traits?.length
+      ? el('div', { class: 'mech-race-traits' },
+          el('p', { class: 'mech-pr-section' }, 'Расовые черты:'),
+          el('ul', { class: 'mech-race-trait-list' },
+            ...raceDesc.traits.map(t =>
+              el('li', { class: 'mech-race-trait-item' },
+                el('span', { class: 'mech-race-trait-title' }, t.title + '. '),
+                el('span', { class: 'mech-race-trait-text' }, t.text),
+              ),
+            ),
+          ),
+        )
+      : null;
+
     detailEl.append(
       el('div', { class: 'mech-cls-header' },
         el('h3', { class: 'mech-cls-name' }, raceObj.name),
         badge,
       ),
       el('p', { class: 'mech-cls-desc' }, raceObj.desc),
+      ...(asiBlock   ? [asiBlock]   : []),
+      ...(traitsBlock ? [traitsBlock] : []),
     );
 
     if (raceObj.sub.length) {
+      const subraceDescs = raceDesc?.subraces || [];
+      const subraceDescEl = el('div', { class: 'mech-subrace-desc' });
+      function updateSubraceDesc(s) {
+        subraceDescEl.innerHTML = '';
+        if (!s) return;
+        const sInfo = subraceDescs.find(sd => sd.name.includes(s) || s.includes(sd.name.split(' ')[0]));
+        if (sInfo) subraceDescEl.append(el('p', { class: 'mech-subrace-desc-text' }, sInfo.description));
+        const subAsi = STAT_SUBRACE_ASI[s];
+        if (subAsi) {
+          subraceDescEl.append(
+            el('div', { class: 'mech-race-asi mech-race-asi--sub' },
+              el('span', { class: 'mech-race-asi-label' }, 'Бонус подрасы:'),
+              ...Object.entries(subAsi).map(([k, v]) =>
+                el('span', { class: 'mech-race-asi-badge' }, `${STAT_LABELS[k] || k} ${v > 0 ? '+' : ''}${v}`),
+              ),
+            ),
+          );
+        }
+      }
+      if (st.mecSubrace) updateSubraceDesc(st.mecSubrace);
       detailEl.append(
         el('p', { class: 'mech-pr-section' }, 'Подраса:'),
         el('div', { class: 'mech-subrace-btns' },
@@ -1824,11 +1896,13 @@ function buildRaceStep(st, goMech) {
                 detailEl.querySelectorAll('.mech-subrace-btn').forEach(b =>
                   b.classList.toggle('is-selected', b.textContent === s)
                 );
+                updateSubraceDesc(s);
                 updateRaceFoot();
               },
             }, s)
           ),
         ),
+        subraceDescEl,
       );
     }
   }
@@ -2286,7 +2360,10 @@ function buildStatsStep(st, goMech) {
 
   const STD_ARRAY = [15, 14, 13, 12, 10, 8];
   const bodyEl  = el('div', { class: 'mech-stats-scroll' });
-  const footBtn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('equipment') }, 'Далее → Снаряжение');
+  const _isMagicCls = !!(st.mecClass && MAGIC_CLASSES.has(st.mecClass));
+  const footBtn = el('button', { class: 'cnew-save-btn',
+    onClick: () => goMech(_isMagicCls ? 'spells' : 'equipment'),
+  }, _isMagicCls ? 'Далее → Заклинания' : 'Далее → Снаряжение');
   footBtn.addEventListener('mouseenter', e => {
     if (footBtn.disabled) showSrcTip(e, { name: '', desc: 'Заполните все характеристики, чтобы продолжить' });
   });
@@ -3226,26 +3303,136 @@ function buildEquipStep(st, goMech) {
     } else {
       const rolled = st.mecEquipGold !== null && st.mecEquipGold !== undefined;
 
-      const rollBtn = el('button', { class: 'equip-roll-btn',
-        onClick: () => {
-          if (!goldInfo || rolled) return;
-          st.mecEquipGold = Array.from({ length: goldInfo.rolls },
-            () => Math.floor(Math.random() * goldInfo.die) + 1
-          ).reduce((a, b) => a + b, 0) * goldInfo.mult;
-          scheduleSave(st);
-          renderBody();
-        },
-      }, goldInfo ? `Бросить ${goldInfo.formula}` : 'Бросить');
-      rollBtn.disabled = !goldInfo || rolled;
+      // ── Верхняя панель статистики (золото + вес) ──────────────────────────────
+      const statGoldLeftEl  = el('span', { class: 'equip-buy-stat-v' });
+      const statWeightEl    = el('span', { class: 'equip-buy-stat-v' });
+      function refreshTopStats() {
+        const left = rolled ? cartGoldLeft(st) : null;
+        const tw   = cartTotalLb(st);
+        const cap  = charCarryCap(st);
+        if (left !== null) {
+          statGoldLeftEl.textContent = `${fmtGp(left)} / ${st.mecEquipGold} зм`;
+          statGoldLeftEl.className   = `equip-buy-stat-v${left < 0 ? ' is-danger' : ''}`;
+        } else {
+          statGoldLeftEl.textContent = '— зм';
+          statGoldLeftEl.className   = 'equip-buy-stat-v is-pending';
+        }
+        statWeightEl.textContent = `${tw} / ${cap} фнт.`;
+        statWeightEl.className   = `equip-buy-stat-v${tw > cap ? ' is-danger' : ''}`;
+      }
+      refreshTopStats();
 
-      const moneyBuyEl = el('div', { class: 'equip-money' },
-        el('span', { class: `equip-money-val${!rolled ? ' is-pending' : ''}` },
-          rolled ? `${st.mecEquipGold} зм` : '— зм'),
-        el('span', { class: 'equip-money-label' }, 'стартовый капитал'),
-        !rolled ? rollBtn : null,
+      // ── Кнопка броска ──────────────────────────────────────────────────────────
+      const rollRow = !rolled
+        ? (() => {
+            const diceBtn = el('button', {
+              class: 'btn btn-primary equip-roll-dice-btn',
+              onClick: () => {
+                if (!goldInfo) return;
+                st.mecEquipGold = Array.from({ length: goldInfo.rolls },
+                  () => Math.floor(Math.random() * goldInfo.die) + 1
+                ).reduce((a, b) => a + b, 0) * goldInfo.mult;
+                scheduleSave(st);
+                renderBody();
+              },
+            }, `🎲 ${goldInfo ? goldInfo.formula : '…'}`, el('span', { class: 'equip-roll-dice-hint' }, ' зм'));
+            diceBtn.disabled = !goldInfo; // DOM property, not setAttribute
+            return el('div', { class: 'equip-roll-row' },
+              el('span', { class: 'equip-roll-prompt' }, 'Бросьте кубики, чтобы узнать стартовый капитал:'),
+              diceBtn,
+            );
+          })()
+        : null;
+
+      // ── Кнопка сброса (после броска) ──────────────────────────────────────────
+      const resetRow = rolled
+        ? el('div', { class: 'equip-reset-row' },
+            el('button', { class: 'btn btn-ghost btn-sm equip-reset-btn',
+              onClick: () => {
+                st.mecEquipGold = null;
+                st.mecCart      = [];
+                scheduleSave(st);
+                renderBody();
+              },
+            }, '↺ Сбросить бросок и корзину'),
+          )
+        : null;
+
+      // ── Панель сверху с показателями ──────────────────────────────────────────
+      const statsBar = el('div', { class: `equip-buy-statsbar${!rolled ? ' is-pre-roll' : ''}` },
+        el('div', { class: 'equip-buy-stat-item' },
+          el('span', { class: 'equip-buy-stat-l' }, rolled ? 'Осталось' : 'Стартовый капитал'),
+          statGoldLeftEl,
+        ),
+        rolled
+          ? el('div', { class: 'equip-buy-stat-item' },
+              el('span', { class: 'equip-buy-stat-l' }, 'Вес'),
+              statWeightEl,
+            )
+          : null,
+        rollRow,
+        resetRow,
       );
 
-      bodyEl.append(moneyBuyEl, buildBuyMode(st, footBtn), footEl);
+      // ── Подсказка новичку ──────────────────────────────────────────────────────
+      // dbName — точное имя в equipment.js; label — отображаемое имя; qty — сколько добавлять
+      const STARTER_ITEMS = [
+        { label: 'Рюкзак',            dbName: 'Рюкзак',                    hint: 'для переноски всего',      qty: 1 },
+        { label: 'Спальник',          dbName: 'Спальник',                  hint: 'отдых в дороге',           qty: 1 },
+        { label: 'Бурдюк',            dbName: 'Бурдюк',                    hint: 'вода в пути',              qty: 1 },
+        { label: 'Пайки (5 дней)',    dbName: 'Рационы (1 день)',          hint: 'еда в дороге',             qty: 5 },
+        { label: 'Верёвка (50 фт)',   dbName: 'Верёвка пеньковая (50 фт)', hint: 'универсальный инструмент', qty: 1 },
+        { label: 'Трутница',          dbName: 'Трутница',                  hint: 'разжечь костёр',           qty: 1 },
+        { label: 'Факелы (10 шт.)',   dbName: 'Факел',                     hint: 'свет в темноте',           qty: 10 },
+        { label: 'Зелье лечения',     dbName: 'Зелье лечения',             hint: 'спасёт жизнь',             qty: 1 },
+      ];
+
+      const buyRef = {};
+      const buyModeNode = buildBuyMode(st, footBtn, refreshTopStats, buyRef);
+
+      // Найти данные предмета по имени в SHOP_CATS
+      function findEquipItem(dbName) {
+        for (const cat of SHOP_CATS) {
+          const it = cat.items.find(i => i.name === dbName);
+          if (it) return { cat, it };
+        }
+        return null;
+      }
+
+      let _tipsOpen = false;
+      const tipsBody = el('div', { class: 'equip-tips-body', style: 'display:none' },
+        el('p', { class: 'equip-tips-intro' }, 'Опытные авантюристы всегда берут с собой базовый набор — даже если золото кончается:'),
+        el('ul', { class: 'equip-tips-list' },
+          ...STARTER_ITEMS.map(i => {
+            const found = findEquipItem(i.dbName);
+            const addBtn = el('button', { class: 'equip-tips-add-btn', onClick: () => {
+              if (!found || !buyRef.addItem) return;
+              const { cat, it } = found;
+              const id = `${cat.id}::${it.name}`;
+              for (let n = 0; n < i.qty; n++) {
+                buyRef.addItem({ id, name: it.name, costGp: it.costGp, weightLb: parseWeightLb(it.weight), category: cat.label });
+              }
+            }}, '+ В корзину');
+            return el('li', { class: 'equip-tips-item' },
+              el('span', { class: 'equip-tips-name' }, i.label),
+              el('span', { class: 'equip-tips-hint' }, ` — ${i.hint}`),
+              addBtn,
+            );
+          }),
+        ),
+      );
+      const tipsToggle = el('button', { class: 'equip-tips-toggle', onClick: () => {
+        _tipsOpen = !_tipsOpen;
+        tipsBody.style.display = _tipsOpen ? '' : 'none';
+        tipsToggle.querySelector('.equip-tips-arrow').textContent = _tipsOpen ? '▲' : '▼';
+      }},
+        el('span', { class: 'equip-tips-icon' }, '💡'),
+        el('span', {}, 'Совет новичку — что купить в первую очередь?'),
+        el('span', { class: 'equip-tips-arrow' }, '▼'),
+      );
+      const tipsCard = el('div', { class: 'equip-tips-card' }, tipsToggle, tipsBody);
+
+      bodyEl.append(statsBar, buyModeNode, tipsCard, footEl);
     }
   }
 
