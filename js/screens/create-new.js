@@ -2699,36 +2699,37 @@ function buildStatsStep(st, goMech) {
     const chosenKeys = Object.keys(chosen);
     const needed     = 2 - chosenKeys.length;
     const hint = needed > 0
-      ? `Выберите ещё ${needed} характеристик${needed === 1 ? 'у' : 'и'}`
-      : 'Оба бонуса выбраны';
+      ? `Выберите ещё ${needed}`
+      : '✓ Выбрано';
+
+    const chips = ABILITIES.map(({ key, label }) => {
+      const isChosen = !!chosen[key];
+      const canPick  = isChosen || chosenKeys.length < 2;
+      // NOTE: don't pass disabled via el() — setAttribute sets the attribute even for false,
+      // which still disables the button. Set the DOM property directly instead.
+      const btn = el('button', {
+        class: `vh-asi-chip${isChosen ? ' is-chosen' : ''}${!canPick ? ' is-disabled' : ''}`,
+        onClick: () => {
+          if (!st.mecVariantHumanAsi) st.mecVariantHumanAsi = {};
+          if (isChosen) {
+            delete st.mecVariantHumanAsi[key];
+          } else if (Object.keys(st.mecVariantHumanAsi).length < 2) {
+            st.mecVariantHumanAsi[key] = 1;
+          }
+          scheduleSave(st);
+          refresh();
+        },
+      }, isChosen ? `${label} +1` : label);
+      btn.disabled = !canPick; // set as DOM property, not HTML attribute
+      return btn;
+    });
 
     return el('div', { class: 'vh-asi-picker' },
       el('div', { class: 'vh-asi-header' },
-        el('span', { class: 'vh-asi-title' }, 'Вариант человек: бонус +1'),
+        el('span', { class: 'vh-asi-title' }, '+1 к двум характеристикам'),
         el('span', { class: `vh-asi-hint${needed === 0 ? ' done' : ''}` }, hint),
       ),
-      el('div', { class: 'vh-asi-chips' },
-        ...ABILITIES.map(({ key, label }) => {
-          const isChosen = !!chosen[key];
-          const canPick  = isChosen || chosenKeys.length < 2;
-          const btn = el('button', {
-            class: `vh-asi-chip${isChosen ? ' is-chosen' : ''}`,
-            disabled: !canPick,
-            onClick: () => {
-              if (!st.mecVariantHumanAsi) st.mecVariantHumanAsi = {};
-              if (isChosen) {
-                delete st.mecVariantHumanAsi[key];
-              } else if (Object.keys(st.mecVariantHumanAsi).length < 2) {
-                st.mecVariantHumanAsi[key] = 1;
-              }
-              scheduleSave(st);
-              refresh();
-            },
-          }, isChosen ? `${label} +1` : label);
-          if (!canPick) btn.classList.add('is-disabled');
-          return btn;
-        }),
-      ),
+      el('div', { class: 'vh-asi-chips' }, ...chips),
     );
   }
 
