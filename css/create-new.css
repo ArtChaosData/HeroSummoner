@@ -814,6 +814,40 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
 }
 
 /* ── Class step: skill picker ── */
+/* ── Class proficiency block ─────────────────────────────────────────── */
+.cls-prof-block {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  margin-bottom: 2px;
+}
+.cls-prof-row {
+  display: flex; gap: 10px;
+}
+.cls-prof-cell {
+  flex: 1; display: flex; flex-direction: column; gap: 2px;
+}
+.cls-prof-cell--full { flex: 2; }
+.cls-prof-label {
+  font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-muted);
+}
+.cls-prof-value {
+  font-size: 12px; color: var(--text-secondary); line-height: 1.4;
+}
+.cls-prof-hitdie {
+  font-size: 16px; font-weight: 800; color: var(--accent);
+  line-height: 1.2;
+}
+
+/* Variant human choice badge */
+.mech-race-asi-badge--choice {
+  background: transparent; border: 1px dashed var(--border-2);
+  color: var(--text-muted); font-style: italic; font-weight: 500;
+}
+
 .cls-skill-block {
   display: flex;
   flex-direction: column;

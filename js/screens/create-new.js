@@ -1290,6 +1290,24 @@ const CLASS_DATA = [
   { id: 'artificer',  name: 'Изобретатель',  gen: 'Изобретателя',  roles: ['Саппорт', 'Дамагер'],                 rp: 2, stats: 'Интеллект',                       tag: 'TCE', desc: 'Мастер магических устройств и зелий. Единственный класс, использующий магические предметы как основной инструмент.' },
 ];
 
+// ─── Class proficiency data ──────────────────────────────────────────────────
+
+const CLASS_PROF_DATA = {
+  barbarian: { hitDie:'к12', armor:'лёгкие, средние, щиты',        weapons:'простое, воинское',                                          tools:'нет',                                          saves:['Сила','Телосложение'] },
+  bard:      { hitDie:'к8',  armor:'лёгкие',                        weapons:'простое, ручные арбалеты, длинные мечи, рапиры, короткие мечи', tools:'три музыкальных инструмента на выбор',        saves:['Ловкость','Харизма'] },
+  cleric:    { hitDie:'к8',  armor:'лёгкие, средние, щиты',        weapons:'простое',                                                    tools:'нет',                                          saves:['Мудрость','Харизма'] },
+  druid:     { hitDie:'к8',  armor:'лёгкие, средние (не металл), щиты (не металл)', weapons:'дубины, кинжалы, дротики, серпы, посохи, пращи, копья', tools:'набор травника',                 saves:['Интеллект','Мудрость'] },
+  fighter:   { hitDie:'к10', armor:'все, щиты',                    weapons:'простое, воинское',                                          tools:'нет',                                          saves:['Сила','Телосложение'] },
+  monk:      { hitDie:'к8',  armor:'нет',                          weapons:'простое, короткие мечи',                                     tools:'один вид ремесленных или муз. инструментов',  saves:['Сила','Ловкость'] },
+  paladin:   { hitDie:'к10', armor:'все, щиты',                    weapons:'простое, воинское',                                          tools:'нет',                                          saves:['Мудрость','Харизма'] },
+  ranger:    { hitDie:'к10', armor:'лёгкие, средние, щиты',        weapons:'простое, воинское',                                          tools:'нет',                                          saves:['Сила','Ловкость'] },
+  rogue:     { hitDie:'к8',  armor:'лёгкие',                       weapons:'простое, ручные арбалеты, длинные мечи, рапиры, короткие мечи', tools:'воровские инструменты',                     saves:['Ловкость','Интеллект'] },
+  sorcerer:  { hitDie:'к6',  armor:'нет',                          weapons:'кинжалы, дротики, пращи, посохи, лёгкие арбалеты',           tools:'нет',                                          saves:['Телосложение','Харизма'] },
+  warlock:   { hitDie:'к8',  armor:'лёгкие',                       weapons:'простое',                                                    tools:'нет',                                          saves:['Мудрость','Харизма'] },
+  wizard:    { hitDie:'к6',  armor:'нет',                          weapons:'кинжалы, дротики, пращи, посохи, лёгкие арбалеты',           tools:'нет',                                          saves:['Интеллект','Мудрость'] },
+  artificer: { hitDie:'к8',  armor:'лёгкие, средние, щиты',        weapons:'простое',                                                    tools:'воровские инструменты, набор ремесленника (2 вида)', saves:['Телосложение','Интеллект'] },
+};
+
 // ─── Class step: builder ──────────────────────────────────────────────────────
 
 function buildClassStep(st, goMech) {
@@ -1361,6 +1379,43 @@ function buildClassStep(st, goMech) {
 
     const counterText = `Выбрано навыков: ${clsPicks.length} / ${count}`;
 
+    // ── Proficiency block ──
+    const prof = CLASS_PROF_DATA[cls.id];
+    const profBlock = prof
+      ? el('div', { class: 'cls-prof-block' },
+          el('div', { class: 'cls-prof-row' },
+            el('div', { class: 'cls-prof-cell' },
+              el('span', { class: 'cls-prof-label' }, 'Кость Хитов'),
+              el('span', { class: 'cls-prof-value cls-prof-hitdie' }, prof.hitDie),
+            ),
+            el('div', { class: 'cls-prof-cell' },
+              el('span', { class: 'cls-prof-label' }, 'Спасброски'),
+              el('span', { class: 'cls-prof-value' }, prof.saves.join(', ')),
+            ),
+          ),
+          el('div', { class: 'cls-prof-row' },
+            el('div', { class: 'cls-prof-cell cls-prof-cell--full' },
+              el('span', { class: 'cls-prof-label' }, 'Доспехи'),
+              el('span', { class: 'cls-prof-value' }, prof.armor),
+            ),
+          ),
+          el('div', { class: 'cls-prof-row' },
+            el('div', { class: 'cls-prof-cell cls-prof-cell--full' },
+              el('span', { class: 'cls-prof-label' }, 'Оружие'),
+              el('span', { class: 'cls-prof-value' }, prof.weapons),
+            ),
+          ),
+          prof.tools !== 'нет'
+            ? el('div', { class: 'cls-prof-row' },
+                el('div', { class: 'cls-prof-cell cls-prof-cell--full' },
+                  el('span', { class: 'cls-prof-label' }, 'Инструменты'),
+                  el('span', { class: 'cls-prof-value' }, prof.tools),
+                ),
+              )
+            : null,
+        )
+      : null;
+
     detailEl.append(
       el('div', { class: 'mech-cls-header' },
         el('h3', { class: 'mech-cls-name' }, cls.name),
@@ -1369,6 +1424,7 @@ function buildClassStep(st, goMech) {
       el('p', { class: `mech-cls-rp rp-${cls.rp}` }, rpLabel(cls)),
       el('p', { class: 'mech-cls-rp rp-1' }, 'Ключевые характеристики: ' + cls.stats),
       el('p', { class: 'mech-cls-desc' }, cls.desc),
+      ...(profBlock ? [profBlock] : []),
       el('div', { class: 'cls-skill-block' },
         el('div', { class: 'cls-skill-block-header' },
           el('span', { class: 'cls-skill-block-title' }, 'Навыки владения'),
@@ -1883,6 +1939,19 @@ function buildRaceStep(st, goMech) {
         if (!s) return;
         const sInfo = subraceDescs.find(sd => sd.name.includes(s) || s.includes(sd.name.split(' ')[0]));
         if (sInfo) subraceDescEl.append(el('p', { class: 'mech-subrace-desc-text' }, sInfo.description));
+
+        // Special case: Variant human — ASI is player's choice, can't be pre-determined
+        if (s === 'Вариант') {
+          subraceDescEl.append(
+            el('div', { class: 'mech-race-asi mech-race-asi--sub' },
+              el('span', { class: 'mech-race-asi-label' }, 'Бонус:'),
+              el('span', { class: 'mech-race-asi-badge mech-race-asi-badge--choice' }, '+1 к двум характеристикам на выбор'),
+              el('span', { class: 'mech-race-asi-badge mech-race-asi-badge--choice' }, '+ одна особая способность (feat)'),
+            ),
+          );
+          return;
+        }
+
         const subAsi = STAT_SUBRACE_ASI[s];
         if (subAsi) {
           subraceDescEl.append(
@@ -2297,7 +2366,7 @@ const STAT_CLASSES = {
 
 const STAT_RACE_ASI = {
   'Дварф':     { con:2 },        'Эльф':      { dex:2 },
-  'Полурослик':{ dex:2 },        'Человек':   { str:1,dex:1,con:1,int:1,wis:1,cha:1 },
+  'Полурослик':{ dex:2 },        'Человек':   {},
   'Драконид':  { str:2,cha:1 },  'Гном':      { int:2 },
   'Полуэльф':  { cha:2 },        'Полуорк':   { str:2,con:1 },
   'Тифлинг':   { int:1,cha:2 },  'Голиаф':    { str:2,con:1 },
@@ -2310,13 +2379,15 @@ const STAT_RACE_ASI = {
 };
 
 const STAT_SUBRACE_ASI = {
-  'Горный':    { str:2 }, 'Холмовой':  { wis:1 },
-  'Высший':    { int:1 }, 'Лесной':    { wis:1 }, 'Дроу':     { cha:1 },
-  'Легконогий':{ cha:1 }, 'Крепкий':   { con:1 },
-  'Каменный':  { con:1 },
-  'Защитник':  { wis:1 }, 'Каратель':  { str:1 }, 'Падший':   { str:1 },
-  'Весенний':  { dex:1,cha:1 }, 'Летний':  { str:1,dex:1 },
-  'Осенний':   { con:1,wis:1 }, 'Зимний':  { int:1,wis:1 },
+  'Горный':      { str:2 },              'Холмовой':  { wis:1 },
+  'Высший':      { int:1 },              'Лесной':    { wis:1 },  'Дроу':    { cha:1 },
+  'Легконогий':  { cha:1 },              'Крепкий':   { con:1 },
+  'Каменный':    { con:1 },
+  'Защитник':    { wis:1 },              'Каратель':  { str:1 },  'Падший':  { str:1 },
+  'Весенний':    { dex:1,cha:1 },        'Летний':    { str:1,dex:1 },
+  'Осенний':     { con:1,wis:1 },        'Зимний':    { int:1,wis:1 },
+  // Human subraces — Standard gets +1 to all, Variant is player's choice (handled separately)
+  'Стандартный': { str:1,dex:1,con:1,int:1,wis:1,cha:1 },
 };
 
 // ─── Stats step helpers ───────────────────────────────────────────────────────
