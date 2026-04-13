@@ -1833,12 +1833,23 @@ function buildRaceStep(st, goMech) {
         )
       : null;
 
-    // ── Traits block ──
+    // ── Race desc lookup ──
     const _rn = raceObj.name;
     const raceDesc = RACE_DESCRIPTIONS[_rn]
       || RACE_DESCRIPTIONS[RACE_DESC_ALIASES[_rn]]
       || RACE_DESCRIPTIONS[_rn.replace(' (Чистокровный)', '')]
       || RACE_DESCRIPTIONS[_rn.replace(/\s*\([^)]+\)$/, '')]; // strip any trailing (…) suffix
+
+    // ── Speed / Size / Languages chips ──
+    const statsChips = (raceDesc?.speed || raceDesc?.size || raceDesc?.languages)
+      ? el('div', { class: 'mech-race-stats' },
+          raceDesc.speed     ? el('span', { class: 'mech-race-stat-chip' }, `⚡ ${raceDesc.speed} фут.`) : null,
+          raceDesc.size      ? el('span', { class: 'mech-race-stat-chip' }, `📐 ${raceDesc.size}`) : null,
+          raceDesc.languages ? el('span', { class: 'mech-race-stat-chip mech-race-stat-chip--lang' }, `🗣 ${raceDesc.languages}`) : null,
+        )
+      : null;
+
+    // ── Traits block ──
     const traitsBlock = raceDesc?.traits?.length
       ? el('div', { class: 'mech-race-traits' },
           el('p', { class: 'mech-pr-section' }, 'Расовые черты:'),
@@ -1859,7 +1870,8 @@ function buildRaceStep(st, goMech) {
         badge,
       ),
       el('p', { class: 'mech-cls-desc' }, raceObj.desc),
-      ...(asiBlock   ? [asiBlock]   : []),
+      ...(statsChips  ? [statsChips]  : []),
+      ...(asiBlock    ? [asiBlock]    : []),
       ...(traitsBlock ? [traitsBlock] : []),
     );
 

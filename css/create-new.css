@@ -2589,6 +2589,21 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
 }
 .mech-race-asi-sub-note { font-size: 11px; color: var(--text-muted); margin-left: 2px; }
 
+.mech-race-stats {
+  display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px;
+}
+.mech-race-stat-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 8px; border-radius: 10px;
+  font-size: 11.5px; font-weight: 600;
+  background: var(--surface-2); color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.mech-race-stat-chip--lang {
+  max-width: 100%; white-space: normal; font-weight: 500;
+  color: var(--text-muted);
+}
+
 .mech-race-traits { margin-top: 14px; }
 .mech-race-trait-list { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 6px; }
 .mech-race-trait-item { font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
