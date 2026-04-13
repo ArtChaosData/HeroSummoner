@@ -34,12 +34,13 @@ function freshState() {
     mecRace:       null,
     mecSubrace:    null,
     mecBackground: null,
-    mecStats:       { str:8, dex:8, con:8, int:8, wis:8, cha:8 },
-    mecChosen:      [],
-    mecStatMethod:  'pointbuy',
-    mecStdAssign:   {},
-    mecRolls:       [],
-    mecRollAssign:  {},
+    mecStats:            { str:8, dex:8, con:8, int:8, wis:8, cha:8 },
+    mecVariantHumanAsi:  {},
+    mecChosen:           [],
+    mecStatMethod:       'pointbuy',
+    mecStdAssign:        {},
+    mecRolls:            [],
+    mecRollAssign:       {},
     mecBgChoiceData: {},
     mecEquipMode:    'standard',
     mecEquipGold:    null,
@@ -1937,10 +1938,10 @@ function buildRaceStep(st, goMech) {
       function updateSubraceDesc(s) {
         subraceDescEl.innerHTML = '';
         if (!s) return;
-        const sInfo = subraceDescs.find(sd => sd.name.includes(s) || s.includes(sd.name.split(' ')[0]));
+        const sInfo = subraceDescs.find(sd => sd.name === s || sd.name.includes(s) || s.includes(sd.name.split(' ')[0]));
         if (sInfo) subraceDescEl.append(el('p', { class: 'mech-subrace-desc-text' }, sInfo.description));
 
-        // Special case: Variant human — ASI is player's choice, can't be pre-determined
+        // Special case: Variant human — ASI is player's choice, picked on the stats screen
         if (s === 'Вариант') {
           subraceDescEl.append(
             el('div', { class: 'mech-race-asi mech-race-asi--sub' },
@@ -1952,12 +1953,13 @@ function buildRaceStep(st, goMech) {
           return;
         }
 
-        const subAsi = STAT_SUBRACE_ASI[s];
-        if (subAsi) {
+        // Use asi from race_descriptions first (handles per-race conflicts), fall back to STAT_SUBRACE_ASI
+        const asiData = sInfo?.asi || STAT_SUBRACE_ASI[s];
+        if (asiData) {
           subraceDescEl.append(
             el('div', { class: 'mech-race-asi mech-race-asi--sub' },
               el('span', { class: 'mech-race-asi-label' }, 'Бонус подрасы:'),
-              ...Object.entries(subAsi).map(([k, v]) =>
+              ...Object.entries(asiData).map(([k, v]) =>
                 el('span', { class: 'mech-race-asi-badge' }, `${STAT_LABELS[k] || k} ${v > 0 ? '+' : ''}${v}`),
               ),
             ),
@@ -1972,7 +1974,10 @@ function buildRaceStep(st, goMech) {
             el('button', {
               class: `mech-subrace-btn${st.mecSubrace === s ? ' is-selected' : ''}`,
               onClick: () => {
+                const prev = st.mecSubrace;
                 st.mecSubrace = s;
+                // Clear Variant Human bonus picks when switching away from Вариант
+                if (prev === 'Вариант' && s !== 'Вариант') st.mecVariantHumanAsi = {};
                 scheduleSave(st);
                 detailEl.querySelectorAll('.mech-subrace-btn').forEach(b =>
                   b.classList.toggle('is-selected', b.textContent === s)
@@ -2005,8 +2010,9 @@ function buildRaceStep(st, goMech) {
 
   function selectRace(srcId, raceName) {
     const key = `${srcId}::${raceName}`;
-    st.mecRace = key;
+    st.mecRace    = key;
     st.mecSubrace = null;
+    st.mecVariantHumanAsi = {};
     scheduleSave(st);
     listEl.querySelectorAll('.mech-cls-item').forEach(b =>
       b.classList.toggle('is-selected', b.dataset.key === key)
@@ -2398,13 +2404,27 @@ function pbSpent(stats) {
 const statMod = s => Math.floor((s - 10) / 2);
 const signNum  = n => n >= 0 ? `+${n}` : `${n}`;
 
+function _resolveRaceDesc(raceName) {
+  return RACE_DESCRIPTIONS[raceName]
+    || RACE_DESCRIPTIONS[RACE_DESC_ALIASES[raceName]]
+    || RACE_DESCRIPTIONS[raceName.replace(' (Чистокровный)', '')]
+    || RACE_DESCRIPTIONS[raceName.replace(/\s*\([^)]+\)$/, '')];
+}
+
 function mecRacialAsi(st) {
   if (!st.mecRace) return {};
   const raceName = st.mecRace.split('::')[1];
   const base = { ...(STAT_RACE_ASI[raceName] || {}) };
   if (st.mecSubrace) {
-    const sub = STAT_SUBRACE_ASI[st.mecSubrace] || {};
+    // Prefer asi from race_descriptions (handles per-race subrace conflicts like Гном/Эльф 'Лесной')
+    const raceDesc = _resolveRaceDesc(raceName);
+    const sInfo = raceDesc?.subraces?.find(sd => sd.name === st.mecSubrace);
+    const sub = sInfo?.asi || STAT_SUBRACE_ASI[st.mecSubrace] || {};
     for (const [k, v] of Object.entries(sub)) base[k] = (base[k] || 0) + v;
+  }
+  // Variant Human: merge player's chosen +1 bonuses
+  if (st.mecVariantHumanAsi) {
+    for (const [k, v] of Object.entries(st.mecVariantHumanAsi)) base[k] = (base[k] || 0) + v;
   }
   return base;
 }
@@ -2434,12 +2454,13 @@ function effectiveBase(st, key) {
 // ─── Stats step ───────────────────────────────────────────────────────────────
 
 function buildStatsStep(st, goMech) {
-  if (!st.mecStats)      st.mecStats      = { str:8, dex:8, con:8, int:8, wis:8, cha:8 };
-  if (!st.mecChosen)     st.mecChosen     = [];
-  if (!st.mecStatMethod) st.mecStatMethod = 'pointbuy';
-  if (!st.mecStdAssign)  st.mecStdAssign  = {};
+  if (!st.mecStats)           st.mecStats           = { str:8, dex:8, con:8, int:8, wis:8, cha:8 };
+  if (!st.mecChosen)          st.mecChosen          = [];
+  if (!st.mecStatMethod)      st.mecStatMethod      = 'pointbuy';
+  if (!st.mecStdAssign)       st.mecStdAssign       = {};
   if (!st.mecRolls || !st.mecRolls.length) st.mecRolls = Array(6).fill(null);
-  if (!st.mecRollAssign) st.mecRollAssign = {};
+  if (!st.mecRollAssign)      st.mecRollAssign      = {};
+  if (!st.mecVariantHumanAsi) st.mecVariantHumanAsi = {};
 
   const STD_ARRAY = [15, 14, 13, 12, 10, 8];
   const bodyEl  = el('div', { class: 'mech-stats-scroll' });
@@ -2448,12 +2469,17 @@ function buildStatsStep(st, goMech) {
     onClick: () => goMech(_isMagicCls ? 'spells' : 'equipment'),
   }, _isMagicCls ? 'Далее → Заклинания' : 'Далее → Снаряжение');
   footBtn.addEventListener('mouseenter', e => {
-    if (footBtn.disabled) showSrcTip(e, { name: '', desc: 'Заполните все характеристики, чтобы продолжить' });
+    if (!footBtn.disabled) return;
+    showSrcTip(e, { name: '', desc: 'Заполните все характеристики, чтобы продолжить' });
   });
   footBtn.addEventListener('mouseleave', hideSrcTip);
   const footEl  = el('div', { class: 'mech-foot' }, footBtn);
 
+  const _isVariantHuman = () =>
+    !!st.mecRace && st.mecRace.split('::')[1] === 'Человек' && st.mecSubrace === 'Вариант';
+
   function allAssigned() {
+    if (_isVariantHuman() && Object.keys(st.mecVariantHumanAsi || {}).length < 2) return false;
     const m = st.mecStatMethod;
     if (m === 'pointbuy') return pbSpent(st.mecStats) === PB_POOL;
     if (m === 'standard') return Object.keys(st.mecStdAssign).length === ABILITIES.length;
@@ -2666,11 +2692,51 @@ function buildStatsStep(st, goMech) {
     );
   }
 
+  // ── Variant Human ASI picker ──
+  function buildVariantHumanPicker() {
+    const chosen     = st.mecVariantHumanAsi || {};
+    const chosenKeys = Object.keys(chosen);
+    const needed     = 2 - chosenKeys.length;
+    const hint = needed > 0
+      ? `Выберите ещё ${needed} характеристик${needed === 1 ? 'у' : 'и'}`
+      : 'Оба бонуса выбраны';
+
+    return el('div', { class: 'vh-asi-picker' },
+      el('div', { class: 'vh-asi-header' },
+        el('span', { class: 'vh-asi-title' }, 'Вариант человек: бонус +1'),
+        el('span', { class: `vh-asi-hint${needed === 0 ? ' done' : ''}` }, hint),
+      ),
+      el('div', { class: 'vh-asi-chips' },
+        ...ABILITIES.map(({ key, label }) => {
+          const isChosen = !!chosen[key];
+          const canPick  = isChosen || chosenKeys.length < 2;
+          const btn = el('button', {
+            class: `vh-asi-chip${isChosen ? ' is-chosen' : ''}`,
+            disabled: !canPick,
+            onClick: () => {
+              if (!st.mecVariantHumanAsi) st.mecVariantHumanAsi = {};
+              if (isChosen) {
+                delete st.mecVariantHumanAsi[key];
+              } else if (Object.keys(st.mecVariantHumanAsi).length < 2) {
+                st.mecVariantHumanAsi[key] = 1;
+              }
+              scheduleSave(st);
+              refresh();
+            },
+          }, isChosen ? `${label} +1` : label);
+          if (!canPick) btn.classList.add('is-disabled');
+          return btn;
+        }),
+      ),
+    );
+  }
+
   function refresh() {
     st.mecStatsOk = allAssigned();
     bodyEl.innerHTML = '';
     bodyEl.append(
       buildMethodRow(),
+      ...(_isVariantHuman() ? [buildVariantHumanPicker()] : []),
       el('div', { class: 'mech-stats-grid' }, ...ABILITIES.map(buildAbBlock)),
       footEl,
     );

@@ -848,6 +848,52 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   color: var(--text-muted); font-style: italic; font-weight: 500;
 }
 
+/* ── Variant Human ASI picker (stats screen) ──────────────────────────────── */
+.vh-asi-picker {
+  background: var(--surface-2);
+  border: 1.5px solid var(--border-2);
+  border-radius: var(--r-lg);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.vh-asi-header {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.vh-asi-title {
+  font-size: 12px; font-weight: 700; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.vh-asi-hint {
+  font-size: 11px; color: var(--text-muted); margin-left: auto;
+}
+.vh-asi-hint.done {
+  color: var(--color-ok, #4caf50);
+}
+.vh-asi-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.vh-asi-chip {
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border-2);
+  background: var(--surface-3, var(--surface-2));
+  color: var(--text-secondary);
+  font-size: 12px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s;
+}
+.vh-asi-chip:hover:not(:disabled) {
+  border-color: var(--accent); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.vh-asi-chip.is-chosen {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent); color: var(--accent); font-weight: 700;
+}
+.vh-asi-chip:disabled,
+.vh-asi-chip.is-disabled {
+  opacity: 0.4; cursor: not-allowed;
+}
+
 .cls-skill-block {
   display: flex;
   flex-direction: column;
