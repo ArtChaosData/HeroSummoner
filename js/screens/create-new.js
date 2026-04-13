@@ -1942,15 +1942,9 @@ function buildRaceStep(st, goMech) {
         const sInfo = subraceDescs.find(sd => sd.name === s || sd.name.includes(s) || s.includes(sd.name.split(' ')[0]));
         if (sInfo) subraceDescEl.append(el('p', { class: 'mech-subrace-desc-text' }, sInfo.description));
 
-        // Special case: Variant human — ASI is player's choice, picked on the stats screen
+        // Special case: Variant human — ASI is player's choice, show interactive picker here
         if (s === 'Вариант') {
-          subraceDescEl.append(
-            el('div', { class: 'mech-race-asi mech-race-asi--sub' },
-              el('span', { class: 'mech-race-asi-label' }, 'Бонус:'),
-              el('span', { class: 'mech-race-asi-badge mech-race-asi-badge--choice' }, '+1 к двум характеристикам на выбор'),
-              el('span', { class: 'mech-race-asi-badge mech-race-asi-badge--choice' }, '+ одна особая способность (feat)'),
-            ),
-          );
+          subraceDescEl.append(buildVariantHumanPicker());
           return;
         }
 
@@ -1994,16 +1988,63 @@ function buildRaceStep(st, goMech) {
     }
   }
 
+  const _isVariantHuman = () =>
+    !!st.mecRace && st.mecRace.split('::')[1] === 'Человек' && st.mecSubrace === 'Вариант';
+
+  function buildVariantHumanPicker() {
+    const STAT_LABELS_VH = { str:'Сила', dex:'Ловкость', con:'Телосложение', int:'Интеллект', wis:'Мудрость', cha:'Харизма' };
+    const chosen     = st.mecVariantHumanAsi || {};
+    const chosenKeys = Object.keys(chosen);
+    const needed     = 2 - chosenKeys.length;
+    const hint = needed > 0 ? `Выберите ещё ${needed}` : '✓ Выбрано';
+
+    const chips = ABILITIES.map(({ key, label }) => {
+      const isChosen = !!chosen[key];
+      const canPick  = isChosen || chosenKeys.length < 2;
+      const btn = el('button', {
+        class: `vh-asi-chip${isChosen ? ' is-chosen' : ''}${!canPick ? ' is-disabled' : ''}`,
+        onClick: () => {
+          if (!st.mecVariantHumanAsi) st.mecVariantHumanAsi = {};
+          if (isChosen) {
+            delete st.mecVariantHumanAsi[key];
+          } else if (Object.keys(st.mecVariantHumanAsi).length < 2) {
+            st.mecVariantHumanAsi[key] = 1;
+          }
+          scheduleSave(st);
+          // Re-render picker and update foot button
+          const subraceDescEl = detailEl.querySelector('.mech-subrace-desc');
+          if (subraceDescEl) { subraceDescEl.innerHTML = ''; subraceDescEl.append(buildVariantHumanPicker()); }
+          updateRaceFoot();
+        },
+      }, isChosen ? `${STAT_LABELS_VH[key]} +1` : STAT_LABELS_VH[key]);
+      btn.disabled = !canPick;
+      return btn;
+    });
+
+    return el('div', { class: 'vh-asi-picker' },
+      el('div', { class: 'vh-asi-header' },
+        el('span', { class: 'vh-asi-title' }, '+1 к двум характеристикам'),
+        el('span', { class: `vh-asi-hint${needed === 0 ? ' done' : ''}` }, hint),
+      ),
+      el('div', { class: 'vh-asi-chips' }, ...chips),
+    );
+  }
+
   function updateRaceFoot() {
     footEl.innerHTML = '';
     if (!st.mecRace) return;
     const [srcId, raceName] = st.mecRace.split('::');
     const raceObj = (RACE_DATA[srcId] || []).find(r => r.name === raceName);
     const needsSub = raceObj?.sub?.length > 0;
+    const vhIncomplete = _isVariantHuman() && Object.keys(st.mecVariantHumanAsi || {}).length < 2;
+    const blocked = (needsSub && !st.mecSubrace) || vhIncomplete;
+    const tipText = !st.mecSubrace ? 'Выберите подрасу, чтобы продолжить'
+      : vhIncomplete ? 'Выберите +1 к двум характеристикам'
+      : '';
     const btn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('background') }, 'Далее → Предыстория');
-    btn.disabled = needsSub && !st.mecSubrace;
+    btn.disabled = blocked;
     btn.addEventListener('mouseenter', e => {
-      if (btn.disabled) showSrcTip(e, { name: '', desc: 'Выберите подрасу, чтобы продолжить' });
+      if (btn.disabled) showSrcTip(e, { name: '', desc: tipText });
     });
     btn.addEventListener('mouseleave', hideSrcTip);
     footEl.append(btn);
@@ -2693,52 +2734,11 @@ function buildStatsStep(st, goMech) {
     );
   }
 
-  // ── Variant Human ASI picker ──
-  function buildVariantHumanPicker() {
-    const chosen     = st.mecVariantHumanAsi || {};
-    const chosenKeys = Object.keys(chosen);
-    const needed     = 2 - chosenKeys.length;
-    const hint = needed > 0
-      ? `Выберите ещё ${needed}`
-      : '✓ Выбрано';
-
-    const chips = ABILITIES.map(({ key, label }) => {
-      const isChosen = !!chosen[key];
-      const canPick  = isChosen || chosenKeys.length < 2;
-      // NOTE: don't pass disabled via el() — setAttribute sets the attribute even for false,
-      // which still disables the button. Set the DOM property directly instead.
-      const btn = el('button', {
-        class: `vh-asi-chip${isChosen ? ' is-chosen' : ''}${!canPick ? ' is-disabled' : ''}`,
-        onClick: () => {
-          if (!st.mecVariantHumanAsi) st.mecVariantHumanAsi = {};
-          if (isChosen) {
-            delete st.mecVariantHumanAsi[key];
-          } else if (Object.keys(st.mecVariantHumanAsi).length < 2) {
-            st.mecVariantHumanAsi[key] = 1;
-          }
-          scheduleSave(st);
-          refresh();
-        },
-      }, isChosen ? `${label} +1` : label);
-      btn.disabled = !canPick; // set as DOM property, not HTML attribute
-      return btn;
-    });
-
-    return el('div', { class: 'vh-asi-picker' },
-      el('div', { class: 'vh-asi-header' },
-        el('span', { class: 'vh-asi-title' }, '+1 к двум характеристикам'),
-        el('span', { class: `vh-asi-hint${needed === 0 ? ' done' : ''}` }, hint),
-      ),
-      el('div', { class: 'vh-asi-chips' }, ...chips),
-    );
-  }
-
   function refresh() {
     st.mecStatsOk = allAssigned();
     bodyEl.innerHTML = '';
     bodyEl.append(
       buildMethodRow(),
-      ...(_isVariantHuman() ? [buildVariantHumanPicker()] : []),
       el('div', { class: 'mech-stats-grid' }, ...ABILITIES.map(buildAbBlock)),
       footEl,
     );
