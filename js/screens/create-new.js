@@ -1875,8 +1875,16 @@ function buildRaceStep(st, goMech) {
       badge.addEventListener('mouseleave', hideSrcTip);
     }
 
+    // ── Race desc lookup (must be before ASI block) ──
+    const _rn = raceObj.name;
+    const raceDesc = RACE_DESCRIPTIONS[_rn]
+      || RACE_DESCRIPTIONS[RACE_DESC_ALIASES[_rn]]
+      || RACE_DESCRIPTIONS[_rn.replace(' (Чистокровный)', '')]
+      || RACE_DESCRIPTIONS[_rn.replace(/\s*\([^)]+\)$/, '')]; // strip any trailing (…) suffix
+
     // ── ASI block ──
-    const asiEntries = Object.entries(STAT_RACE_ASI[raceObj.name] || {});
+    const _raceAsi = STAT_RACE_ASI[raceObj.name] || raceDesc?.asi || {};
+    const asiEntries = Object.entries(_raceAsi);
     const STAT_LABELS = { str:'Сила', dex:'Ловкость', con:'Телосложение', int:'Интеллект', wis:'Мудрость', cha:'Харизма' };
     const asiBlock = asiEntries.length
       ? el('div', { class: 'mech-race-asi' },
@@ -1884,18 +1892,11 @@ function buildRaceStep(st, goMech) {
           ...asiEntries.map(([k, v]) =>
             el('span', { class: 'mech-race-asi-badge' }, `${STAT_LABELS[k] || k} ${v > 0 ? '+' : ''}${v}`),
           ),
-          Object.keys(STAT_RACE_ASI[raceObj.name] || {}).length
-            ? el('span', { class: 'mech-race-asi-sub-note' }, raceObj.sub.length ? ' + подраса' : '')
+          asiEntries.length && raceObj.sub.length
+            ? el('span', { class: 'mech-race-asi-sub-note' }, ' + подраса')
             : null,
         )
       : null;
-
-    // ── Race desc lookup ──
-    const _rn = raceObj.name;
-    const raceDesc = RACE_DESCRIPTIONS[_rn]
-      || RACE_DESCRIPTIONS[RACE_DESC_ALIASES[_rn]]
-      || RACE_DESCRIPTIONS[_rn.replace(' (Чистокровный)', '')]
-      || RACE_DESCRIPTIONS[_rn.replace(/\s*\([^)]+\)$/, '')]; // strip any trailing (…) suffix
 
     // ── Speed / Size / Languages chips ──
     const statsChips = (raceDesc?.speed || raceDesc?.size || raceDesc?.languages)
@@ -2414,7 +2415,7 @@ function _resolveRaceDesc(raceName) {
 function mecRacialAsi(st) {
   if (!st.mecRace) return {};
   const raceName = st.mecRace.split('::')[1];
-  const base = { ...(STAT_RACE_ASI[raceName] || {}) };
+  const base = { ...(STAT_RACE_ASI[raceName] || _resolveRaceDesc(raceName)?.asi || {}) };
   if (st.mecSubrace) {
     // Prefer asi from race_descriptions (handles per-race subrace conflicts like Гном/Эльф 'Лесной')
     const raceDesc = _resolveRaceDesc(raceName);
