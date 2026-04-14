@@ -3,6 +3,7 @@
  */
 import { DB }  from '../db.js';
 import { el, toast, hpClass, initials, classColor, confirm, downloadBlob } from '../utils.js';
+import { exportPDF } from '../pdf.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -162,7 +163,7 @@ function buildCard(char, router) {
         onClick: e => { e.stopPropagation(); router.navigate(isDraft ? `/edit/${char.id}` : `/sheet/${char.id}`); },
       }, isDraft ? '✎' : '▶', el('span', {}, isDraft ? 'Редактировать' : 'Открыть')),
       el('button', { class: 'card-action action-pdf', 'data-tip': 'PDF',
-        onClick: e => { e.stopPropagation(); toast('PDF-экспорт — Этап 5', 'default'); },
+        onClick: e => { e.stopPropagation(); exportPDF(char); },
       }, '📄'),
       el('button', { class: 'card-action action-json', 'data-tip': 'JSON',
         onClick: async e => {
