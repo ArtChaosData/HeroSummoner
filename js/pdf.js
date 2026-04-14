@@ -438,6 +438,18 @@ function buildSpellPage(char) {
     ...(ws.mecSpellsPrepared || []),
   ])];
 
+  // If character has no _wizardState spells (e.g. created with old wizard), show empty-sheet notice
+  const hasAnySpells = cantrips.length > 0 || lvl1spells.length > 0;
+  if (!hasAnySpells && !char._wizardState) {
+    return `<div class="page page-break" style="display:flex;align-items:center;justify-content:center;min-height:150mm">
+      <div style="text-align:center;color:#888;font-size:11px;max-width:160mm">
+        <div style="font-size:18px;margin-bottom:8px">✦</div>
+        Заклинания не заполнены — персонаж создан до появления шага выбора заклинаний.<br>
+        Откройте редактирование и пройдите шаг «Заклинания».
+      </div>
+    </div>`;
+  }
+
   const spellLine = (name, prepared = false) =>
     `<div class="spell-row${prepared ? ' prepared' : ''}">
       <span class="spell-dot filled"></span>
