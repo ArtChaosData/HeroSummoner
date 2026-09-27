@@ -14,6 +14,7 @@ import { CLASS_DESCRIPTIONS } from './data/class_descriptions.js';
 import { LVL1_SUBCLASSES } from './data/class_lvl1_subclasses.js';
 import { FEATS } from './data/feats.js';
 import { spellIdByName, getSpellById } from './data/spells.js';
+import { migrateSpellState } from './spell-groups.js';
 
 export const SCHEMA_VERSION = 2;
 
@@ -127,7 +128,7 @@ export function legacyView(char) {
     languages: poolValues(char, 'language'),
     toolProficiencies: poolValues(char, 'tool'),
     feats: poolValues(char, 'feat').map(featName),
-    raceCantrips: spells.filter(g => g.source.type === 'race').map(g => spellName(g.value)),
+    raceCantrips: spells.filter(g => g.source.type === 'race' || g.source.type === 'subrace').map(g => spellName(g.value)),
     maxHp: char.hp?.max ?? 1,
     hp: char.hp?.current ?? char.hp?.max ?? 1,
   };
@@ -154,6 +155,8 @@ export function migrateWizardState(ws) {
     out.mecRaceChoices = rc;
   }
   delete out.mecEdition;
+  // Э2: выбор заклинаний по названиям (mecSpellsCantrips/…/заговор Высшего эльфа) → mecSpellPicks по id
+  migrateSpellState(out);
   return out;
 }
 

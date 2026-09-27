@@ -9,7 +9,11 @@ import {
 } from '../character.js';
 import { FEATS } from '../data/feats.js';
 import { ARMOUR, WEAPONS, EQUIPMENT, TOOLS } from '../data/equipment.js';
-import { getCantripsForClass, getLevel1SpellsForClass, spellIdByName } from '../data/spells.js';
+import { getSpellById } from '../data/spells.js';
+import {
+  buildSpellSections, prunePicks, takenMap, missingPicks, groupOptions, groupNeed, spellGrantSpecs,
+  hasSpellSources, migrateSpellState, CLASS_NAME_BY_ID, LATE_CASTERS, SPELL_FEATS, STAT_SHORT as STAT_SHORT_SG, STAT_LABEL as STAT_LABEL_SG,
+} from '../spell-groups.js';
 import { RACE_DESCRIPTIONS } from '../data/race_descriptions.js';
 import { CLASS_DESCRIPTIONS, CLASS_ORDER } from '../data/class_descriptions.js';
 import { CLASS_FEATURES, featureName, isOptionalFeature } from '../data/class_features.js';
@@ -65,6 +69,9 @@ function freshState() {
     mecSubclass:        null,
     mecSubclassChoices: {},
     mecSubclassPreview: null,
+    // ТЗ 4.4.6 (Э2): выбор заклинаний по группам источников — { [ключ группы]: [id dnd.su] }; класс списка для черт
+    mecSpellPicks:      {},
+    mecSpellFeatClass:  {},
     mecEquipMode:    'standard',
     mecEquipGold:    null,
     mecEquipChoices: {},
@@ -358,10 +365,6 @@ const CLASS_HP_DIE = {
 function splitProfList(str) {
   return str && str !== 'нет' ? str.split(', ').map(x => x.trim()).filter(Boolean) : [];
 }
-// «Свет (если ещё не знает)» → «Свет»; неразрешимые названия («+1 по виду гения») пропускаются.
-function subclassSpellId(name) {
-  return spellIdByName(String(name).replace(/\s*\([^)]*\)\s*$/, '').trim());
-}
 
 function buildCharacterGrants(st) {
   const g = [];
@@ -394,10 +397,6 @@ function buildCharacterGrants(st) {
     for (const v of sg.languages || []) g.push(grant('language', v, 'subclass', sub.id));
     for (const v of sc.skills || [])    g.push(grant('skill',    v, 'subclass', sub.id, { kind: 'choice', slot: 'subclass_skills' }));
     for (const v of sc.languages || []) g.push(grant('language', v, 'subclass', sub.id, { kind: 'choice', slot: 'subclass_languages' }));
-    for (const n of [...(sg.spells_always || []), ...(sg.cantrips_bonus || []), ...(sg.spells_known_bonus || [])]) {
-      const id = subclassSpellId(n);
-      if (id !== undefined) g.push(grant('spell', id, 'subclass', sub.id));
-    }
   }
   // ── Раса и подраса
   if (st.mecRace) {
@@ -419,7 +418,6 @@ function buildCharacterGrants(st) {
       if (t.choice) {
         for (const v of choices[t.title] || []) {
           if (t.choice.type === 'language') g.push(grant('language', v, srcType, srcId, { kind: 'choice', slot: t.title }));
-          else if (t.choice.type === 'spell') g.push(grant('spell', spellIdByName(v) ?? v, srcType, srcId, { kind: 'choice', slot: t.title }));
           else if (t.choice.type === 'feat')  g.push(grant('feat', featIdByName(v) || v, srcType, srcId, { kind: 'choice', slot: t.title }));
         }
       }
@@ -442,12 +440,9 @@ function buildCharacterGrants(st) {
       g.push(grant('tool', v, 'background', bgId, { kind: 'choice', slot: 'background_tools' }));
     }
   }
-  // ── Заклинания класса (шаг 4.4.6 пока хранит названия — переводим в id)
-  const spellSlots = [['mecSpellsCantrips', 'cantrips'], ['mecSpellsLevel1', 'spells'],
-                      ['mecSpellsBook', 'spellbook'], ['mecSpellsPrepared', 'prepared']];
-  for (const [key, slot] of spellSlots) {
-    for (const n of st[key] || []) g.push(grant('spell', spellIdByName(n) ?? n, 'class', cls, { kind: 'choice', slot }));
-  }
+  // ── Заклинания (шаг 4.4.6, Э2): класс, подкласс, раса, черта — id dnd.su, с источником и слотом
+  const { res: spellRes, picks: spellPicks } = spellState(st);
+  for (const s of spellGrantSpecs(spellRes, spellPicks)) g.push(grant(s.pool, s.value, s.sourceType, s.sourceId, s.opts));
   return g;
 }
 
@@ -500,6 +495,7 @@ async function saveCharToDB(st, status) {
         classVariant: clsVariant(st),
         class: st.mecClassChoices || {},
         subclass: subObj ? (st.mecSubclassChoices || {}) : {},
+        spellFeatClass: st.mecSpellFeatClass || {},
       },
       grants: grants.map((_, i) => i),
     }],
@@ -766,16 +762,26 @@ function hideSrcTip() { _srcTip?.remove(); _srcTip = null; }
 // ─── Mechanics: progress bar ──────────────────────────────────────────────────
 
 function buildMechProgress(st, goMech, magic) {
-  const steps     = MECH_STEPS.filter(s => !s.magic || magic);
+  // Паладин/Следопыт без заклинаний расы/черты: шаг виден, но пропускается — «Магия придёт на 2 уровне» (ТЗ 4.4.6)
+  const lateMagic = !magic && LATE_CASTERS.has(st.mecClass);
+  const steps     = MECH_STEPS.filter(s => !s.magic || magic || lateMagic);
   const cur       = steps.findIndex(s => s.id === (st.mecStep || 'class'));
-  const maxIdx    = st.mecMaxStep || 0;
+  // mecMaxStep — индекс в полном MECH_STEPS; переводим в индекс видимого списка
+  const maxIdx    = steps.filter(s => MECH_STEPS.indexOf(s) <= (st.mecMaxStep || 0)).length - 1;
   const statsIdx  = steps.findIndex(s => s.id === 'stats');
+  const spellsIdx = magic ? steps.findIndex(s => s.id === 'spells') : -1;
+  const spellsOk  = spellsIdx < 0 || spellStepDone(st);
   return el('nav', { class: 'mech-progress' },
     ...steps.flatMap((s, i) => {
       const afterStats = statsIdx >= 0 && i > statsIdx;
+      if (lateMagic && s.id === 'spells') {
+        const b = el('button', { class: 'mech-step is-future is-late', disabled: 'true', title: 'Магия придёт на 2 уровне' }, s.label);
+        return i < steps.length - 1 ? [b, el('span', { class: 'mech-sep' }, '›')] : [b];
+      }
       const reachable  = i <= maxIdx
         && (s.id !== 'stats' || st.mecBgOk !== false)
-        && (!afterStats || st.mecStatsOk);
+        && (!afterStats || st.mecStatsOk)
+        && (spellsIdx < 0 || i <= spellsIdx || spellsOk);
       const cls = 'mech-step' + (i === cur ? ' is-current' : reachable ? ' is-past' : ' is-future');
       const attrs = { class: cls };
       if (!reachable) attrs.disabled = 'true';
@@ -1235,6 +1241,46 @@ function buildFinalStep(st, goMech, go) {
     el('div', { class: 'final-profs-grid' }, clsProfCol, bgProfCol),
   ) : null;
 
+  // ── Заклинания (ТЗ 4.4.8, Э2): только если есть источник заклинаний ───────
+  let spellsSec = null;
+  if (hasSpellStep(st)) {
+    const { res: sRes, picks: sPicks } = spellState(st);
+    const rows = [];
+    for (const sec of sRes.sections) {
+      const src = sec.label.split(' — ').pop();
+      const lines = [];
+      for (const g of sec.groups) {
+        const ids = g.kind === 'fixed'
+          ? g.fixed.map(f => ({ id: f.spell.id, later: f.from > 1 ? f.from : 0 }))
+          : (sPicks[g.key] || []).map(id => ({ id, later: 0 }));
+        if (!ids.length) continue;
+        const names = ids.map(({ id, later }) => {
+          const sp = getSpellById(id);
+          return (sp ? sp.name : String(id)) + (later ? ` (с ${later} ур.)` : '');
+        });
+        lines.push(el('div', { class: 'final-prof-row' },
+          el('span', { class: 'final-prof-type' }, g.title),
+          el('span', { class: 'final-prof-values' }, names.join(', '))));
+      }
+      if (lines.length) rows.push(el('div', { class: 'final-profs-col' },
+        el('span', { class: `final-profs-source is-${sec.type === 'race' ? 'bg' : 'class'}` }, src), ...lines));
+    }
+    const cols = PROG_COLS[st.mecClass] || [];
+    const vals = PROG_VALS[st.mecClass] || [];
+    const slotIdx = cols.indexOf('Ячейки заклинаний'), lvlIdx = cols.indexOf('Уровень ячеек');
+    const slots = slotIdx >= 0 ? vals[slotIdx]?.[0] : null;
+    const slotLine = slots && slots !== '—'
+      ? `Ячейки заклинаний на 1 уровне: ${slots}${lvlIdx >= 0 ? ` (уровень ячеек ${vals[lvlIdx]?.[0]})` : ' (1 круг)'}` : null;
+    spellsSec = el('div', { class: 'final-section final-profs-sec' },
+      el('div', { class: 'final-section-hd' },
+        el('span', { class: 'final-section-title' }, 'Заклинания'),
+        editBtn('spells'),
+      ),
+      el('div', { class: 'final-profs-grid' }, ...rows),
+      slotLine ? el('div', { class: 'final-gold-line' }, slotLine) : null,
+    );
+  }
+
   // ── Save button ───────────────────────────────────────────────────────────
   const saveBtn = el('button', {
     class: 'cnew-save-btn final-save-btn',
@@ -1249,6 +1295,7 @@ function buildFinalStep(st, goMech, go) {
       overviewRow,
       profSec,
       absSec,
+      spellsSec,
       equipSec,
     ),
     el('div', { class: 'mech-foot' }, saveBtn),
@@ -1257,18 +1304,13 @@ function buildFinalStep(st, goMech, go) {
 
 // ─── Mechanics: main wrapper ──────────────────────────────────────────────────
 
-// Magical classes that require the Spells step
-const MAGIC_CLASSES = new Set([
-  'bard', 'wizard', 'druid', 'cleric',
-  'artificer', 'warlock', 'paladin', 'ranger', 'sorcerer',
-]);
 
 function buildMechanics(st, go, container) {
   if (!st.mecStep || st.mecStep === 'edition') st.mecStep = 'class';
   if (!st.mecSources || !st.mecSources.length) st.mecSources = ['PHB'];
 
-  // Dynamically determine if the selected class is a spellcaster
-  const magic = !!(st.mecClass && MAGIC_CLASSES.has(st.mecClass));
+  // Шаг «Заклинания» — у любого персонажа с источником заклинаний на 1 ур. (ТЗ v0.29)
+  const magic = hasSpellStep(st);
 
   function goMech(step) {
     st.mecStep = step;
@@ -2985,6 +3027,11 @@ function buildRaceStep(st, goMech) {
       // (список большой и «пиковый» отбор нагляднее чипами), тут игрок выбирает
       // из готового списка — удобнее инлайновым <select>, как ASI-выбор у Полуэльфа,
       // с сразу подставленным значением по умолчанию (без блокировки «Далее»).
+      // Э2 (ТЗ v0.29): заговор расы (Высший эльф) выбирается на шаге «Заклинания»
+      if (t.choice?.type === 'spell') {
+        li.append(el('p', { class: 'cls-choice-hint' }, 'Заговор выберете на шаге «Заклинания».'));
+        return li;
+      }
       if (t.choice) {
         if (!st.mecRaceChoices) st.mecRaceChoices = {};
         const count = t.choice.count || 1;
@@ -3018,6 +3065,10 @@ function buildRaceStep(st, goMech) {
             return el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾'));
           });
           choiceWrap.append(...selects);
+          // Э2: у черт с заклинаниями выбор заклинаний — на шаге «Заклинания»
+          if (t.choice.type === 'feat' && picks.some(n => SPELL_FEATS[featIdByName(n)])) {
+            choiceWrap.append(el('p', { class: 'cls-choice-hint' }, 'Заклинания черты выберете на шаге «Заклинания».'));
+          }
         }
         renderChoiceSelects();
         li.append(choiceWrap);
@@ -3951,7 +4002,7 @@ function buildStatsStep(st, goMech) {
 
   const STD_ARRAY = [15, 14, 13, 12, 10, 8];
   const bodyEl  = el('div', { class: 'mech-stats-scroll' });
-  const _isMagicCls = !!(st.mecClass && MAGIC_CLASSES.has(st.mecClass));
+  const _isMagicCls = hasSpellStep(st);
   const footBtn = el('button', { class: 'cnew-save-btn',
     onClick: () => goMech(_isMagicCls ? 'spells' : 'equipment'),
   }, _isMagicCls ? 'Далее → Заклинания' : 'Далее → Снаряжение');
@@ -4422,25 +4473,62 @@ function fmtGp(n) {
   return r % 1 === 0 ? String(r) : r.toFixed(2);
 }
 
-// ─── Spells step ─────────────────────────────────────────────────────────────
+// ─── Spells step (ТЗ 4.4.6: v0.23 + v0.24 + v0.29, этап Э2) ──────────────────
+// Все выборы заклинаний персонажа — класс, подкласс, раса, черта — на одном шаге, по группам источников.
+// Логика групп, «🔒 уже есть», чистка и проверка — js/spell-groups.js; здесь только профиль и UI.
 
-// Per-class spellcasting configuration (5e14)
-const SPELL_CONFIG = {
-  'bard':      { type: 'known',    stat: 'cha', cantripCount: 2, spellCount: 4 },
-  'wizard':    { type: 'book',     stat: 'int', cantripCount: 3, spellCount: 6, preparedCount: 2 },
-  'druid':     { type: 'prepared', stat: 'wis', cantripCount: 2, spellCount: null },
-  'cleric':    { type: 'prepared', stat: 'wis', cantripCount: 3, spellCount: null },
-  'artificer': { type: 'prepared', stat: 'int', cantripCount: 2, spellCount: null },
-  'warlock':   { type: 'pact',     stat: 'cha', cantripCount: 2, spellCount: 2 },
-  'paladin':   { type: 'prepared', stat: 'cha', cantripCount: 0, spellCount: null },
-  'ranger':    { type: 'known',    stat: 'wis', cantripCount: 0, spellCount: 2 },
-  'sorcerer':  { type: 'known',    stat: 'cha', cantripCount: 4, spellCount: 2 },
-};
+/** Профиль персонажа для buildSpellSections() из состояния мастера. */
+function spellProfile(st) {
+  const raceName = st.mecRace ? st.mecRace.split('::')[1] : '';
+  const raceId = raceName ? raceIdByName(raceName) : null;
+  const subraceId = raceId && st.mecSubrace ? subraceIdByName(raceId, st.mecSubrace) : null;
+  const raceDesc = raceName ? _resolveRaceDesc(raceName) : null;
+  const subTraitTitles = new Set(((raceDesc?.subraces || []).find(sd => sd.name === st.mecSubrace)?.traits || []).map(t => t.title));
+  const traits = raceName ? mecActiveRaceTraits(raceName, st.mecSubrace) : [];
+  const raceTraits = traits.map(t => {
+    const sub = subTraitTitles.has(t.title) && subraceId;
+    return { title: t.title, text: typeof t.text === 'string' ? t.text : null, choice: t.choice || null,
+             srcType: sub ? 'subrace' : 'race', srcId: sub ? subraceId : raceId };
+  });
+  const choices = st.mecRaceChoices || {};
+  const featNames = {};
+  const featIds = [];
+  for (const t of traits) {
+    if (t.choice?.type !== 'feat') continue;
+    for (const n of choices[t.title] || []) { const id = featIdByName(n); if (id) { featIds.push(id); featNames[id] = n; } }
+  }
+  const asi = mecRacialAsi(st);
+  const scores = {}, mods = {};
+  for (const k of ['str', 'dex', 'con', 'int', 'wis', 'cha']) {
+    scores[k] = (effectiveBase(st, k) ?? 10) + (asi[k] || 0);
+    mods[k] = Math.floor((scores[k] - 10) / 2);
+  }
+  const raceLabel = st.mecSubrace && st.mecSubrace !== 'Стандартный' && st.mecSubrace !== 'Альтернативный'
+    ? (/\(|эльф/i.test(st.mecSubrace) ? st.mecSubrace : `${raceName} (${st.mecSubrace})`) : raceName;
+  return {
+    classId: st.mecClass || null, variant: clsVariant(st),
+    subclass: clsSubclassObj(st), subclassChoices: st.mecSubclassChoices || {},
+    raceId, subraceId, raceLabel, raceTraits,
+    featIds, featNames, featClass: st.mecSpellFeatClass || {},
+    scores, mods,
+  };
+}
 
-const STAT_LABEL = { str: 'Сила', dex: 'Ловкость', con: 'Телосложение',
-                     int: 'Интеллект', wis: 'Мудрость', cha: 'Харизма' };
-const STAT_SHORT = { str: 'СИЛ', dex: 'ЛОВ', con: 'ТЕЛ',
-                     int: 'ИНТ', wis: 'МДР', cha: 'ХАР' };
+/** Источники заклинаний персонажа + очищенный выбор (без мутации st). */
+function spellState(st) {
+  const res = buildSpellSections(spellProfile(st));
+  const picks = prunePicks(res, st.mecSpellPicks || {});
+  return { res, picks };
+}
+
+/** Шаг «Заклинания» есть, если хоть один источник даёт заклинания на 1 ур. (ТЗ v0.29). */
+function hasSpellStep(st) {
+  return !!st.mecClass && hasSpellSources(spellState(st).res);
+}
+function spellStepDone(st) {
+  const { res, picks } = spellState(st);
+  return missingPicks(res, picks).length === 0;
+}
 
 const CAST_TYPE_LABEL = {
   known:    'Известные заклинания',
@@ -4456,376 +4544,277 @@ const SPELL_FLAVOR = {
   'Жрец':        'Твоя магия — дар бога. Весь пул доступен всегда. Каждое утро заново выбираешь, какие молитвы подготовить.',
   'Изобретатель':'Магия через изобретения. Подготавливаешь заклинания каждый день из открытого пула.',
   'Колдун':      'Твоя сила — договор с Покровителем. Мало заклинаний, но твои слоты восполняются уже на коротком отдыхе.',
-  'Паладин':     'Твои заклинания — клятва, воплощённая в силе. Пул открыт, каждый день выбираешь подготовленные.',
-  'Следопыт':    'Магия природы поддерживает путь охотника. Знаешь заклинания наизусть, менять ежедневно не нужно.',
   'Чародей':     'Магия в твоей крови — врождённая сила. Знаешь заклинания наизусть. Особая механика: Очки Чародейства для дополнительных слотов.',
 };
 
-function spellStatMod(st, key) {
-  const base = (effectiveBase(st, key) ?? 10) + (mecRacialAsi(st)[key] || 0);
-  return Math.floor((base - 10) / 2);
-}
-
-function computePreparedCount(cfg, st) {
-  if (cfg.spellCount !== null) return cfg.spellCount;
-  const mod = spellStatMod(st, cfg.stat);
-  if (cfg.type === 'prepared' && (cfg.stat === 'wis' || cfg.stat === 'cha')) {
-    // Жрец/Друид/Паладин: мод + уровень (1)
-    return Math.max(1, mod + 1);
-  }
-  // Изобретатель: ceil(уровень/2) + мод Интеллекта = ceil(1/2)+mod = 1+mod
-  return Math.max(1, Math.ceil(1 / 2) + mod);
-}
+const spellSigned = n => (n >= 0 ? '+' : '−') + Math.abs(n);
+/** Материальный компонент со стоимостью (зм/см/мм/пм) — отдельный бейдж на карточке (ТЗ 4.4.6 ⑤). */
+const costlyMaterial = sp => sp.components?.m && /\d[\d\s]*\s*(зм|см|мм|пм|эм)/.test(sp.components.material || '');
 
 function buildSpellsStep(st, goMech) {
-  const clsId  = st.mecClass || '';
-  const cfg    = SPELL_CONFIG[clsId];
-  const clsObj = CLASS_DATA.find(c => c.id === clsId);
-  const className = clsObj ? clsObj.name : clsId;
-  if (!cfg) {
-    return el('div', { class: 'mech-step-wrap' },
-      el('p', { style: 'color:var(--text-muted);padding:32px' }, 'Класс не выбран — вернись к шагу «Класс».'),
-    );
-  }
+  const { res, picks } = spellState(st);
+  st.mecSpellPicks = picks;                     // устаревшие/недопустимые выборы убраны
+  if (!st._spellOpen) st._spellOpen = [];       // раскрытые карточки (UI, не в БД)
+  const taken = takenMap(res, picks);
+  const missing = missingPicks(res, picks);
 
-  const cantrips   = getCantripsForClass(className);
-  const lvl1spells = getLevel1SpellsForClass(className);
+  const clsSec = res.sections.find(s => s.type === 'class');
+  const className = CLASS_NAME_BY_ID[st.mecClass] || '';
 
-  // Init state
-  if (!st.mecSpellsCantrips) st.mecSpellsCantrips = [];
-  if (!st.mecSpellsLevel1)   st.mecSpellsLevel1   = [];
-  if (!st.mecSpellsBook)     st.mecSpellsBook     = [];
-  if (!st.mecSpellsPrepared) st.mecSpellsPrepared = [];
-
-  // Filter state (UI-only, not persisted to DB)
-  const filterText   = st._spellFilter  || '';
-  const filterSchool = st._spellSchool  || null;
-
-  function applyFilter(list) {
-    return list.filter(s => {
-      const q = filterText.trim().toLowerCase();
-      if (q && !s.name.toLowerCase().includes(q)) return false;
-      if (filterSchool && s.school !== filterSchool) return false;
-      return true;
-    });
-  }
-
-  const preparedCount = computePreparedCount(cfg, st);
-  const statLabel     = STAT_LABEL[cfg.stat];
-  const statShort     = STAT_SHORT[cfg.stat];
-  const statModVal    = spellStatMod(st, cfg.stat);
-
-  // ── Validation ──────────────────────────────────────────────────────────
-  function isValid() {
-    if (cfg.cantripCount > 0 && st.mecSpellsCantrips.length < cfg.cantripCount) return false;
-    if (cfg.type === 'known'     && cfg.spellCount !== null && st.mecSpellsLevel1.length < cfg.spellCount) return false;
-    if (cfg.type === 'pact'      && st.mecSpellsLevel1.length < cfg.spellCount) return false;
-    if (cfg.type === 'book'      && st.mecSpellsBook.length < cfg.spellCount)    return false;
-    if (cfg.type === 'book'      && st.mecSpellsPrepared.length < cfg.preparedCount) return false;
-    if (cfg.type === 'prepared'  && st.mecSpellsLevel1.length < preparedCount) return false;
-    return true;
-  }
-
-  // ── Rebuild on selection ─────────────────────────────────────────────────
-  function rebuild() {
+  function rebuild(focusSearch = false) {
     scheduleSave(st);
     const wrap = document.querySelector('.mech-spell-wrap');
-    if (wrap) {
-      const scrollTop = wrap.scrollTop;
-      const newStep = buildSpellsStep(st, goMech);
-      wrap.replaceWith(newStep);
-      // Restore scroll position after DOM swap
-      const newWrap = document.querySelector('.mech-spell-wrap');
-      if (newWrap) newWrap.scrollTop = scrollTop;
-    }
-  }
-  function rebuildFilter() {
-    const prevVal = st._spellFilter;
-    rebuild();
-    if (prevVal !== undefined) {
-      setTimeout(() => {
-        const inp = document.querySelector('.mech-spell-search');
-        if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
-      }, 0);
+    if (!wrap) return;
+    const top = wrap.scrollTop;
+    const next = buildSpellsStep(st, goMech);
+    wrap.replaceWith(next);
+    next.scrollTop = top;
+    if (focusSearch) {
+      const inp = next.querySelector('.mech-spell-search');
+      if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
     }
   }
 
-  // ── Spell card builder ───────────────────────────────────────────────────
-  function spellCard(spell, selectedSet, limit) {
-    const isSelected = selectedSet.includes(spell.name);
-    const isDisabled = !isSelected && selectedSet.length >= limit;
+  // ── Фильтр (поиск + школы) — общий для всех групп выбора
+  const filterText = (st._spellFilter || '').trim().toLowerCase();
+  const filterSchool = st._spellSchool || null;
+  const passes = sp => (!filterText || sp.name.toLowerCase().includes(filterText) || (sp.nameEn || '').toLowerCase().includes(filterText))
+    && (!filterSchool || sp.school === filterSchool);
+
+  // ── Карточка заклинания: «коротко + раскрыть»
+  function spellCard(sp, { tags = [], selected = false, disabled = false, locked = null, fixedFrom = null, onToggle = null } = {}) {
+    const open = st._spellOpen.includes(sp.id);
     const badges = [];
-    if (spell.ritual)        badges.push(el('span', { class: 'mech-spell-badge mech-spell-badge--ritual' }, 'Ритуал'));
-    if (spell.concentration) badges.push(el('span', { class: 'mech-spell-badge mech-spell-badge--conc' },   'Конц.'));
-    const cardAttrs = {
-      class: 'mech-spell-card' + (isSelected ? ' is-selected' : '') + (isDisabled ? ' is-disabled' : ''),
-    };
-    if (!isDisabled) {
-      cardAttrs.onClick = () => {
-        if (isSelected) selectedSet.splice(selectedSet.indexOf(spell.name), 1);
-        else             selectedSet.push(spell.name);
+    if (fixedFrom && fixedFrom > 1) badges.push(el('span', { class: 'spl-badge spl-badge--lvl' }, `с ${fixedFrom} ур.`));
+    if (sp.ritual)        badges.push(el('span', { class: 'spl-badge' }, 'Ритуал'));
+    if (sp.concentration) badges.push(el('span', { class: 'spl-badge' }, 'Конц.'));
+    if (costlyMaterial(sp)) badges.push(el('span', { class: 'spl-badge spl-badge--mat', title: sp.components.material }, 'М: ' + sp.components.material));
+    for (const t of tags) badges.push(el('span', { class: 'spl-badge spl-badge--tag' + (t === 'Опц. TCE' ? ' is-tce' : ''),
+      title: t === 'Опц. TCE' ? 'Это расширение списка класса из Tasha\'s Cauldron — уточни у Мастера.' : '' }, t));
+    for (const a of sp.sourceAbbr || []) badges.push(el('span', { class: 'spl-src' }, a));
+
+    const chevron = el('button', {
+      class: 'spl-chevron' + (open ? ' is-open' : ''), type: 'button', 'aria-expanded': open ? 'true' : 'false',
+      title: open ? 'Свернуть' : 'Подробнее',
+      onClick: e => {
+        e.stopPropagation();
+        st._spellOpen = open ? st._spellOpen.filter(x => x !== sp.id) : [...st._spellOpen, sp.id];
         rebuild();
-      };
+      },
+    }, open ? '▴' : '▾');
+
+    const comp = [sp.components?.v && 'В', sp.components?.s && 'С', sp.components?.m && 'М'].filter(Boolean).join(', ');
+    const body = open ? el('div', { class: 'spl-body' },
+      el('p', { class: 'spl-meta' }, `${sp.level === 0 ? 'Заговор' : sp.level + ' уровень'}, ${String(sp.school || '').toLowerCase()}`),
+      el('p', { class: 'spl-meta' }, `Компоненты: ${comp}${sp.components?.material ? ` (${sp.components.material})` : ''}`),
+      ...String(sp.description || '').split('\n').filter(Boolean).map(p => el('p', { class: 'spl-desc' }, p)),
+      sp.higherLevels ? el('p', { class: 'spl-desc spl-higher' }, el('b', {}, 'На больших уровнях. '), sp.higherLevels) : null,
+      sp.url ? el('a', { class: 'spl-link', href: sp.url, target: '_blank', rel: 'noopener', onClick: e => e.stopPropagation() }, 'на dnd.su ↗') : null,
+    ) : null;
+
+    const cls = 'spl-card' + (selected ? ' is-selected' : '') + (disabled ? ' is-disabled' : '')
+      + (locked ? ' is-locked' : '') + (fixedFrom ? ' is-fixed' : '') + (fixedFrom > 1 ? ' is-later' : '');
+    const card = el('div', { class: cls },
+      el('div', { class: 'spl-top' },
+        el('span', { class: 'spl-mark' }, fixedFrom || locked ? '🔒' : selected ? '✓' : ''),
+        el('div', { class: 'spl-head' },
+          el('span', { class: 'spl-name' }, sp.name),
+          el('span', { class: 'spl-school' }, sp.school || ''),
+        ),
+        chevron,
+      ),
+      el('div', { class: 'spl-params' }, [sp.castingTime, sp.range, sp.duration].filter(Boolean).join(' · ')),
+      locked ? el('div', { class: 'spl-locked' }, `🔒 уже есть — ${locked}`) : null,
+      badges.length ? el('div', { class: 'spl-badges' }, ...badges) : null,
+      body,
+    );
+    if (onToggle && !disabled && !locked) {
+      card.setAttribute('role', 'button');
+      card.tabIndex = 0;
+      card.addEventListener('click', onToggle);
+      card.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } });
     }
-    return el('div', cardAttrs,
-      el('div', { class: 'mech-spell-card-name' }, spell.name),
-      el('div', { class: 'mech-spell-card-school' }, spell.school || ''),
-      el('p',   { class: 'mech-spell-card-desc' }, spell.description || ''),
-      badges.length ? el('div', { class: 'mech-spell-badges' }, ...badges) : null,
+    return card;
+  }
+
+  // ── Группа выбора
+  function choiceGroup(sec, g) {
+    const cur = picks[g.key] || [];
+    const need = groupNeed(g, picks, taken);
+    const options = groupOptions(g, picks);
+    const shown = options.filter(o => passes(o.spell) || cur.includes(o.spell.id));
+    const full = cur.length >= g.count;
+    const cards = shown.map(o => {
+      const id = o.spell.id;
+      const owner = taken.get(id);
+      const locked = !g.fromGroup && owner && owner.key !== g.key ? owner.label : null;
+      const selected = cur.includes(id);
+      return spellCard(o.spell, {
+        tags: o.tags, selected, locked, disabled: !selected && full,
+        onToggle: () => {
+          const list = [...(st.mecSpellPicks[g.key] || [])];
+          if (selected) list.splice(list.indexOf(id), 1); else if (list.length < g.count) list.push(id);
+          st.mecSpellPicks = { ...st.mecSpellPicks, [g.key]: list };
+          rebuild();
+        },
+      });
+    });
+    const done = cur.length >= need;
+    let empty = null;
+    if (!options.length) empty = g.fromGroup ? 'Сначала выберите заклинания в книгу.' : 'Нет доступных вариантов.';
+    else if (!shown.length) empty = 'Ничего не найдено — сбросьте фильтр.';
+    return el('div', { class: 'spl-group', id: 'spl-' + g.key.replace(/[^\w-]/g, '_') },
+      el('div', { class: 'spl-group-hd' },
+        el('h4', { class: 'spl-group-title' }, `${g.title} — выберите ${g.count}`),
+        el('span', { class: 'spl-count' + (done ? ' is-done' : '') }, `${cur.length} / ${need}`),
+      ),
+      g.formula ? el('p', { class: 'spl-hint' }, `Формула: ${g.formula}.`) : null,
+      g.hint ? el('p', { class: 'spl-hint' }, g.hint) : null,
+      empty ? el('p', { class: 'mech-spell-empty' }, empty) : el('div', { class: 'spl-grid' }, ...cards),
     );
   }
 
-  // ── ① Passport (class card with inline features) ─────────────────────────
-  // Build feature rows for passport
-  const hasRitual = ['Бард', 'Волшебник', 'Жрец', 'Друид', 'Изобретатель', 'Следопыт', 'Паладин'].includes(className);
-  const focusMap  = {
-    'Бард': 'Музыкальный инструмент', 'Волшебник': 'Магический фокус или компонентный мешочек',
-    'Жрец': 'Священный символ', 'Паладин': 'Священный символ', 'Друид': 'Друидский фокус',
-    'Колдун': 'Магический фокус', 'Чародей': 'Магический фокус',
-    'Следопыт': 'Компонентный мешочек', 'Изобретатель': 'Воровские инструменты или набор умельца',
-  };
-
-  const passportFeatures = [];
-  // Spellbook comes first for wizards
-  if (cfg.type === 'book') {
-    passportFeatures.push(el('div', { class: 'mech-spell-passport-feature' },
-      el('span', { class: 'mech-spell-passport-feature-label' }, '📖 Книга заклинаний'),
-      el('span', { class: 'mech-spell-passport-feature-text' },
-        'Ты знаешь все заклинания из книги. Каждое утро выбираешь, какие подготовить — найденные свитки тоже можно скопировать.',
+  function fixedGroup(sec, g) {
+    return el('div', { class: 'spl-group' },
+      el('div', { class: 'spl-group-hd' },
+        el('h4', { class: 'spl-group-title' }, g.title),
+        el('span', { class: 'spl-count is-done' }, 'уже есть'),
       ),
-    ));
-  }
-  if (hasRitual) {
-    passportFeatures.push(el('div', { class: 'mech-spell-passport-feature' },
-      el('span', { class: 'mech-spell-passport-feature-label' }, '🕯 Ритуальное колдовство'),
-      el('span', { class: 'mech-spell-passport-feature-text' },
-        'Заклинания с тегом «ритуал» можно читать без расхода слота — на 10 мин дольше.',
-      ),
-    ));
-  }
-  if (focusMap[className]) {
-    passportFeatures.push(el('div', { class: 'mech-spell-passport-feature' },
-      el('span', { class: 'mech-spell-passport-feature-label' }, '🔮 Фокусировка'),
-      el('span', { class: 'mech-spell-passport-feature-text' },
-        `${focusMap[className]} — вместо материальных компонентов.`,
-      ),
-    ));
-  }
-  if (className === 'Колдун') {
-    passportFeatures.push(el('div', { class: 'mech-spell-passport-feature' },
-      el('span', { class: 'mech-spell-passport-feature-label' }, '✦ Воззвания'),
-      el('span', { class: 'mech-spell-passport-feature-text' },
-        'На 2-м уровне выбираешь Воззвания — пассивные улучшения и способности от Покровителя.',
-      ),
-    ));
-  }
-  if (className === 'Чародей') {
-    passportFeatures.push(el('div', { class: 'mech-spell-passport-feature' },
-      el('span', { class: 'mech-spell-passport-feature-label' }, '✦ Метамагия'),
-      el('span', { class: 'mech-spell-passport-feature-text' },
-        'На 3-м уровне: усиляй заклинания, тратя Очки Чародейства.',
-      ),
-    ));
+      g.hint ? el('p', { class: 'spl-hint' }, g.hint) : null,
+      el('div', { class: 'spl-grid' }, ...g.fixed.map(f => spellCard(f.spell, { fixedFrom: f.from, tags: f.note ? [f.note] : [] }))),
+    );
   }
 
-  if (st._spellPassportOpen === undefined) st._spellPassportOpen = true;
-  const isOpen = st._spellPassportOpen;
+  function featClassPicker(sec) {
+    const cp = sec.classPicker;
+    const sel = el('select', { class: 'equip-choice-sel' },
+      el('option', { value: '' }, '— выберите класс —'),
+      ...cp.options.map(o => el('option', { value: o.id }, o.name)));
+    sel.value = cp.value || '';
+    sel.addEventListener('change', () => {
+      st.mecSpellFeatClass = { ...(st.mecSpellFeatClass || {}), [cp.featId]: sel.value || null };
+      rebuild();
+    });
+    return el('div', { class: 'spl-feat-class' },
+      el('span', { class: 'spl-feat-class-lbl' }, 'Список заклинаний класса:'),
+      el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾')),
+      cp.stat ? el('span', { class: 'spl-hint' }, `Базовая характеристика — ${STAT_LABEL_SG[cp.stat]}.`) : null,
+    );
+  }
 
-  const toggleBtn = el('button', {
-    class: 'mech-spell-passport-toggle',
-    onClick: () => { st._spellPassportOpen = !st._spellPassportOpen; rebuild(); },
-  }, isOpen ? '▲' : '▼');
+  function sectionEl(sec) {
+    const feat = sec.type === 'feat' ? FEATS.find(f => f.id === sec.id) : null;
+    return el('section', { class: 'spl-sec spl-sec--' + sec.type },
+      el('h3', { class: 'spl-sec-title' }, sec.label),
+      feat ? el('details', { class: 'spl-feat-text' },
+        el('summary', {}, 'Текст черты'),
+        ...feat.text.map(t => el('p', {}, t)),
+        el('a', { class: 'spl-link', href: feat.url, target: '_blank', rel: 'noopener' }, 'на dnd.su ↗')) : null,
+      sec.warning ? el('p', { class: 'spl-warn' }, '⚠️ ' + sec.warning) : null,
+      ...(sec.notes || []).map(n => el('p', { class: 'spl-hint' }, n)),
+      sec.classPicker ? featClassPicker(sec) : null,
+      ...sec.groups.map(g => g.kind === 'fixed' ? fixedGroup(sec, g) : choiceGroup(sec, g)),
+    );
+  }
 
-  const passport = el('div', { class: 'mech-spell-passport' },
-    el('div', { class: 'mech-spell-passport-header' },
-      el('span', { class: 'mech-spell-class-name' }, className),
-      el('span', { class: 'mech-spell-type-badge' },
-        el('span', { class: 'mech-spell-type-badge-label' }, 'Тип: '),
-        CAST_TYPE_LABEL[cfg.type],
+  // ── ① Паспорт магии класса
+  let passport = null;
+  if (clsSec) {
+    const cfg = clsSec.cfg;
+    const mod = spellProfile(st).mods[cfg.stat] ?? 0;
+    const HAS_RITUAL = ['Бард', 'Волшебник', 'Друид', 'Жрец', 'Изобретатель'];
+    const focusMap = {
+      'Бард': 'Музыкальный инструмент', 'Волшебник': 'Магический фокус или компонентный мешочек',
+      'Жрец': 'Священный символ', 'Друид': 'Друидский фокус',
+      'Колдун': 'Магический фокус', 'Чародей': 'Магический фокус',
+      'Изобретатель': 'Воровские инструменты или набор умельца',
+    };
+    const feat = (label, text) => el('div', { class: 'mech-spell-passport-feature' },
+      el('span', { class: 'mech-spell-passport-feature-label' }, label),
+      el('span', { class: 'mech-spell-passport-feature-text' }, text));
+    const features = [];
+    if (cfg.type === 'book') features.push(feat('📖 Книга заклинаний', 'Ты знаешь все заклинания из книги. Каждое утро выбираешь, какие подготовить — найденные свитки тоже можно скопировать.'));
+    if (HAS_RITUAL.includes(className)) features.push(feat('🕯 Ритуальное колдовство', 'Заклинания с тегом «ритуал» можно читать без расхода слота — на 10 мин дольше.'));
+    if (focusMap[className]) features.push(feat('🔮 Фокусировка', `${focusMap[className]} — вместо материальных компонентов.`));
+    if (className === 'Колдун')  features.push(feat('✦ Воззвания', 'На 2-м уровне выбираешь Воззвания — пассивные улучшения и способности от Покровителя.'));
+    if (className === 'Чародей') features.push(feat('✦ Метамагия', 'На 3-м уровне: усиляй заклинания, тратя Очки Чародейства.'));
+    if (st._spellPassportOpen === undefined) st._spellPassportOpen = true;
+    const isOpen = st._spellPassportOpen;
+    passport = el('div', { class: 'mech-spell-passport' },
+      el('div', { class: 'mech-spell-passport-header' },
+        el('span', { class: 'mech-spell-class-name' }, className),
+        el('span', { class: 'mech-spell-type-badge' },
+          el('span', { class: 'mech-spell-type-badge-label' }, 'Тип: '), CAST_TYPE_LABEL[cfg.type]),
+        el('button', { class: 'mech-spell-passport-toggle',
+          onClick: () => { st._spellPassportOpen = !st._spellPassportOpen; rebuild(); } }, isOpen ? '▲' : '▼'),
       ),
-      toggleBtn,
-    ),
-    isOpen ? el('div', { class: 'mech-spell-passport-body' },
-      el('div', { class: 'mech-spell-stat-line' },
-        el('span', { class: 'mech-spell-stat-chip' }, statShort),
-        el('span', { class: 'mech-spell-stat-hint' },
-          `${statLabel} — ключевая характеристика. Сложность твоих заклинаний: ${8 + statModVal + 2} (обычно). Бонус атаки заклинанием: +${statModVal + 2}.`,
+      isOpen ? el('div', { class: 'mech-spell-passport-body' },
+        el('div', { class: 'mech-spell-stat-line' },
+          el('span', { class: 'mech-spell-stat-chip' }, STAT_SHORT_SG[cfg.stat]),
+          el('span', { class: 'mech-spell-stat-hint' },
+            `${STAT_LABEL_SG[cfg.stat]} — ключевая характеристика. Сложность спасброска: ${8 + 2 + mod}. Бонус атаки заклинанием: ${spellSigned(2 + mod)}.`),
         ),
-      ),
-      el('p', { class: 'mech-spell-flavor' }, SPELL_FLAVOR[className] || ''),
-      passportFeatures.length
-        ? el('div', { class: 'mech-spell-passport-features' }, ...passportFeatures)
-        : null,
-    ) : null,
-  );
-
-  // ── ② Counter bar ────────────────────────────────────────────────────────
-  const counterParts = [];
-  if (cfg.cantripCount > 0) {
-    counterParts.push(`Кантрипов: ${st.mecSpellsCantrips.length} / ${cfg.cantripCount}`);
-  }
-  if (cfg.type === 'book') {
-    counterParts.push(`В книге: ${st.mecSpellsBook.length} / ${cfg.spellCount}`);
-    counterParts.push(`Подготовлено: ${st.mecSpellsPrepared.length} / ${cfg.preparedCount}`);
-  } else if (cfg.type === 'prepared' && cfg.spellCount === null) {
-    counterParts.push(`Подготовлено: ${st.mecSpellsLevel1.length} / ${preparedCount}`);
-  } else if (cfg.type !== 'prepared') {
-    const cnt = cfg.spellCount;
-    if (cnt > 0) counterParts.push(`Заклинаний 1 ур.: ${st.mecSpellsLevel1.length} / ${cnt}`);
+        el('p', { class: 'mech-spell-flavor' }, SPELL_FLAVOR[className] || ''),
+        features.length ? el('div', { class: 'mech-spell-passport-features' }, ...features) : null,
+      ) : null,
+    );
   }
 
+  // ── ② Сводка счётчиков (липкая)
+  const choiceGroups = res.sections.flatMap(s => s.groups.filter(g => g.kind === 'choice').map(g => ({ s, g })));
   const counter = el('div', { class: 'mech-spell-counter' },
-    ...counterParts.map(t => el('span', { class: 'mech-spell-counter-item' }, t)),
+    ...(choiceGroups.length ? choiceGroups.map(({ s, g }) => {
+      const need = groupNeed(g, picks, taken), have = (picks[g.key] || []).length;
+      return el('button', {
+        class: 'mech-spell-counter-item spl-jump' + (have >= need ? ' is-done' : ''), type: 'button',
+        onClick: () => document.getElementById('spl-' + g.key.replace(/[^\w-]/g, '_'))?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      }, `${s.type === 'class' ? '' : s.label.split(' — ').pop() + ': '}${g.title} ${have}/${need}`);
+    }) : [el('span', { class: 'mech-spell-counter-item' }, missing.length
+      ? 'Выберите класс, из списка которого черта даёт заклинания.'
+      : 'Выбирать нечего — заклинания уже известны.')]),
   );
 
-  // ── Filter bar ──────────────────────────────────────────────────────────
-  const allSpellsList = [...cantrips, ...lvl1spells];
-  const schools = [...new Set(allSpellsList.map(s => s.school).filter(Boolean))].sort();
-
-  const searchInp = el('input', {
-    class: 'mech-spell-search',
-    type: 'text',
-    placeholder: '🔍 Поиск по названию...',
-  });
-  // Set value as DOM property (setAttribute sets default, not current value)
-  searchInp.value = filterText;
-  searchInp.addEventListener('input', () => {
-    st._spellFilter = searchInp.value;
-    rebuildFilter();
-  });
-
-  const filterBar = el('div', { class: 'mech-spell-filter-bar' },
+  // ── Фильтр
+  const schools = [...new Set(choiceGroups.flatMap(({ g }) => groupOptions(g, picks).map(o => o.spell.school)).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'ru'));
+  const searchInp = el('input', { class: 'mech-spell-search', type: 'text', placeholder: '🔍 Поиск по названию…' });
+  searchInp.value = st._spellFilter || '';
+  searchInp.addEventListener('input', () => { st._spellFilter = searchInp.value; rebuild(true); });
+  const filterBar = choiceGroups.length ? el('div', { class: 'mech-spell-filter-bar' },
     searchInp,
     el('div', { class: 'mech-spell-schools' },
-      el('button', {
-        class: 'mech-spell-school-chip' + (!filterSchool ? ' is-active' : ''),
-        onClick: () => { st._spellSchool = null; rebuildFilter(); },
-      }, 'Все'),
+      el('button', { class: 'mech-spell-school-chip' + (!filterSchool ? ' is-active' : ''),
+        onClick: () => { st._spellSchool = null; rebuild(); } }, 'Все'),
       ...schools.map(sch => el('button', {
         class: 'mech-spell-school-chip' + (filterSchool === sch ? ' is-active' : ''),
-        onClick: () => { st._spellSchool = filterSchool === sch ? null : sch; rebuildFilter(); },
+        onClick: () => { st._spellSchool = filterSchool === sch ? null : sch; rebuild(); },
       }, sch)),
     ),
-  );
+  ) : null;
 
-  // Apply filters to spell lists
-  const filteredCantrips  = applyFilter(cantrips);
-  const filteredLvl1      = applyFilter(lvl1spells);
-
-  // ── ③ Cantrips ───────────────────────────────────────────────────────────
-  const cantripSection = cfg.cantripCount > 0
-    ? el('div', { class: 'mech-spell-section' },
-        el('h3', { class: 'mech-spell-section-title' },
-          `Кантрипы — выберите ${cfg.cantripCount}`,
-          el('span', { class: 'mech-spell-section-hint' }, ' (заговоры — заклинания без расхода слотов)'),
-        ),
-        el('div', { class: 'mech-spell-grid' },
-          ...(filteredCantrips.length ? filteredCantrips.map(s => spellCard(s, st.mecSpellsCantrips, cfg.cantripCount)) : [el('p', { class: 'mech-spell-empty' }, 'Ничего не найдено')]),
-        ),
-      )
+  const lateNote = res.lateCaster
+    ? el('p', { class: 'spl-hint spl-late' }, `Заклинания класса (${className}) придут на 2 уровне — на экране прокачки. Здесь — только заклинания расы и черты.`)
     : null;
 
-  // ── ④ Level 1 spells ─────────────────────────────────────────────────────
-  let spellSection = null;
-
-  if (cfg.type === 'known' || cfg.type === 'pact') {
-    const cnt = cfg.spellCount;
-    spellSection = el('div', { class: 'mech-spell-section' },
-      el('h3', { class: 'mech-spell-section-title' },
-        `Заклинания 1 уровня — выберите ${cnt}`,
-      ),
-      el('div', { class: 'mech-spell-grid' },
-        ...(filteredLvl1.length ? filteredLvl1.map(s => spellCard(s, st.mecSpellsLevel1, cnt)) : [el('p', { class: 'mech-spell-empty' }, 'Ничего не найдено')]),
-      ),
-    );
-
-  } else if (cfg.type === 'book') {
-    // Wizard: choose 6 in book, mark 2 prepared
-    const prepCard = (spell) => {
-      const inBook = st.mecSpellsBook.includes(spell.name);
-      const isPrepared = st.mecSpellsPrepared.includes(spell.name);
-      const isDisabledBook = !inBook && st.mecSpellsBook.length >= cfg.spellCount;
-      const bookAttrs = {
-        class: 'mech-spell-card mech-spell-card--book' + (inBook ? ' is-in-book' : '') + (isDisabledBook ? ' is-disabled' : ''),
-      };
-      if (!isDisabledBook) {
-        bookAttrs.onClick = () => {
-          if (inBook) {
-            st.mecSpellsBook.splice(st.mecSpellsBook.indexOf(spell.name), 1);
-            st.mecSpellsPrepared = st.mecSpellsPrepared.filter(n => n !== spell.name);
-          } else {
-            st.mecSpellsBook.push(spell.name);
-          }
-          rebuild();
-        };
-      }
-      const card = el('div', bookAttrs,
-        el('div', { class: 'mech-spell-card-head' },
-          el('span', { class: 'mech-spell-card-name' }, spell.name),
-          el('span', { class: 'mech-spell-card-school' }, spell.school),
-        ),
-        el('p', { class: 'mech-spell-card-desc' }, spell.description),
-        inBook ? el('button', {
-          class: 'mech-spell-prep-btn' + (isPrepared ? ' is-prepped' : ''),
-          onClick: (e) => {
-            e.stopPropagation();
-            if (isPrepared) {
-              st.mecSpellsPrepared = st.mecSpellsPrepared.filter(n => n !== spell.name);
-            } else if (st.mecSpellsPrepared.length < cfg.preparedCount) {
-              st.mecSpellsPrepared.push(spell.name);
-            }
-            rebuild();
-          },
-        }, isPrepared ? '✓ В подготовке' : `Подготовить (${st.mecSpellsPrepared.length}/${cfg.preparedCount})`)
-        : null,
-      );
-      return card;
-    };
-    spellSection = el('div', { class: 'mech-spell-section' },
-      el('h3', { class: 'mech-spell-section-title' }, 'Книга заклинаний — выберите 6'),
-      el('p', { class: 'mech-spell-section-sub' }, `Из выбранных отметьте 2 подготовленными — их можно использовать сегодня.`),
-      el('div', { class: 'mech-spell-grid' },
-        ...(filteredLvl1.length ? filteredLvl1.map(prepCard) : [el('p', { class: 'mech-spell-empty' }, 'Ничего не найдено')]),
-      ),
-    );
-
-  } else if (cfg.type === 'prepared') {
-    const formula = `${statLabel} (${statModVal >= 0 ? '+' : ''}${statModVal}) + уровень (1) = ${preparedCount}`;
-    spellSection = el('div', { class: 'mech-spell-section' },
-      el('h3', { class: 'mech-spell-section-title' },
-        `Заклинания 1 уровня — выберите ${preparedCount}`,
-      ),
-      el('p', { class: 'mech-spell-section-sub' },
-        `Формула подготовки: ${formula}. Завтра набор можно поменять из полного списка класса.`,
-      ),
-      el('div', { class: 'mech-spell-grid' },
-        ...(filteredLvl1.length ? filteredLvl1.map(s => spellCard(s, st.mecSpellsLevel1, preparedCount)) : [el('p', { class: 'mech-spell-empty' }, 'Ничего не найдено')]),
-      ),
-    );
-  }
-
-  // ── Next button ───────────────────────────────────────────────────────────
-  // Note: disabled must be set as DOM property, not attribute —
-  // setAttribute('disabled', false) still disables the button in HTML.
+  // ── Далее
   const nextBtn = el('button', {
-    class: 'btn btn-primary mech-next-btn' + (isValid() ? '' : ' is-disabled'),
-    onClick: () => {
-      scheduleSave(st);
-      goMech('equipment');
-    },
-  }, 'Далее →');
-  nextBtn.disabled = !isValid();
+    class: 'btn btn-primary mech-next-btn' + (missing.length ? ' is-disabled' : ''),
+    onClick: () => { scheduleSave(st); goMech('equipment'); },
+  }, 'Далее → Снаряжение');
+  nextBtn.disabled = missing.length > 0;
+  const left = missing.map(m => m.group ? `${m.section.label.split(' — ').pop()}: ${m.group.title} (${m.have}/${m.need})`
+    : m.section.classPicker && !m.section.classPicker.value ? `${m.section.label}: класс списка` : `${m.section.label}: выбор на шаге «Класс»`);
 
   return el('div', { class: 'mech-spell-wrap' },
-    el('div', { class: 'mech-step-header' },
-      el('h2', { class: 'mech-step-title' }, '🔮 Заклинания'),
-    ),
+    el('div', { class: 'mech-step-header' }, el('h2', { class: 'mech-step-title' }, '🔮 Заклинания')),
     passport,
+    lateNote,
     counter,
     filterBar,
-    cantripSection,
-    spellSection,
-    el('div', { class: 'mech-step-footer' }, nextBtn),
+    ...res.sections.map(sectionEl),
+    el('div', { class: 'mech-step-footer' },
+      left.length ? el('p', { class: 'spl-left' }, 'Осталось выбрать: ' + left.join(' · ')) : null,
+      nextBtn),
   );
 }
 

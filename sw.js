@@ -2,7 +2,7 @@
  * HeroSummoner — Service Worker
  * Strategy: cache-first for assets, always update in background.
  */
-const CACHE = 'herosummoner-v52';
+const CACHE = 'herosummoner-v53';
 // 2026-09-27 (ТЗ v0.29): js/pdf.js и js/data/background_descriptions.js (читает только pdf.js) убраны из
 // precache — экспорт PDF снят с хаба до перепроектирования; файлы остаются в репозитории.
 
@@ -53,6 +53,7 @@ const PRECACHE = [
   // 2026-09-27 (ТЗ v0.28, Э1): модель персонажа v1 + черты PHB с dnd.su. warlock_invocations.js,
   // metamagic.js, class_starting_equipment.js пока никто не импортирует — не кэшируем (см. NOTE выше).
   './js/character.js',
+  './js/spell-groups.js',
   './js/data/feats.js',
   './assets/icon_4.svg',
 ];
