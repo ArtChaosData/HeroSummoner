@@ -8,6 +8,7 @@ import { ARMOUR } from './data/equipment.js';
 import { CLASS_FEATURES } from './data/class_features.js';
 import { RACE_DESCRIPTIONS } from './data/race_descriptions.js';
 import { BACKGROUND_DESCRIPTIONS } from './data/background_descriptions.js';
+import { legacyView } from './character.js';
 
 // ─── D&D mechanics ────────────────────────────────────────────────────────────
 
@@ -896,7 +897,7 @@ body {
           <div class="hfield-label">МИРОВОЗЗРЕНИЕ</div>
         </div>
         <div class="hfield">
-          <div class="hfield-val">${char.edition === '2024' ? '5.5e · 2024' : '5e · 2014'}</div>
+          <div class="hfield-val">5e · 2014</div>
           <div class="hfield-label">РЕДАКЦИЯ</div>
         </div>
       </div>
@@ -1094,7 +1095,7 @@ ${spellPage}
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function exportPDF(char) {
-  const html = buildDocument(char);
+  const html = buildDocument(legacyView(char));   // model v1 → v0-shaped view (ТЗ v0.28 §2.1)
   const win  = window.open('', '_blank', 'width=960,height=800');
   if (!win) { alert('Разрешите всплывающие окна для экспорта PDF.'); return; }
   win.document.open();

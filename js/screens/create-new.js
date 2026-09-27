@@ -4,8 +4,12 @@
  */
 import { el, toast } from '../utils.js';
 import { DB } from '../db.js';
+import {
+  SCHEMA_VERSION, grant, raceIdByName, subraceIdByName, backgroundIdByName, featIdByName, migrateWizardState,
+} from '../character.js';
+import { FEATS } from '../data/feats.js';
 import { ARMOUR, WEAPONS, EQUIPMENT, TOOLS } from '../data/equipment.js';
-import { getCantripsForClass, getLevel1SpellsForClass } from '../data/spells.js';
+import { getCantripsForClass, getLevel1SpellsForClass, spellIdByName } from '../data/spells.js';
 import { RACE_DESCRIPTIONS } from '../data/race_descriptions.js';
 import { CLASS_DESCRIPTIONS, CLASS_ORDER } from '../data/class_descriptions.js';
 import { CLASS_FEATURES, featureName, isOptionalFeature } from '../data/class_features.js';
@@ -37,7 +41,6 @@ function freshState() {
     // mechanics
     mecStep:     'class',
     mecMaxStep:  0,
-    mecEdition:  '5e',
     mecSources:  ['PHB'],
     mecClass:      null,
     mecRace:       null,
@@ -348,14 +351,113 @@ const CLASS_HP_DIE = {
   'Чародей':6, 'Волшебник':6,
 };
 
+// ─── Character model v1 (ТЗ v0.28 §2.1, этап Э1) ─────────────────────────────
+// Всё, что персонаж получил на шагах мастера, пишется в реестр grants[] с источником и уровнем.
+// Плоские списки (навыки, языки, инструменты) из записи больше не сохраняются — их считает
+// poolValues() в js/character.js.
+function splitProfList(str) {
+  return str && str !== 'нет' ? str.split(', ').map(x => x.trim()).filter(Boolean) : [];
+}
+// «Свет (если ещё не знает)» → «Свет»; неразрешимые названия («+1 по виду гения») пропускаются.
+function subclassSpellId(name) {
+  return spellIdByName(String(name).replace(/\s*\([^)]*\)\s*$/, '').trim());
+}
+
+function buildCharacterGrants(st) {
+  const g = [];
+  const cls = st.mecClass || null;
+  const prof = CLASS_PROF_DATA[cls] || {};
+  // ── Класс
+  for (const v of prof.saves || [])            g.push(grant('save',   v, 'class', cls));
+  for (const v of splitProfList(prof.armor))   g.push(grant('armor',  v, 'class', cls));
+  for (const v of splitProfList(prof.weapons)) g.push(grant('weapon', v, 'class', cls));
+  const clsToolPicks = ((st.mecClassToolChoice || {})[cls] || []).map(k => k.split('::').slice(1).join('::'));
+  for (const v of mecClassToolProfs(st)) {
+    g.push(grant('tool', v, 'class', cls, clsToolPicks.includes(v) ? { kind: 'choice', slot: 'class_tools' } : {}));
+  }
+  for (const v of st.mecChosen || [])          g.push(grant('skill', v, 'class', cls, { kind: 'choice', slot: 'class_skills' }));
+  for (const v of CLASS_FIXED_LANGUAGES[cls] || []) g.push(grant('language', v, 'class', cls));
+  const cc = st.mecClassChoices || {};
+  if (clsVariant(st) === 'phb' && cc.favored_enemy_language) {
+    g.push(grant('language', cc.favored_enemy_language, 'class', cls, { kind: 'choice', slot: 'favored_enemy_language' }));
+  }
+  if (cc.fighting_style) g.push(grant('feature', cc.fighting_style, 'class', cls, { kind: 'choice', slot: 'fighting_style' }));
+  for (const v of [].concat(cc.maneuver || [])) g.push(grant('feature', v, 'class', cls, { kind: 'choice', slot: 'maneuver' }));
+  // ── Подкласс (1 ур.)
+  const sub = clsSubclassObj(st);
+  if (sub) {
+    const sg = sub.grants || {}, sc = st.mecSubclassChoices || {};
+    for (const v of sg.armor || [])     g.push(grant('armor',    v, 'subclass', sub.id));
+    for (const v of sg.weapons || [])   g.push(grant('weapon',   v, 'subclass', sub.id));
+    for (const v of sg.tools || [])     g.push(grant('tool',     v, 'subclass', sub.id));
+    for (const v of sg.skills || [])    g.push(grant('skill',    v, 'subclass', sub.id));
+    for (const v of sg.languages || []) g.push(grant('language', v, 'subclass', sub.id));
+    for (const v of sc.skills || [])    g.push(grant('skill',    v, 'subclass', sub.id, { kind: 'choice', slot: 'subclass_skills' }));
+    for (const v of sc.languages || []) g.push(grant('language', v, 'subclass', sub.id, { kind: 'choice', slot: 'subclass_languages' }));
+    for (const n of [...(sg.spells_always || []), ...(sg.cantrips_bonus || []), ...(sg.spells_known_bonus || [])]) {
+      const id = subclassSpellId(n);
+      if (id !== undefined) g.push(grant('spell', id, 'subclass', sub.id));
+    }
+  }
+  // ── Раса и подраса
+  if (st.mecRace) {
+    const raceName = st.mecRace.split('::')[1];
+    const raceId = raceIdByName(raceName);
+    const subId = st.mecSubrace ? subraceIdByName(raceId, st.mecSubrace) : null;
+    const raceDesc = _resolveRaceDesc(raceName);
+    for (const v of mecRaceBaseLanguages(raceDesc)) g.push(grant('language', v, 'race', raceId));
+    for (const [k, v] of Object.entries(mecRacialAsi(st))) {
+      if (v) g.push(grant('asi', `${k}+${v}`, subId ? 'subrace' : 'race', subId || raceId));
+    }
+    if (raceDesc?.speed) g.push(grant('speed', raceDesc.speed, 'race', raceId));
+    for (const v of mecRaceGrantedSkills(st)) g.push(grant('skill', v, 'race', raceId));
+    for (const v of st.mecRaceSkills || [])   g.push(grant('skill', v, subId ? 'subrace' : 'race', subId || raceId, { kind: 'choice', slot: 'race_skills' }));
+    const choices = st.mecRaceChoices || {}, devices = st.mecDeviceChoices || {};
+    const subTraitTitles = new Set(((raceDesc?.subraces || []).find(sd => sd.name === st.mecSubrace)?.traits || []).map(t => t.title));
+    for (const t of mecActiveRaceTraits(raceName, st.mecSubrace)) {
+      const [srcType, srcId] = subTraitTitles.has(t.title) && subId ? ['subrace', subId] : ['race', raceId];
+      if (t.choice) {
+        for (const v of choices[t.title] || []) {
+          if (t.choice.type === 'language') g.push(grant('language', v, srcType, srcId, { kind: 'choice', slot: t.title }));
+          else if (t.choice.type === 'spell') g.push(grant('spell', spellIdByName(v) ?? v, srcType, srcId, { kind: 'choice', slot: t.title }));
+          else if (t.choice.type === 'feat')  g.push(grant('feat', featIdByName(v) || v, srcType, srcId, { kind: 'choice', slot: t.title }));
+        }
+      }
+      if (t.recordAs && t.devices?.some(d => d.name === devices[t.title])) {
+        if (t.recordAs === 'tool') g.push(grant('tool', devices[t.title], srcType, srcId, { kind: 'choice', slot: t.title }));
+        else g.push(grant('feature', `${t.title}: ${devices[t.title]}`, srcType, srcId, { kind: 'choice', slot: t.title }));
+      }
+    }
+  }
+  // ── Предыстория
+  const bg = mecBgObj(st);
+  if (bg) {
+    const bgId = backgroundIdByName(bg.name);
+    for (const v of mecBgSkills(st)) g.push(grant('skill', v, 'background', bgId));
+    const fixedTools = bg.tools || [];
+    for (const v of fixedTools) g.push(grant('tool', v, 'background', bgId));
+    const { langs, tools } = mecBgProfs(st);
+    for (const v of langs) g.push(grant('language', v, 'background', bgId, { kind: 'choice', slot: 'background_languages' }));
+    for (const v of tools.filter(t => !fixedTools.includes(t))) {
+      g.push(grant('tool', v, 'background', bgId, { kind: 'choice', slot: 'background_tools' }));
+    }
+  }
+  // ── Заклинания класса (шаг 4.4.6 пока хранит названия — переводим в id)
+  const spellSlots = [['mecSpellsCantrips', 'cantrips'], ['mecSpellsLevel1', 'spells'],
+                      ['mecSpellsBook', 'spellbook'], ['mecSpellsPrepared', 'prepared']];
+  for (const [key, slot] of spellSlots) {
+    for (const n of st[key] || []) g.push(grant('spell', spellIdByName(n) ?? n, 'class', cls, { kind: 'choice', slot }));
+  }
+  return g;
+}
+
 async function saveCharToDB(st, status) {
   const clsObj   = CLASS_DATA.find(c => c.id === st.mecClass);
   const clsName  = clsObj?.name ?? '';
   const bgName   = st.mecBackground ? st.mecBackground.split('::')[1] : '';
   const raceName = st.mecRace       ? st.mecRace.split('::')[1]       : '';
+  const raceId   = raceIdByName(raceName);
   const asiMap   = mecRacialAsi(st);
-  const bgSkillsList = mecBgSkills(st);
-  const edition  = '2014';
 
   const stats = {};
   for (const key of ['str','dex','con','int','wis','cha']) {
@@ -368,50 +470,47 @@ async function saveCharToDB(st, status) {
   // Capture wizard state for edit-draft flow (exclude portrait to save space)
   const { portrait: _p, ...wizardSnap } = st;
 
-  const raceChoices = mecRaceRecordChoices(st);
-  const bgProfs     = mecBgProfs(st);
   mecSyncBgItems(st);
-
-  // ТЗ v0.25, 4.4.2: подкласс 1 ур. и выборы класса попадают в запись персонажа
-  const subObj     = clsSubclassObj(st);
-  const subChoices = st.mecSubclassChoices || {};
-  const subSkills  = subObj ? (subChoices.skills || []) : [];
-  const subLangs   = subObj ? [...(subObj.grants.languages || []), ...(subChoices.languages || [])] : [];
-  const cc         = st.mecClassChoices || {};
-  const clsLangs   = [...(CLASS_FIXED_LANGUAGES[st.mecClass] || []),
-                      ...(clsVariant(st) === 'phb' && cc.favored_enemy_language ? [cc.favored_enemy_language] : [])];
+  const subObj  = clsSubclassObj(st);
+  const grants  = buildCharacterGrants(st);
+  const prev    = st._charId ? await DB.get(st._charId).catch(() => null) : null;
+  const curHp   = prev?.hp?.max === maxHp ? (prev.hp.current ?? maxHp) : maxHp;
 
   const record = {
+    schemaVersion: SCHEMA_VERSION,
     name:       st.name?.trim() || 'Без имени',
     playerName: st.playerName?.trim() || '',
     alignment:  st.alignment || '',
-    edition,
-    class:      clsName,
-    subclass:   subObj?.name || '',
-    subclassId: subObj?.id || '',
-    classVariant:    clsVariant(st),
-    classChoices:    cc,
-    subclassChoices: subObj ? subChoices : {},
-    race:       raceName,
-    subrace:    st.mecSubrace || '',
-    background: bgName,
-    level:      1,
+    classId:      st.mecClass || null,
+    classVariant: clsVariant(st),
+    subclassId:   subObj?.id || null,
+    raceId,
+    subraceId:    raceId && st.mecSubrace ? subraceIdByName(raceId, st.mecSubrace) : null,
+    backgroundId: bgName ? backgroundIdByName(bgName) : null,
+    labels: { class: clsName || null, subclass: subObj?.name || null, race: raceName || null,
+              subrace: st.mecSubrace || null, background: bgName || null },
     stats,
-    skills:     [...new Set([...(st.mecChosen || []), ...subSkills, ...(subObj?.grants.skills || []), ...(st.mecRaceSkills || []), ...mecRaceGrantedSkills(st), ...bgSkillsList])],
-    languages:         [...new Set([...raceChoices.languages, ...bgProfs.langs, ...clsLangs, ...subLangs])],
-    raceCantrips:      raceChoices.cantrips,
-    feats:             raceChoices.feats,
-    // 2026-09-26: владения инструментами из всех источников (раса + класс + предыстория).
-    toolProficiencies: dedupeCI([...raceChoices.tools, ...mecClassToolProfs(st), ...bgProfs.tools]),
-    dragonAncestry:    raceChoices.dragonAncestry,
-    maxHp,
-    hp:         maxHp,
+    statMethod: st.mecStatMethod || 'pointbuy',
+    hp:         { current: curHp, max: maxHp },
+    grants,
+    levels: [{
+      level: 1, classId: st.mecClass || null,
+      hp: { method: 'max', value: maxHp },
+      choices: {
+        classVariant: clsVariant(st),
+        class: st.mecClassChoices || {},
+        subclass: subObj ? (st.mecSubclassChoices || {}) : {},
+      },
+      grants: grants.map((_, i) => i),
+    }],
+    migrationWarnings: [],
     portrait:   st.portrait || null,
     status,
-    favorite:   false,
+    favorite:   prev?.favorite ?? false,
     _wizardState: wizardSnap,
   };
   if (st._charId) record.id = st._charId;
+  if (prev?.createdAt) record.createdAt = prev.createdAt;
   const saved = await DB.put(record);
   st._charId = saved.id;
   localStorage.removeItem(DRAFT_KEY);
@@ -1166,7 +1265,6 @@ const MAGIC_CLASSES = new Set([
 
 function buildMechanics(st, go, container) {
   if (!st.mecStep || st.mecStep === 'edition') st.mecStep = 'class';
-  if (!st.mecEdition)                          st.mecEdition = '5e';
   if (!st.mecSources || !st.mecSources.length) st.mecSources = ['PHB'];
 
   // Dynamically determine if the selected class is a spellcaster
@@ -2377,17 +2475,7 @@ const RACE_DATA = {
 
 const LANGUAGES     = ['Бездны','Великанский','Гномский','Гоблинский','Глубокая речь','Дварфский','Драконий','Инфернальный','Небесный','Орочий','Первозданный','Полуросликов','Сильван','Общий Подземья','Эльфийский'];
 // PHB (2014) feats, for the race-trait "choose one feat" selector (Alternate/Variant Human).
-const PHB_FEATS = [
-  'Артистичный', 'Атлетичный', 'Бдительный', 'Боевой заклинатель', 'Борец', 'Везунчик',
-  'Верховой боец', 'Внимательный', 'Воинский адепт', 'Воодушевляющий лидер', 'Дикий атакующий',
-  'Драчун', 'Знаток лёгких доспехов', 'Знаток средних доспехов', 'Знаток тяжёлых доспехов',
-  'Использование двух оружий', 'Исследователь подземелий', 'Крепкий', 'Лекарь',
-  'Мастер большого оружия', 'Мастер древкового оружия', 'Мастер оружия', 'Мастер средних доспехов',
-  'Мастер тяжёлых доспехов', 'Мастер щитов', 'Меткие заклинания', 'Меткий стрелок', 'Налётчик',
-  'Оборонительный дуэлянт', 'Одарённый', 'Отличная память', 'Подвижный', 'Посвящённый в магию',
-  'Проныра', 'Ритуальный заклинатель', 'Стихийный адепт', 'Стойкий', 'Страж', 'Убийца магов',
-  'Устойчивый', 'Эксперт в арбалетах', 'Языковед',
-];
+const PHB_FEATS = FEATS.map(f => f.name);   // 42 черты PHB — js/data/feats.js (dnd.su, генератор tools/gen_dndsu_extras.py)
 const INSTRUMENTS   = ['Барабан','Виола','Волынка','Лира','Лютня','Рог','Скрипка','Флейта','Цимбалы','Шалмей'];
 const SIMPLE_WEAPONS = ['Булава','Дубина','Дротик','Жезл','Копьё','Кинжал','Кулак друида','Лёгкий арбалет','Посох','Праща','Ручной арбалет','Серп','Топор дровосека'];
 const GAMING_SETS = ['Игральные кости','Карты','Три Дракона Анти','Шахматы Дракона'];
@@ -5018,7 +5106,7 @@ export async function renderCreateNew(container, router, step = 'landing', param
       // Always carry _charId so re-save updates the same record, not creates new
       _st = Object.assign(
         freshState(),
-        char._wizardState ?? {},
+        migrateWizardState(char._wizardState ?? {}),
         { _charId: char.id },
       );
     }
@@ -5026,7 +5114,7 @@ export async function renderCreateNew(container, router, step = 'landing', param
   // Restore draft or init fresh; step always comes from URL
   if (!_st) {
     const draft = loadDraft();
-    _st = draft ? Object.assign(freshState(), draft) : freshState();
+    _st = draft ? Object.assign(freshState(), migrateWizardState(draft)) : freshState();
   }
   _st.step = step;
   const st = _st;

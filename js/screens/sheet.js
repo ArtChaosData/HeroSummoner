@@ -4,6 +4,7 @@
 import { DB } from '../db.js';
 import { el } from '../utils.js';
 import { ARMOUR } from '../data/equipment.js';
+import { legacyView } from '../character.js';
 
 // ─── Data tables ──────────────────────────────────────────────────────────────
 
@@ -175,7 +176,6 @@ function buildIdentity(char) {
     ['Предыстория',   char.background || '—'],
     ['Мировоззрение', char.alignment  || '—'],
     ['Игрок',         char.playerName || '—'],
-    ['Редакция',      char.edition    || '—'],
   ];
   return el('div', { class: 'cs-card' },
     el('div', { class: 'cs-card-title' }, 'Персонаж'),
@@ -195,7 +195,9 @@ export async function renderSheet(container, router, { id } = {}) {
   const headerActions = document.getElementById('header-actions');
   if (headerActions) headerActions.innerHTML = '';
 
-  const char = id ? await DB.get(id) : null;
+  const record = id ? await DB.get(id) : null;
+  // Model v1 (ТЗ v0.28 §2.1): the sheet reads a derived v0-shaped view; writes go to `record`.
+  const char = legacyView(record);
 
   if (!char) {
     container.append(el('div', { class: 'page-wrap' },
@@ -213,8 +215,8 @@ export async function renderSheet(container, router, { id } = {}) {
   const stats = char.stats || {};
 
   async function onHpChange(hp) {
-    char.hp = hp;
-    await DB.put(char);
+    record.hp = { ...(record.hp || {}), current: hp };
+    await DB.put(record);
   }
 
   // Portrait

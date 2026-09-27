@@ -1,4 +1,4 @@
-// Sourcebook descriptions for the edition/sources selection step (4.4.1)
+// Sourcebook descriptions for the «Дополнения» step (4.4.1, not implemented) and source badges.
 // Used to populate the sourcebook cards in the supplements modal.
 // 'id' matches the dnd.su filter_source IDs used in spells.js.
 
@@ -10,7 +10,6 @@ export const SOURCES = [
     name: 'Книга игрока',
     nameEn: "Player's Handbook",
     year: 2014,
-    edition: '5e14',
     alwaysOn: true,
     category: 'core',
     description: 'Основная книга правил D&D 5e: все базовые классы, расы, предыстории, заклинания и механики. Обязательна — всегда включена.',
@@ -23,7 +22,6 @@ export const SOURCES = [
     name: 'Руководство Занатара по всему',
     nameEn: "Xanathar's Guide to Everything",
     year: 2017,
-    edition: '5e14',
     alwaysOn: false,
     category: 'expansion',
     description: 'Крупнейшее дополнение 5e14: новые подклассы для каждого класса, дополнительные заклинания и расширенные правила для исследования и крафта.',
@@ -36,7 +34,6 @@ export const SOURCES = [
     name: 'Котёл Таши со всем',
     nameEn: "Tasha's Cauldron of Everything",
     year: 2020,
-    edition: '5e14',
     alwaysOn: false,
     category: 'expansion',
     description: 'Масштабное обновление правил: новые подклассы, опциональные правила (кастомизация характеристик рас), Изобретатель как полноценный класс и новые заклинания.',
@@ -49,7 +46,6 @@ export const SOURCES = [
     name: 'Руководство авантюриста по Берегу Мечей',
     nameEn: "Sword Coast Adventurer's Guide",
     year: 2015,
-    edition: '5e14',
     alwaysOn: false,
     category: 'setting',
     description: 'Сеттинговая книга по Забытым Королевствам: подклассы и кантрипы для игр во Фэйруне, включая знаменитые боевые кантрипы.',
@@ -62,7 +58,6 @@ export const SOURCES = [
     name: 'Руководство игрока по элементальному злу',
     nameEn: 'Elemental Evil Player\'s Companion',
     year: 2015,
-    edition: '5e14',
     alwaysOn: false,
     category: 'expansion',
     description: '', // 2026-09-27: текст содержал выдуманные расы — заполнить по dnd.su
@@ -75,7 +70,6 @@ export const SOURCES = [
     name: 'Руководство Вolo по монстрам',
     nameEn: "Volo's Guide to Monsters",
     year: 2016,
-    edition: '5e14',
     alwaysOn: false,
     category: 'expansion',
     description: '', // 2026-09-27: текст содержал выдуманные расы — заполнить по dnd.su
@@ -88,7 +82,6 @@ export const SOURCES = [
     name: 'Том Морденкайнена с врагами',
     nameEn: "Mordenkainen's Tome of Foes",
     year: 2018,
-    edition: '5e14',
     alwaysOn: false,
     category: 'expansion',
     description: '', // 2026-09-27: текст содержал выдуманные расы — заполнить по dnd.su
@@ -101,7 +94,6 @@ export const SOURCES = [
     name: 'Стриксхэйвен: учебная программа хаоса',
     nameEn: 'Strixhaven: A Curriculum of Chaos',
     year: 2021,
-    edition: '5e14',
     alwaysOn: false,
     category: 'setting',
     description: 'Сеттинг магического университета по вселенной Magic: The Gathering. Новые подклассы, заклинания и правила студенческой жизни.',
@@ -114,7 +106,6 @@ export const SOURCES = [
     name: 'Acquisitions Incorporated',
     nameEn: 'Acquisitions Incorporated',
     year: 2019,
-    edition: '5e14',
     alwaysOn: false,
     category: 'setting',
     description: 'Сеттинг корпоративных приключений по вселенной одноимённого шоу. Включает уникальные «франшизные» подклассы и несколько комических заклинаний.',
@@ -127,7 +118,6 @@ export const SOURCES = [
     name: 'Icewind Dale: Rime of the Frostmaiden',
     nameEn: 'Icewind Dale: Rime of the Frostmaiden',
     year: 2020,
-    edition: '5e14',
     alwaysOn: false,
     category: 'setting',
     description: 'Приключение в арктическом Айсвинд Дейле. Содержит несколько новых заклинаний с ледяной тематикой.',

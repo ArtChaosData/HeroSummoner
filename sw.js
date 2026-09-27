@@ -2,7 +2,9 @@
  * HeroSummoner — Service Worker
  * Strategy: cache-first for assets, always update in background.
  */
-const CACHE = 'herosummoner-v51';
+const CACHE = 'herosummoner-v52';
+// 2026-09-27 (ТЗ v0.29): js/pdf.js и js/data/background_descriptions.js (читает только pdf.js) убраны из
+// precache — экспорт PDF снят с хаба до перепроектирования; файлы остаются в репозитории.
 
 // NOTE (2026-09-08 review): this list had drifted from the actual import graph — it precached
 // the retired create.js/create.css screen (never imported by app.js, see docs/reviews/
@@ -29,7 +31,6 @@ const PRECACHE = [
   './js/router.js',
   './js/db.js',
   './js/utils.js',
-  './js/pdf.js',
   './js/screens/characters.js',
   './js/screens/create-new.js',
   './js/screens/sheet.js',
@@ -37,7 +38,6 @@ const PRECACHE = [
   './js/data/spells.js',
   './js/data/race_descriptions.js',
   './js/data/class_descriptions.js',
-  './js/data/background_descriptions.js',
   // 2026-09-27 (ТЗ v0.25, шаг Класс): экран класса теперь импортирует эти файлы
   './js/data/class_features.js',
   './js/data/subclass_descriptions.js',
@@ -50,6 +50,10 @@ const PRECACHE = [
   // 2026-09-27 (ТЗ v0.27): таблица «Развитие по уровням»; rules_levels.js грузится лениво
   './js/data/class_progression.js',
   './js/data/rules_levels.js',
+  // 2026-09-27 (ТЗ v0.28, Э1): модель персонажа v1 + черты PHB с dnd.su. warlock_invocations.js,
+  // metamagic.js, class_starting_equipment.js пока никто не импортирует — не кэшируем (см. NOTE выше).
+  './js/character.js',
+  './js/data/feats.js',
   './assets/icon_4.svg',
 ];
 

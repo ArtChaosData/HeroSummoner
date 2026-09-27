@@ -2,13 +2,13 @@
  * HeroSummoner — IndexedDB wrapper
  *
  * Object stores:
- *   characters  { id, name, class, subclass, race, subrace, background,
- *                 level, hp, maxHp, stats, skills, portrait, status,
- *                 favorite, createdAt, updatedAt, … }
+ *   characters  character model v1 (schemaVersion 2) — see js/character.js and
+ *               docs/SPECIFICATION.md §2.1. DB_VERSION 2 migrates stored v1 records once.
  */
+import { migrateCharacter } from './character.js';
 
 const DB_NAME    = 'HeroSummonerDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;   // 2: character model v1 (E1) — records migrated in onupgradeneeded
 
 let _db = null;
 
@@ -28,6 +28,22 @@ function openDB() {
         store.createIndex('status',   'status',   { unique: false });
         store.createIndex('favorite', 'favorite', { unique: false });
         store.createIndex('updatedAt','updatedAt', { unique: false });
+      }
+
+      // v1 → v2: migrate every stored character in the upgrade transaction (one pass, never deletes).
+      if (e.oldVersion >= 1 && e.oldVersion < 2) {
+        const cursorReq = req.transaction.objectStore('characters').openCursor();
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) return;
+          try {
+            cursor.update(migrateCharacter(cursor.value));
+          } catch (err) {
+            // Keep the record untouched; migrateCharacter runs again on the next read.
+            console.error('HeroSummoner: migration failed for', cursor.value?.id, err);
+          }
+          cursor.continue();
+        };
       }
     };
   });
@@ -50,7 +66,7 @@ export const DB = {
   /** Return all characters, sorted: favorites first, then by updatedAt desc. */
   async getAll() {
     const s = await store();
-    const all = await wrap(s.getAll());
+    const all = (await wrap(s.getAll())).map(migrateCharacter);
     return all.sort((a, b) => {
       if (a.favorite && !b.favorite) return -1;
       if (!a.favorite && b.favorite) return  1;
@@ -60,7 +76,7 @@ export const DB = {
 
   async get(id) {
     const s = await store();
-    return wrap(s.get(id));
+    return migrateCharacter(await wrap(s.get(id)));
   },
 
   async put(character) {
@@ -82,7 +98,7 @@ export const DB = {
   async exportJSON() {
     const all = await this.getAll();
     const blob = new Blob(
-      [JSON.stringify({ version: 1, characters: all }, null, 2)],
+      [JSON.stringify({ version: 2, characters: all }, null, 2)],
       { type: 'application/json' }
     );
     return blob;
@@ -93,7 +109,8 @@ export const DB = {
     const data = JSON.parse(jsonText);
     const chars = Array.isArray(data) ? data : (data.characters || []);
     const s = await store('readwrite');
-    for (const c of chars) {
+    for (const raw of chars) {
+      const c = migrateCharacter(raw);
       if (!c.id) c.id = crypto.randomUUID();
       await wrap(s.put(c));
     }

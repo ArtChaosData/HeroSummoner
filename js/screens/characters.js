@@ -2,8 +2,9 @@
  * HeroSummoner — Screen 1: Character List
  */
 import { DB }  from '../db.js';
-import { el, toast, hpClass, initials, classColor, confirm, downloadBlob } from '../utils.js';
-import { exportPDF } from '../pdf.js';
+import { el, toast, hpClass, initials, classColor, confirm } from '../utils.js';
+// 2026-09-27 (ТЗ v0.24/v0.29): экспорт PDF/JSON и импорт убраны из хаба до перепроектирования (ТЗ, раздел 6, п. 9).
+import { legacyView } from '../character.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -61,11 +62,12 @@ function buildCard(char, router) {
   const isDead  = char.status === 'dead';
   const isDraft = char.status === 'draft';
   const isFav   = char.favorite;
-  const color   = classColor(char.class);
-  const hpBadge = isDead ? 'hp-dead' : hpClass(char.hp ?? char.maxHp, char.maxHp);
+  const v       = legacyView(char);   // model v1 → display names, level, hp (js/character.js)
+  const color   = classColor(v.class);
+  const hpBadge = isDead ? 'hp-dead' : hpClass(v.hp, v.maxHp);
   const hpLabel = isDead
     ? '✝ Пал в бою'
-    : `${char.hp ?? char.maxHp} / ${char.maxHp ?? '—'} HP`;
+    : `${v.hp} / ${v.maxHp ?? '—'} HP`;
 
   // Portrait
   const portrait = el('div', { class: 'portrait' });
@@ -87,7 +89,7 @@ function buildCard(char, router) {
       )
     );
   }
-  portrait.append(el('span', { class: 'badge badge-level' }, `Ур. ${char.level || 1}`));
+  portrait.append(el('span', { class: 'badge badge-level' }, `Ур. ${v.level}`));
   portrait.append(el('span', { class: `badge badge-hp ${hpBadge}` }, hpLabel));
 
   // Favourite button
@@ -106,11 +108,13 @@ function buildCard(char, router) {
   portrait.append(favBtn);
 
   // Info block
-  const subParts = [char.class, char.subclass].filter(Boolean);
+  const subParts = [v.class, v.subclass].filter(Boolean);
 
   if (isDraft) {
     portrait.append(el('span', { class: 'badge badge-draft' }, 'Черновик'));
   }
+  // ТЗ v0.28 §2.1: миграция не смогла сопоставить данные — персонаж цел, но показываем ⚠️.
+  const warnings = char.migrationWarnings || [];
 
   const card = el('div', {
     class: `char-card${isDead ? ' is-dead' : ''}${isDraft ? ' is-draft' : ''}`,
@@ -119,29 +123,18 @@ function buildCard(char, router) {
   },
     portrait,
     el('div', { class: 'card-info' },
-      el('div', { class: 'card-name' }, char.name || 'Безымянный'),
+      el('div', { class: 'card-name' }, char.name || 'Безымянный',
+        warnings.length ? el('span', { class: 'card-warn', title: warnings.join('\n') }, ' ⚠️') : null),
       el('div', { class: 'card-class' },
         el('span', { class: 'card-class-name' }, subParts.join(' · ') || '—'),
       ),
-      el('div', { class: 'card-race' }, char.race || ''),
-      el('div', { class: 'card-background' }, char.background || ''),
+      el('div', { class: 'card-race' }, v.race || ''),
+      el('div', { class: 'card-background' }, v.background || ''),
     ),
     el('div', { class: 'card-actions' },
       el('button', { class: 'card-action action-open', 'data-tip': isDraft ? 'Редактировать' : 'Открыть',
         onClick: e => { e.stopPropagation(); router.navigate(isDraft ? `/edit/${char.id}` : `/sheet/${char.id}`); },
       }, isDraft ? '✎' : '▶', el('span', {}, isDraft ? 'Редактировать' : 'Открыть')),
-      el('button', { class: 'card-action action-pdf', 'data-tip': 'PDF',
-        onClick: e => { e.stopPropagation(); exportPDF(char); },
-      }, '📄'),
-      el('button', { class: 'card-action action-json', 'data-tip': 'JSON',
-        onClick: async e => {
-          e.stopPropagation();
-          downloadBlob(
-            new Blob([JSON.stringify(char, null, 2)], { type: 'application/json' }),
-            `${char.name || 'character'}.json`
-          );
-        },
-      }, '{ }'),
       el('button', { class: 'card-action action-del', 'data-tip': 'Удалить',
         onClick: async e => {
           e.stopPropagation();
@@ -270,9 +263,6 @@ export async function renderCharacters(container, router) {
   if (headerActions) {
     headerActions.innerHTML = '';
     headerActions.append(
-      el('button', { class: 'btn btn-ghost btn-sm',
-        onClick: () => document.getElementById('import-file-input')?.click(),
-      }, '↑ Импорт'),
       el('button', { class: 'btn btn-primary btn-sm',
         onClick: () => router.navigate('/create'),
       }, '＋ Создать'),
@@ -312,35 +302,6 @@ export async function renderCharacters(container, router) {
     tabsEl.append(t);
   }
   wrap.append(el('div', { class: 'filter-wrap' }, tabsEl));
-
-  // ── Import bar ──
-  const fileInput = el('input', {
-    type: 'file', accept: '.json', id: 'import-file-input',
-    onChange: async e => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const n = await DB.importJSON(text);
-        _allChars = await DB.getAll();
-        updateTabCounts();
-        if (_grid) renderGrid(_grid, router);
-        toast(`Импортировано: ${n}`, 'success');
-      } catch {
-        toast('Ошибка импорта. Проверь формат файла.', 'error');
-      }
-    },
-  });
-  wrap.append(
-    el('div', { class: 'import-bar', onClick: () => fileInput.click() },
-      el('span', { class: 'import-bar-icon' }, '📂'),
-      el('div', { class: 'import-bar-text' },
-        el('strong', {}, 'Импорт персонажа'),
-        ' — JSON-файл',
-      ),
-      fileInput,
-    )
-  );
 
   // ── Grid ──
   _grid = el('div', { class: 'char-grid' });
