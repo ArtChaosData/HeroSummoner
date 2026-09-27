@@ -8,10 +8,19 @@ import { ARMOUR, WEAPONS, EQUIPMENT, TOOLS } from '../data/equipment.js';
 import { getCantripsForClass, getLevel1SpellsForClass } from '../data/spells.js';
 import { RACE_DESCRIPTIONS } from '../data/race_descriptions.js';
 import { CLASS_DESCRIPTIONS, CLASS_ORDER } from '../data/class_descriptions.js';
+import { CLASS_FEATURES, featureName, isOptionalFeature } from '../data/class_features.js';
+import { SUBCLASS_DESCRIPTIONS } from '../data/subclass_descriptions.js';
+import { SOURCES } from '../data/sources.js';
+import {
+  TCE_TIMELINE, VARIANT_TOOLTIP, FIGHTING_STYLES, MANEUVERS, FAVORED_ENEMY_TYPES,
+  FAVORED_TERRAINS, CLASS_FIXED_LANGUAGES, EXPERTISE_TEASER, SUBCLASS_PICK_LABEL,
+} from '../data/class_lvl1.js';
+import { SUBCLASS_LEVEL, LVL1_SUBCLASSES } from '../data/class_lvl1_subclasses.js';
+import { RULES } from '../data/rules_text.js';
+import { PROG_COLS, PROG_VALS, PROG_PB, PROG_TCEPLAIN, PROG_PHBFIX, PROG_TCEFIX } from '../data/class_progression.js';
 
 // Maps RACE_DATA names that differ from RACE_DESCRIPTIONS keys
 const RACE_DESC_ALIASES = {
-  'Duergar':  'Дуэргар',
 };
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -47,6 +56,12 @@ function freshState() {
     mecRollAssign:       {},
     mecBgChoiceData: {},
     mecClassToolChoice: {},
+    // ТЗ v0.25, шаг 4.4.2: версия класса, выборы 1 ур., подкласс
+    mecClassVariant:    'phb',
+    mecClassChoices:    {},
+    mecSubclass:        null,
+    mecSubclassChoices: {},
+    mecSubclassPreview: null,
     mecEquipMode:    'standard',
     mecEquipGold:    null,
     mecEquipChoices: {},
@@ -348,7 +363,7 @@ async function saveCharToDB(st, status) {
   }
   const conMod = Math.floor(((stats.con || 8) - 10) / 2);
   const die    = CLASS_HP_DIE[clsName] || 8;
-  const maxHp  = Math.max(1, die + conMod);
+  const maxHp  = Math.max(1, die + conMod + (st.mecSubclass === 'sorcerer-draconic' ? 1 : 0)); // Драконья кровь: +1 хит/ур.
 
   // Capture wizard state for edit-draft flow (exclude portrait to save space)
   const { portrait: _p, ...wizardSnap } = st;
@@ -357,20 +372,33 @@ async function saveCharToDB(st, status) {
   const bgProfs     = mecBgProfs(st);
   mecSyncBgItems(st);
 
+  // ТЗ v0.25, 4.4.2: подкласс 1 ур. и выборы класса попадают в запись персонажа
+  const subObj     = clsSubclassObj(st);
+  const subChoices = st.mecSubclassChoices || {};
+  const subSkills  = subObj ? (subChoices.skills || []) : [];
+  const subLangs   = subObj ? [...(subObj.grants.languages || []), ...(subChoices.languages || [])] : [];
+  const cc         = st.mecClassChoices || {};
+  const clsLangs   = [...(CLASS_FIXED_LANGUAGES[st.mecClass] || []),
+                      ...(clsVariant(st) === 'phb' && cc.favored_enemy_language ? [cc.favored_enemy_language] : [])];
+
   const record = {
     name:       st.name?.trim() || 'Без имени',
     playerName: st.playerName?.trim() || '',
     alignment:  st.alignment || '',
     edition,
     class:      clsName,
-    subclass:   '',
+    subclass:   subObj?.name || '',
+    subclassId: subObj?.id || '',
+    classVariant:    clsVariant(st),
+    classChoices:    cc,
+    subclassChoices: subObj ? subChoices : {},
     race:       raceName,
     subrace:    st.mecSubrace || '',
     background: bgName,
     level:      1,
     stats,
-    skills:     [...new Set([...(st.mecChosen || []), ...(st.mecRaceSkills || []), ...mecRaceGrantedSkills(st), ...bgSkillsList])],
-    languages:         [...new Set([...raceChoices.languages, ...bgProfs.langs])],
+    skills:     [...new Set([...(st.mecChosen || []), ...subSkills, ...(subObj?.grants.skills || []), ...(st.mecRaceSkills || []), ...mecRaceGrantedSkills(st), ...bgSkillsList])],
+    languages:         [...new Set([...raceChoices.languages, ...bgProfs.langs, ...clsLangs, ...subLangs])],
     raceCantrips:      raceChoices.cantrips,
     feats:             raceChoices.feats,
     // 2026-09-26: владения инструментами из всех источников (раса + класс + предыстория).
@@ -421,7 +449,7 @@ const SRC_CONTENT = {
   PHB: {
     races: [
       'Дварф (Горный)', 'Дварф (Холмовой)',
-      'Эльф (Высший)', 'Эльф (Лесной)', 'Дроу',
+      'Эльф (Высший)', 'Эльф (Лесной)', 'Тёмный эльф (дроу)',
       'Полурослик (Легконогий)', 'Полурослик (Коренастый)',
       'Человек', 'Человек (Альтернативный)',
       'Драконорождённый',
@@ -432,7 +460,7 @@ const SRC_CONTENT = {
   },
   XGtE: {
     rules: 'Расширяет правила инструментов, отдыха, встреч и ловушек.',
-    races: [],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [
       ['Варвар',    'Путь Предка-Стража', 'Путь Вихря Бури', 'Путь Ревностного'],
       ['Бард',      'Коллегия Гламура', 'Коллегия Мечей', 'Коллегия Шёпота'],
@@ -450,7 +478,7 @@ const SRC_CONTENT = {
   },
   TCE: {
     rules: 'Необязательные классовые умения, кастомизация происхождения, сайдкики, групповые покровители.',
-    races: [],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [
       ['Изобретатель', 'Алхимик', 'Доспешник', 'Арсеналист', 'Оружейник'],
       ['Варвар',    'Путь Зверя', 'Путь Дикой Магии'],
@@ -467,7 +495,7 @@ const SRC_CONTENT = {
     ],
   },
   SCAG: {
-    races: ['Дварф Серого Пика', 'Дроу (вар.)', 'Эладрин', 'Лесной Гном (дикарь)', 'Полуэльф (вар.)'],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [
       ['Бард',      'Коллегия Мечей'],
       ['Жрец',      'Домен Арканы'],
@@ -480,22 +508,22 @@ const SRC_CONTENT = {
     ],
   },
   MToF: {
-    races: ['Гифт', 'Юань-Ти', 'Эладрин', 'Гитьянки', 'Гитзерай', 'Дуэргар', 'Шемасх', 'Деваид'],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [
       ['Жрец',    'Домен Ковена'],
       ['Паладин', 'Клятва Завоевания (рев.)'],
     ],
   },
   VGtM: {
-    races: ['Аасимар', 'Ящеролюд', 'Фирболг', 'Голиаф', 'Кенку', 'Кобольд', 'Орк', 'Табакси', 'Тифлинг (вар.)', 'Тритон', 'Юань-Ти Чистокровный'],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [],
   },
   MPMM: {
-    races: ['Аасимар', 'Autognome', 'Centaur', 'Changeling', 'Duergar', 'Eladrin', 'Fairy', 'Фирболг', 'Гифт', 'Голиаф', 'Гитьянки', 'Гитзерай', 'Harengon', 'Hobgoblin', 'Kenku', 'Кобольд', 'Leonin', 'Ящеролюд', 'Minotaur', 'Орк', 'Satyr', 'Sea Elf', 'Shadar-kai', 'Shifter', 'Simic Hybrid', 'Табакси', 'Tortle', 'Тритон', 'Vedalken', 'Warforged', 'Юань-Ти'],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [],
   },
   VRGR: {
-    races: ['Dhampir', 'Hexblood', 'Reborn'],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [
       ['Бард',      'Коллегия Духов'],
       ['Следопыт',  'Охотник на Призраков'],
@@ -505,7 +533,7 @@ const SRC_CONTENT = {
     ],
   },
   SCC: {
-    races: ['Owlin'],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [
       ['Бард',      'Коллегия Красноречия (рев.)'],
       ['Жрец',      'Домен Порядка (рев.)'],
@@ -518,16 +546,16 @@ const SRC_CONTENT = {
       ['Волшебник', 'Лор Мастер'],
     ],
   },
-  WBW:  { races: ['Fairy', 'Harengon'], subs: [] },
+  WBW:  { races: [] /* 2026-09-27: расы не из PHB удалены из данных */, subs: [] },
   MOT: {
-    races: ['Centaur', 'Leonin', 'Minotaur', 'Satyr', 'Тритон'],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [
       ['Жрец',    'Домен Благословения'],
       ['Паладин', 'Клятва Слав'],
     ],
   },
   GGR: {
-    races: ['Centaur', 'Goblin', 'Loxodon', 'Minotaur', 'Simic Hybrid', 'Vedalken'],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [
       ['Жрец',      'Домен Порядка'],
       ['Паладин',   'Клятва Завоевания (рев.)'],
@@ -536,7 +564,7 @@ const SRC_CONTENT = {
     ],
   },
   RLW: {
-    races: ['Changeling', 'Kalashtar', 'Орк Эберрона', 'Shifter', 'Warforged'],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [
       ['Воин',      'Рыцарь Метки'],
       ['Монах',     'Путь Четырёх Ветров'],
@@ -545,20 +573,20 @@ const SRC_CONTENT = {
     ],
   },
   SAS: {
-    races: ['Astral Elf', 'Autognome', 'Giff', 'Hadozee', 'Plasmoid', 'Thri-kreen'],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [],
   },
   AI: {
-    races: [],
+    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
     subs: [
       ['Жрец',   'Домен Порядка (рев.)'],
       ['Плут',   'Корпоративный Агент'],
     ],
   },
-  POA:  { races: [], subs: [] },
-  TP:   { races: ['Tortle'], subs: [] },
-  OGA:  { races: ['Grung'], subs: [] },
-  LR:   { races: ['Locathah'], subs: [] },
+  POA:  { races: [] /* 2026-09-27: расы не из PHB удалены из данных */, subs: [] },
+  TP:   { races: [] /* 2026-09-27: расы не из PHB удалены из данных */, subs: [] },
+  OGA:  { races: [] /* 2026-09-27: расы не из PHB удалены из данных */, subs: [] },
+  LR:   { races: [] /* 2026-09-27: расы не из PHB удалены из данных */, subs: [] },
 };
 
 function buildSrcBlock(src, c) {
@@ -1226,34 +1254,993 @@ const CLASS_PROF_DATA = {
 
 // ─── Class step: builder ──────────────────────────────────────────────────────
 
+// ─── Class step: выборы 1 ур., переключатель «PHB | Таша», подкласс ─────────────
+// ТЗ v0.25, шаг 4.4.2 (③ инструменты/языки, ④ выборы 1 ур. + чек-лист, ⑤ подкласс).
+// Данные: js/data/class_lvl1.js (ручные списки) и js/data/class_lvl1_subclasses.js
+// (генерируется tools/gen_class_lvl1.py из docs/reviews/lvl1_choices.json).
+// Не сделано на этом этапе (см. порядок реализации в ТЗ): «озёра выборов» между шагами,
+// шаг 4.4.4a «Компетентность», фильтр TCE-расширений списков на шаге «Заклинания».
+
+/** Версия класса: у Изобретателя всегда 'tce' (класс целиком из TCE), у остальных — переключатель. */
+function clsVariant(st) {
+  if (st.mecClass === 'artificer') return 'tce';
+  return st.mecClassVariant === 'tce' ? 'tce' : 'phb';
+}
+
+function clsSkillProgress(st) {
+  const clsData = mecClsData(st);
+  if (!clsData) return { have: 0, need: 0 };
+  const opts = clsData.list ?? Object.values(SKILLS_BY_AB).flat();
+  const have = (st.mecChosen || []).filter(s => opts.includes(s)).length;
+  return { have: Math.min(have, clsData.count), need: clsData.count };
+}
+
+function clsToolProgress(st) {
+  const spec = CLASS_TOOL_CHOICE[st.mecClass];
+  if (!spec) return null;
+  const need = spec.count || 1;
+  const have = ((st.mecClassToolChoice || {})[st.mecClass] || []).length;
+  return { have: Math.min(have, need), need };
+}
+
+function clsStylesFor(variant) {
+  return FIGHTING_STYLES.filter(s => variant === 'tce' || s.source === 'PHB');
+}
+
+/** Язык избранного врага (решение заказчика 2026-09-27): для гуманоидов обязателен, для типов существ —
+ *  необязателен («…если он вообще умеет говорить», dnd.su). 'yes' | 'maybe' | null (враг не выбран). */
+function clsEnemySpeaks(fe) {
+  if (!fe) return null;
+  if (fe.mode === 'humanoids') return clsHumanoidRaces(fe).length ? 'yes' : null;
+  return fe.type ? 'maybe' : null;
+}
+const clsHumanoidRaces = fe => (fe?.races || []).map(r => String(r).trim()).filter(Boolean);
+
+function clsSubclassList(st) { return LVL1_SUBCLASSES[st.mecClass] || null; }
+function clsSubclassObj(st) {
+  return (clsSubclassList(st) || []).find(s => s.id === st.mecSubclass) || null;
+}
+function clsSubChoice(st, id) { return ((st.mecSubclassChoices || {})[id]) || []; }
+
+/** Навыки, которые подкласс даёт на выбор (Домен знаний/природы/порядка/мира) — для блокировки дублей с навыками класса. */
+function clsSubclassSkillPicks(st) {
+  const sub = clsSubclassObj(st);
+  if (!sub) return [];
+  return sub.choices.filter(c => c.id === 'skills').flatMap(c => clsSubChoice(st, c.id));
+}
+
+/** Особенности 1 ур. (read-only) по версии класса — из CLASS_FEATURES; TCE-замены встают на место базовых. */
+function clsLvl1FeatureNames(clsName, variant) {
+  const arr = (CLASS_FEATURES[clsName] || {})[1] || [];
+  const HIDDEN = new Set(['Дополнительные заклинания', 'Варианты боевых стилей']); // это не умения, а расширение списков — см. подпись переключателя
+  const replaced = new Set(variant === 'tce'
+    ? arr.filter(f => isOptionalFeature(f) && f.replaces).map(f => f.replaces) : []);
+  return arr
+    .filter(f => typeof f === 'string'
+      ? !HIDDEN.has(f) && !replaced.has(f)
+      : variant === 'tce' && !!f.replaces)
+    .map(featureName);
+}
+
+/** Чек-лист «Осталось выбрать» (ТЗ ④D) — строится из данных. Пункт: { key, label, done }. */
+function classChecklist(st) {
+  const items = [];
+  if (!st.mecClass) return items;
+  const v  = clsVariant(st);
+  const cc = st.mecClassChoices || {};
+
+  const sk = clsSkillProgress(st);
+  items.push({ key: 'skills', label: `Навыки (${sk.have}/${sk.need})`, done: sk.have >= sk.need });
+
+  const tp = clsToolProgress(st);
+  if (tp) items.push({ key: 'tools', label: tp.need > 1 ? `Инструменты (${tp.have}/${tp.need})` : 'Инструмент', done: tp.have >= tp.need });
+
+  if (st.mecClass === 'fighter') {
+    const ok = clsStylesFor(v).some(s => s.name === cc.fighting_style);
+    items.push({ key: 'fighting_style', label: 'Боевой стиль', done: ok });
+    if (ok && cc.fighting_style === 'Превосходная техника')
+      items.push({ key: 'maneuver', label: 'Приём', done: !!cc.maneuver });
+  }
+
+  if (st.mecClass === 'ranger' && v === 'phb') {
+    const fe = cc.favored_enemy;
+    const feDone = !!fe && (fe.mode === 'humanoids' ? clsHumanoidRaces(fe).length === 2 : !!fe.type);
+    items.push({ key: 'favored_enemy', label: 'Избранный враг', done: feDone });
+    if (feDone && clsEnemySpeaks(fe) === 'yes')
+      items.push({ key: 'favored_enemy_language', label: 'Язык врага', done: !!cc.favored_enemy_language });
+    items.push({ key: 'favored_terrain', label: 'Избранная местность', done: !!cc.favored_terrain });
+  }
+
+  const subs = clsSubclassList(st);
+  if (subs) {
+    const sub = clsSubclassObj(st);
+    items.push({ key: 'subclass', label: SUBCLASS_PICK_LABEL[st.mecClass].short, done: !!sub });
+    if (sub) sub.choices.filter(c => !c.optional).forEach(c => {
+      const have = Math.min(clsSubChoice(st, c.id).length, c.n);
+      // «Навыки»/«Языки» подкласса отличаем от навыков класса в чек-листе: «Навыки домена (0/2)»
+      const lbl = (c.id === 'skills' || c.id === 'languages') ? `${c.label} ${SUBCLASS_PICK_LABEL[st.mecClass].gen}` : c.label;
+      items.push({ key: 'sub_' + c.id, label: c.n > 1 ? `${lbl} (${have}/${c.n})` : lbl, done: have >= c.n });
+    });
+  }
+  return items;
+}
+
+/** Что сбросится при смене версии PHB ↔ Таша (для диалога подтверждения, замечание @designer). */
+function clsVariantLosses(st, next) {
+  const cc = st.mecClassChoices || {};
+  const out = [];
+  if (st.mecClass === 'fighter' && next === 'phb' && cc.fighting_style
+      && !clsStylesFor('phb').some(s => s.name === cc.fighting_style)) {
+    out.push(`боевой стиль «${cc.fighting_style}»`);
+    if (cc.maneuver) out.push(`приём «${cc.maneuver}»`);
+  }
+  if (st.mecClass === 'ranger' && next === 'tce') {
+    const fe = cc.favored_enemy;
+    if (fe?.mode === 'humanoids' && clsHumanoidRaces(fe).length) out.push(`избранный враг «${clsHumanoidRaces(fe).join(', ')}»`);
+    else if (fe?.type) out.push(`избранный враг «${fe.type}»`);
+    if (cc.favored_enemy_language) out.push(`язык врага «${cc.favored_enemy_language}»`);
+    if (cc.favored_terrain) out.push(`избранная местность «${cc.favored_terrain}»`);
+  }
+  return out;
+}
+
+function clsApplyVariant(st, next) {
+  const cc = st.mecClassChoices || (st.mecClassChoices = {});
+  if (st.mecClass === 'fighter' && next === 'phb'
+      && cc.fighting_style && !clsStylesFor('phb').some(s => s.name === cc.fighting_style)) {
+    delete cc.fighting_style; delete cc.maneuver;
+  }
+  if (st.mecClass === 'ranger' && next === 'tce') {
+    delete cc.favored_enemy; delete cc.favored_enemy_language; delete cc.favored_terrain;
+  }
+  st.mecClassVariant = next;
+}
+
+/** Сброс всех зависимых выборов при смене класса (ТЗ 4.4.2 «Смена класса»). */
+function clsResetForNewClass(st) {
+  st.mecChosen          = [];
+  st.mecClassVariant    = 'phb';
+  st.mecClassChoices    = {};
+  st.mecSubclass        = null;
+  st.mecSubclassChoices = {};
+  st.mecSubclassPreview = null;
+  st.mecClassToolChoice = {};
+}
+
+/** Модалка подтверждения (стили — как у модалки «Свой предмет»). */
+function openConfirmModal({ title, text, lines = [], okText = 'Да', onOk }) {
+  const overlay = el('div', { class: 'shop-modal-bg' },
+    el('div', { class: 'shop-modal cls-confirm' },
+      el('h3', { class: 'shop-modal-title' }, title),
+      text ? el('p', { class: 'cls-confirm-text' }, text) : null,
+      lines.length ? el('ul', { class: 'cls-confirm-list' }, ...lines.map(l => el('li', {}, l))) : null,
+      el('div', { class: 'shop-modal-btns' },
+        el('button', { class: 'shop-modal-cancel', onClick: () => overlay.remove() }, 'Отмена'),
+        el('button', { class: 'shop-modal-save', onClick: () => { overlay.remove(); onOk(); } }, okText),
+      ),
+    ),
+  );
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.append(overlay);
+}
+
+// ─── Развитие по уровням (ТЗ v0.27, 4.4.2 ④E) ───
+const TCE_PLAIN_SET = new Set(PROG_TCEPLAIN);
+// Улучшения умений описаны внутри текста самого умения
+const LEVEL_TEXT_ALIAS = {
+  'Улучшение дикого облика': 'ДИКИЙ ОБЛИК', 'Улучшение избранного врага': 'ИЗБРАННЫЙ ВРАГ',
+  'Улучшение исследователя природы': 'ИССЛЕДОВАТЕЛЬ ПРИРОДЫ', 'Улучшенное движение без доспехов': 'ДВИЖЕНИЕ БЕЗ ДОСПЕХОВ',
+  'Улучшение божественного вмешательства': 'БОЖЕСТВЕННОЕ ВМЕШАТЕЛЬСТВО', 'Улучшения ауры': 'АУРА ЗАЩИТЫ',
+};
+const featNorm = n => n.replace(/\s*\(.*?\)\s*$/, '').trim().toUpperCase().replace(/Ё/g, 'Е');
+let _rulesLevels = null; // rules_levels.js грузится лениво — при первом клике по строке уровня
+
+/** Строки таблицы класса: { lvl, pb, vals, feats: [{ name, kind: 'phb'|'tce'|'gone', replacedBy?, removedByTce?, ruleKey?, short? }] }.
+ *  PHB-умения — из CLASS_FEATURES без TCE-строк; в версии TCE — добавки золотом, заменённые помечаются 'gone'. */
+function progRows(cls, variant) {
+  const table  = CLASS_FEATURES[cls.name] || {};
+  const tl     = TCE_TIMELINE[cls.id] || [];
+  const fix    = PROG_TCEFIX[cls.id] || {};
+  const phbFix = PROG_PHBFIX[cls.id] || {};
+  return Array.from({ length: 20 }, (_, i) => {
+    const lvl = i + 1;
+    const raw = table[lvl] || [];
+    const phb = phbFix[lvl] || raw.filter(f => typeof f === 'string' && !TCE_PLAIN_SET.has(f));
+    const feats = phb.map(n => ({ name: n, kind: 'phb' }));
+    if (variant === 'tce' && cls.id !== 'artificer') {
+      const tce = [];
+      raw.filter(f => typeof f !== 'string').forEach(f => tce.push({ name: f.name, replaces: f.replaces }));
+      tl.filter(e => e[0] === lvl).forEach(([, name, short, key]) => {
+        const ex = tce.find(t => t.name === name);
+        if (ex) Object.assign(ex, { ruleKey: key, short }); else tce.push({ name, ruleKey: key, short });
+      });
+      (fix[lvl] || []).forEach(f => {
+        if (f.remove) { tce.push({ remove: f.remove }); return; }
+        const ex = tce.find(t => t.name === f.name);
+        if (ex) Object.assign(ex, f); else tce.push({ ...f });
+      });
+      tce.forEach(t => {
+        const target = t.remove || t.replaces;
+        const old = target ? feats.find(f => f.name === target && f.kind === 'phb') : null;
+        if (t.remove) { if (old) Object.assign(old, { kind: 'gone', removedByTce: true }); return; }
+        const item = { name: t.name, kind: 'tce', ruleKey: t.ruleKey, short: t.short, replaces: old ? target : null };
+        if (old) { old.kind = 'gone'; old.replacedBy = t.name; feats.splice(feats.indexOf(old) + 1, 0, item); }
+        else feats.push(item);
+      });
+    }
+    return { lvl, feats, pb: PROG_PB[i], vals: (PROG_VALS[cls.id] || []).map(col => col[i]) };
+  });
+}
+
+/** Блоки текста правила (ТЗ v0.27): { h } подзаголовок, { p } абзац, { t, head } таблица. */
+function renderRuleBlocks(blocks) {
+  return (blocks || []).map(b => {
+    if (b.h) return el('div', { class: 'cls-rules-h' }, b.h);
+    if (b.t) return el('table', { class: 'cls-rules-t' },
+      b.head?.length ? el('thead', {}, el('tr', {}, ...b.head.map(h => el('th', {}, h)))) : null,
+      el('tbody', {}, ...b.t.map(r => el('tr', {}, ...r.map(c => el('td', {}, c))))));
+    return el('p', { class: 'cls-rules-p' }, b.p || '');
+  });
+}
+
+// Книги, которых нет в sources.js (там только книги шага 4.4.1). Названия — как в строке «Источник: «…»» на dnd.su
+// (сверено по скачанным страницам 2026-09-27; dnd.su пишет названия этих книг по-английски).
+const SUB_SOURCE_EXTRA = {
+  DMG:    { name: 'Dungeon Master’s Guide', year: 2014 },
+  VRGR:   { name: 'Van Richten’s Guide to Ravenloft', year: 2021 },
+  DSotDQ: { name: 'Dragonlance: Shadow of the Dragon Queen', year: 2022 },
+};
+// Названия книг — как пишет dnd.su (по-английски), решение заказчика 2026-09-27
+const DNDSU_BOOK_TITLE = {
+  PHB: 'Player’s Handbook', XGE: 'Xanathar’s Guide to Everything', SCAG: 'Sword Coast Adventurer’s Guide',
+  TCE: 'Tasha’s Cauldron of Everything',
+};
+function subSourceInfo(code) {
+  const s = code ? SOURCES.find(x => x.code === code) : null;
+  if (s) return { name: DNDSU_BOOK_TITLE[code] || s.name, year: s.year, desc: s.description };
+  return SUB_SOURCE_EXTRA[code] || { name: code ? code : 'Прочие источники', year: 9000 };
+}
+/** Порядок групп подклассов (ТЗ v0.26): PHB → XGE → остальные по году выхода → DMG (злодейский) → TCE. */
+function subSourceRank(code) {
+  if (code === 'PHB') return 0;
+  if (code === 'XGE') return 1;
+  if (code === 'DMG') return 99998;
+  if (code === 'TCE') return 99999;
+  return 10 + subSourceInfo(code).year;
+}
+/** Группирует элементы по коду источника в порядке subSourceRank; внутри группы — исходный порядок. */
+function groupBySource(items, codeOf) {
+  const map = new Map();
+  items.forEach(it => { const c = codeOf(it) || ''; if (!map.has(c)) map.set(c, []); map.get(c).push(it); });
+  return [...map.entries()].sort((a, b) => subSourceRank(a[0]) - subSourceRank(b[0]));
+}
+let _rulesSubprev = null; // rules_subprev.js грузится лениво — только при первом показе предпросмотра
+
+/** «Что даёт на 1 уровне» — plain-language строки из grants подкласса. */
+function clsGrantLines(g) {
+  const L = [];
+  if (g.armor)       L.push('Доспехи: ' + g.armor.join(', '));
+  if (g.weapons)     L.push('Оружие: ' + g.weapons.join(', '));
+  if (g.skills)      L.push('Навык: ' + g.skills.join(', '));
+  if (g.tools)       L.push('Инструменты: ' + g.tools.join(', '));
+  if (g.languages)   L.push('Язык: ' + g.languages.join(', '));
+  if (g.hp_per_level) L.push(`+${g.hp_per_level} хит за каждый уровень`);
+  if (g.unarmored_ac) L.push('Класс доспеха без доспехов: ' + g.unarmored_ac);
+  if (g.darkvision)  L.push(`Тёмное зрение ${g.darkvision} фт`);
+  if (g.swim_speed)  L.push(`Скорость плавания ${g.swim_speed} фт`);
+  if (g.water_breathing) L.push('Дышит под водой');
+  if (g.spells_always)   L.push('Заклинания, которые всегда подготовлены: ' + g.spells_always.join(', '));
+  if (g.expanded_list)   L.push('Расширенный список заклинаний: ' + g.expanded_list.join(', '));
+  if (g.cantrips_bonus)  L.push('Бонусный заговор: ' + g.cantrips_bonus.join(', '));
+  if (g.spells_known_bonus) L.push('Дополнительно известные заклинания: ' + g.spells_known_bonus.join(', '));
+  if (g.other)       L.push('Особенности: ' + g.other);
+  return L;
+}
+
+/** Одноручное оружие для «Проклятого воителя» (Ведьмовской клинок): без свойства «двуручное». */
+function clsHexWeaponOptions() {
+  return WEAPONS.filter(w => !(w.props || []).some(p => /двуручн/i.test(p))).map(w => w.name);
+}
+
 function buildClassStep(st, goMech) {
   const listEl   = el('div', { class: 'mech-cls-list' });
   const detailEl = el('div', { class: 'mech-cls-detail' });
+  const footEl   = el('div', { class: 'mech-foot' });
+  let checklistEl = null;
 
   const ALL_SKILLS = Object.values(SKILLS_BY_AB).flat();
+  if (!st.mecClassChoices)    st.mecClassChoices = {};
+  if (!st.mecSubclassChoices) st.mecSubclassChoices = {};
 
-  function skillsReady() {
-    const clsData = mecClsData(st);
-    if (!clsData) return false;
-    const chosen   = st.mecChosen || [];
-    const opts     = clsData.list ?? ALL_SKILLS;
-    const clsPicks = chosen.filter(s => opts.includes(s));
-    return clsPicks.length >= clsData.count;
-  }
+  function missing() { return classChecklist(st).filter(i => !i.done); }
 
   function updateFoot() {
     footEl.innerHTML = '';
     if (!st.mecClass) return;
+    const miss = missing();
     const btn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('race') }, 'Далее → Раса');
-    btn.disabled = !skillsReady();
-    if (!skillsReady()) btn.classList.add('is-disabled');
+    if (miss.length) { btn.disabled = true; btn.classList.add('is-disabled'); }
+    if (miss.length) footEl.append(el('span', { class: 'cls-foot-reason' }, 'Осталось выбрать: ' + miss.map(i => i.label).join(' · ')));
     footEl.append(btn);
+  }
+
+  function flash(key) {
+    const target = detailEl.querySelector(`[data-ck="${key}"]`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.remove('is-flash');
+    void target.offsetWidth; // перезапуск анимации
+    target.classList.add('is-flash');
+    setTimeout(() => target.classList.remove('is-flash'), 1400);
+  }
+
+  function renderChecklist() {
+    if (!checklistEl) return;
+    checklistEl.innerHTML = '';
+    const items = classChecklist(st);
+    const miss  = items.filter(i => !i.done);
+    if (!miss.length) {
+      checklistEl.classList.add('is-done');
+      checklistEl.append(el('span', { class: 'cls-ck-done' }, '✓ Все выборы сделаны'));
+      return;
+    }
+    checklistEl.classList.remove('is-done');
+    checklistEl.append(el('span', { class: 'cls-ck-label' }, 'Осталось выбрать:'));
+    miss.forEach(i => checklistEl.append(
+      el('button', { class: 'cls-ck-item', onClick: () => flash(i.key) }, i.label),
+    ));
+  }
+
+  /** Лёгкое обновление без перерисовки панели (не закрывает открытые пикеры). */
+  function refreshStatus() { renderChecklist(); updateFoot(); }
+
+  /** Полная перерисовка панели с сохранением прокрутки. */
+  function rerender() {
+    const keep = detailEl.scrollTop;
+    updateDetail();
+    detailEl.scrollTop = keep;
+    updateFoot();
+  }
+
+  function save() { scheduleSave(st); }
+
+  // ── ⑥ Панель «Правило» (ТЗ v0.26): правая колонка на ≥1200 px, шторка снизу на узких экранах ──
+  const WIDE    = window.matchMedia('(min-width: 1200px)');
+  const rulesEl = el('aside', { class: 'cls-rules', 'aria-live': 'polite' });
+  let pinnedRule = null;   // правило последнего выбранного варианта — показывается, когда курсор ушёл
+  let progAll    = false;  // таблица уровней развёрнута до 20 ур.
+  let selLvl     = null;   // выбранная строка таблицы уровней
+
+  async function resolveRule(spec) {
+    if (spec?.level) {
+      if (!_rulesLevels) _rulesLevels = (await import('../data/rules_levels.js')).RULES_LEVELS;
+      return { levels: _rulesLevels };
+    }
+    if (!spec?.key) return null;
+    if (spec.key.startsWith('subprev:')) {
+      if (!_rulesSubprev) _rulesSubprev = (await import('../data/rules_subprev.js')).RULES_SUBPREV;
+      return _rulesSubprev[spec.key] || null;
+    }
+    return RULES[spec.key] || null;
+  }
+  function ruleBody(spec, rule) {
+    const full = rule?.full;
+    return [
+      el('div', { class: 'cls-rules-title' }, spec.title || rule?.title || ''),
+      spec.short ? el('div', { class: 'cls-rules-lbl' }, 'Коротко') : null,
+      spec.short ? el('p', { class: 'cls-rules-short' }, spec.short) : null,
+      spec.lines?.length ? el('ul', { class: 'cls-rules-lines' }, ...spec.lines.map(l => el('li', {}, l))) : null,
+      full ? el('div', { class: 'cls-rules-lbl' }, 'Полностью') : null,
+      full ? el('div', { class: 'cls-rules-full' }, ...renderRuleBlocks(full)) : null,
+      !full ? el('p', { class: 'cls-rules-note' }, 'Полного текста правила в базе пока нет — см. dnd.su.') : null,
+      rule?.source ? el('div', { class: 'cls-rules-src' }, 'Источник: ' + rule.source) : null,
+    ];
+  }
+  /** Панель уровня: все умения уровня (ТЗ v0.27 ④E). */
+  function levelBody(spec, levels) {
+    const { level: r, cls } = spec;
+    const cols = PROG_COLS[cls.id] || [];
+    const meta = ['Бонус мастерства ' + r.pb, ...cols.map((c, i) => `${c}: ${r.vals[i]}`)].join(' · ');
+    const sub = clsSubclassObj(st);
+    const out = [
+      el('div', { class: 'cls-rules-title' }, `${r.lvl} уровень`),
+      el('p', { class: 'cls-rules-meta' }, meta),
+    ];
+    if (!r.feats.length) out.push(el('p', { class: 'cls-rules-note' }, 'Новых умений на этом уровне нет.'));
+    r.feats.forEach(f => {
+      out.push(el('div', { class: 'cls-rules-feat is-' + f.kind }, f.name,
+        f.kind === 'tce' ? el('span', { class: 'cls-rules-tag' }, 'TCE') : null));
+      if (f.kind === 'gone') {
+        out.push(el('p', { class: 'cls-rules-note' }, f.replacedBy ? `В версии TCE заменено на «${f.replacedBy}».` : 'В версии TCE этого улучшения нет.'));
+        return;
+      }
+      let blocks = null;
+      if (f.kind === 'tce' && f.ruleKey && RULES[f.ruleKey]) blocks = RULES[f.ruleKey].full;
+      else if (/^Умение /.test(f.name) || /(архетип|традиц|домен|покровител|происхожден|клятв|путь|коллеги|круг|специальност)/i.test(f.name) && !levels[`${cls.name}:${featNorm(f.name)}`]) {
+        out.push(el('p', { class: 'cls-rules-note' }, sub && r.lvl === 1 && RULES['sub:' + sub.id]
+          ? `Выбран: ${sub.name}.` : 'Зависит от выбранного подкласса — смотрите его описание.'));
+        if (sub && r.lvl === 1 && RULES['sub:' + sub.id]) out.push(...renderRuleBlocks(RULES['sub:' + sub.id].full));
+        return;
+      } else {
+        const hit = levels[`${cls.name}:${LEVEL_TEXT_ALIAS[f.name] || featNorm(f.name)}`];
+        blocks = hit?.full || null;
+      }
+      if (f.short) out.push(el('p', { class: 'cls-rules-short' }, f.short));
+      if (blocks) out.push(el('div', { class: 'cls-rules-full' }, ...renderRuleBlocks(blocks)));
+      else if (!f.short) out.push(el('p', { class: 'cls-rules-note' }, 'Полного текста в базе пока нет — см. dnd.su.'));
+    });
+    return out;
+  }
+  function specBody(spec, rule) {
+    return (spec?.level ? levelBody(spec, rule.levels) : ruleBody(spec, rule)).filter(Boolean);
+  }
+
+  let _ruleSeq = 0;
+  async function showRule(spec) {
+    const seq = ++_ruleSeq;
+    const rule = await resolveRule(spec);
+    if (seq !== _ruleSeq) return; // пришёл более свежий запрос
+    rulesEl.innerHTML = '';
+    if (!spec) {
+      rulesEl.append(
+        el('div', { class: 'cls-rules-title is-empty' }, 'Правило'),
+        el('p', { class: 'cls-rules-note' }, 'Наведите на вариант, чтобы увидеть, как он работает по правилам.'));
+      return;
+    }
+    rulesEl.append(...specBody(spec, rule)); // specBody отфильтровывает null — DOM append превратил бы его в текст «null»
+  }
+  async function openRuleSheet(spec) {
+    const rule = await resolveRule(spec);
+    const close = () => { bg.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    const sheet = el('div', { class: 'cls-sheet', role: 'dialog', 'aria-modal': 'true' },
+      el('div', { class: 'cls-sheet-grip' }),
+      el('button', { class: 'cls-sheet-x', 'aria-label': 'Закрыть', onClick: close }, '✕'),
+      el('div', { class: 'cls-sheet-body' }, ...specBody(spec, rule)),
+    );
+    const bg = el('div', { class: 'cls-sheet-bg' }, sheet);
+    bg.addEventListener('click', e => { if (e.target === bg) close(); });
+    let y0 = null;
+    sheet.addEventListener('touchstart', e => { y0 = e.touches[0].clientY; }, { passive: true });
+    sheet.addEventListener('touchend', e => {
+      if (y0 != null && e.changedTouches[0].clientY - y0 > 70 && sheet.querySelector('.cls-sheet-body').scrollTop <= 0) close();
+      y0 = null;
+    });
+    document.addEventListener('keydown', onKey);
+    document.body.append(bg);
+  }
+  /** Вешает на узел показ правила (наведение/фокус на широком экране) и возвращает кнопку «ⓘ». */
+  function ruleHook(node, spec) {
+    node.addEventListener('mouseenter', () => { if (WIDE.matches) showRule(spec); });
+    node.addEventListener('mouseleave', () => { if (WIDE.matches) showRule(pinnedRule); });
+    node.addEventListener('focusin',   () => { if (WIDE.matches) showRule(spec); });
+    const info = el('span', { class: 'cls-info-btn', role: 'button', tabindex: '0', title: 'Как это работает', 'aria-label': 'Как это работает' }, 'i');
+    const act = e => {
+      e.stopPropagation(); e.preventDefault();
+      if (WIDE.matches) { pinnedRule = spec; showRule(spec); } else openRuleSheet(spec);
+    };
+    info.addEventListener('click', act);
+    info.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') act(e); });
+    return info;
+  }
+  /** Правило на весь блок выбора: «ⓘ» в заголовке + наведение на блок. */
+  function blockRule(block, spec) {
+    const hd = block.querySelector('.cls-choice-hd');
+    const info = ruleHook(block, spec);
+    if (hd) hd.append(info);
+    return block;
+  }
+
+  // ── мелкие строительные блоки ──
+  function chip(label, { picked, dim, title, onClick, extra = '' }) {
+    const attrs = { class: 'cls-chip' + (picked ? ' is-picked' : '') + (dim ? ' is-dim' : '') + extra, onClick };
+    if (title) attrs.title = title;
+    const b = el('button', attrs, (picked ? '✓ ' : '') + label);
+    if (dim) b.disabled = true;
+    return b;
+  }
+  function srcBadge(code, tipName) {
+    const b = el('span', { class: 'cls-src-badge' + (code === 'PHB' ? ' is-phb' : '') }, code);
+    b.title = tipName || subSourceInfo(code).name;
+    return b;
+  }
+  function choiceBlock(ck, title, hint, ...body) {
+    const attrs = { class: 'cls-choice' };
+    if (ck) attrs['data-ck'] = ck;
+    return el('div', attrs,
+      el('div', { class: 'cls-choice-hd' }, title),
+      hint ? el('p', { class: 'cls-choice-hint' }, hint) : null,
+      ...body,
+    );
+  }
+  function infoCard(title, text, ruleKey = null) {
+    const t = el('div', { class: 'cls-info-title' }, title);
+    const card = el('div', { class: 'cls-info-card' }, t, el('p', { class: 'cls-info-text' }, text));
+    if (ruleKey) t.append(ruleHook(card, { key: ruleKey, title, short: text }));
+    return card;
+  }
+  /** Мульти-выбор чипами с лимитом n. `blocked` — Map<option, причина> (уже есть из другого источника). */
+  function multiChips(options, selected, n, onChange, blocked = new Map(), ruleFor = null) {
+    const set = new Set(selected);
+    const atLimit = set.size >= n;
+    return el('div', { class: 'cls-chips' }, ...options.map(o => {
+      const isPicked = set.has(o);
+      const why = blocked.get(o);
+      const dim = !isPicked && ((n > 1 && atLimit) || !!why); // n = 1 — как радио: можно сразу переключить
+      const c = chip(o + (why && !isPicked ? ` (${why})` : ''), {
+        picked: isPicked, dim, title: why ? `Уже есть: ${why}` : undefined,
+        onClick: () => {
+          if (isPicked) set.delete(o);
+          else if (n === 1) { set.clear(); set.add(o); }
+          else if (!atLimit) set.add(o);
+          else return;
+          if (ruleFor && set.has(o)) pinnedRule = ruleFor(o);
+          onChange([...set]);
+        },
+      });
+      if (ruleFor) c.append(ruleHook(c, ruleFor(o)));
+      return c;
+    }));
+  }
+  function langSelect(value, onChange, placeholder = '— выберите язык —') {
+    const sel = el('select', { class: 'mech-bg-select' },
+      el('option', { value: '' }, placeholder),
+      ...LANGUAGES.map(l => el('option', { value: l }, l)),
+    );
+    sel.value = value || '';
+    sel.addEventListener('change', () => onChange(sel.value || null));
+    return sel;
+  }
+
+  // ── ③ Владения, инструменты, фиксированные языки ──
+  function buildProfBlock(cls) {
+    const prof = CLASS_PROF_DATA[cls.id];
+    if (!prof) return null;
+    const row = (label, value, cellCls = 'cls-prof-cell cls-prof-cell--full') =>
+      el('div', { class: 'cls-prof-row' },
+        el('div', { class: cellCls },
+          el('span', { class: 'cls-prof-label' }, label),
+          typeof value === 'string' ? el('span', { class: 'cls-prof-value' }, value) : value,
+        ),
+      );
+    let toolRow = null;
+    const spec = CLASS_TOOL_CHOICE[cls.id];
+    if (spec) {
+      const groups = spec.groups || [{ label: spec.label, type: spec.type }];
+      const max    = spec.count || 1;
+      if (!st.mecClassToolChoice) st.mecClassToolChoice = {};
+      const msEl = buildBgMultiSel({
+        label: max > 1 ? 'Выберите ' + max : 'Выберите', // дизайн 2026-09-27: подпись уже над контролом
+        max,
+        groups,
+        initialSelected: st.mecClassToolChoice[cls.id] || [],
+        onChange: (_n, keys) => {
+          st.mecClassToolChoice[cls.id] = keys;
+          save();
+          refreshStatus();
+        },
+      });
+      toolRow = el('div', { class: 'cls-prof-row', 'data-ck': 'tools' },
+        el('div', { class: 'cls-prof-cell cls-prof-cell--full' },
+          el('span', { class: 'cls-prof-label' }, spec.label),
+          el('div', { class: 'cls-tool-choices' }, msEl),
+        ),
+      );
+    }
+    const fixedLangs = CLASS_FIXED_LANGUAGES[cls.id];
+    return el('div', { class: 'cls-prof-block' },
+      el('div', { class: 'cls-prof-row' },
+        el('div', { class: 'cls-prof-cell' },
+          el('span', { class: 'cls-prof-label' }, 'Кость Хитов'),
+          el('span', { class: 'cls-prof-value cls-prof-hitdie' }, prof.hitDie),
+        ),
+        el('div', { class: 'cls-prof-cell' },
+          el('span', { class: 'cls-prof-label' }, 'Спасброски'),
+          el('span', { class: 'cls-prof-value' }, prof.saves.join(', ')),
+        ),
+      ),
+      row('Доспехи', prof.armor),
+      row('Оружие', prof.weapons),
+      prof.tools !== 'нет' ? row('Инструменты', prof.tools) : null,
+      toolRow,
+      fixedLangs ? row('Языки', fixedLangs.join(', ') + ' — известен сразу, выбирать не нужно') : null,
+    );
+  }
+
+  // ── Навыки ──
+  function buildSkillBlock() {
+    const clsData  = mecClsData(st);
+    const opts     = clsData ? (clsData.list ?? ALL_SKILLS) : [];
+    const count    = clsData?.count ?? 0;
+    const chosen   = new Set(st.mecChosen || []);
+    const clsPicks = [...chosen].filter(s => opts.includes(s));
+    const atLimit  = clsPicks.length >= count;
+    const fromSub  = new Set(clsSubclassSkillPicks(st));
+
+    const skillChips = [...opts].sort((a, b) => ALL_SKILLS.indexOf(a) - ALL_SKILLS.indexOf(b)).map(name => {
+      const isPicked   = chosen.has(name);
+      const isFromSub  = !isPicked && fromSub.has(name);
+      const isDisabled = !isPicked && (atLimit || isFromSub);
+      const c = el('button', {
+        class: 'cls-skill-chip' + (isPicked ? ' is-picked' : '') + (isDisabled ? ' is-dim' : ''),
+        onClick: () => {
+          const s = new Set(st.mecChosen || []);
+          if (isPicked) s.delete(name);
+          else if (!isDisabled) s.add(name);
+          else return;
+          st.mecChosen = [...s];
+          save();
+          rerender();
+        },
+      }, (isPicked ? '✓ ' : '') + name + (isFromSub ? ' (от подкласса)' : ''));
+      c.disabled = isDisabled;
+      const colorVar = skillColorVar(name);
+      if (colorVar) c.style.setProperty('--chip-c', colorVar);
+      return c;
+    });
+    return el('div', { class: 'cls-skill-block', 'data-ck': 'skills' },
+      el('div', { class: 'cls-skill-block-header' },
+        el('span', { class: 'cls-skill-block-title' }, 'Навыки владения'),
+        el('span', { class: 'cls-skill-counter' + (atLimit ? ' is-done' : '') }, `Выбрано навыков: ${clsPicks.length} / ${count}`),
+      ),
+      el('div', { class: 'cls-skill-chips' }, ...skillChips),
+    );
+  }
+
+  // ── Переключатель «PHB | Таша» в шапке ──
+  function buildVariantSwitch(cls) {
+    if (cls.id === 'artificer') return null;
+    const v = clsVariant(st);
+    const seg = (id, label) => el('button', {
+      class: 'cls-variant-btn' + (v === id ? ' is-on' : ''),
+      'aria-pressed': v === id ? 'true' : 'false',
+      onClick: () => {
+        if (clsVariant(st) === id) return;
+        const losses = clsVariantLosses(st, id);
+        const apply = () => { clsApplyVariant(st, id); save(); rerender(); };
+        if (!losses.length) { apply(); return; }
+        openConfirmModal({
+          title: id === 'tce' ? 'Включить TCE?' : 'Вернуться к PHB?',
+          text: 'Эти выборы есть только в текущей версии и сбросятся:',
+          lines: losses.map(l => l[0].toUpperCase() + l.slice(1)),
+          okText: 'Сбросить и переключить',
+          onOk: apply,
+        });
+      },
+    }, label);
+    const help = el('button', { class: 'cls-variant-help', title: VARIANT_TOOLTIP, 'aria-label': 'Что это?' }, '?');
+    help.addEventListener('mouseenter', e => showSrcTip(e, { name: 'PHB или Таша?', desc: VARIANT_TOOLTIP }));
+    help.addEventListener('mouseleave', hideSrcTip);
+    help.addEventListener('click', () => {
+      const hint = detailEl.querySelector('.cls-variant-hint');
+      if (hint) hint.hidden = !hint.hidden;
+    });
+    return el('div', { class: 'cls-variant' },
+      el('div', { class: 'cls-variant-seg', role: 'group', 'aria-label': 'Версия класса' },
+        seg('phb', 'PHB'), seg('tce', 'TCE')),
+      help,
+    );
+  }
+
+  function buildVariantNote(cls) {
+    if (cls.id === 'artificer') return null;
+    const on = clsVariant(st) === 'tce';
+    const tceLv = progRows(cls, 'tce').filter(r => r.feats.some(f => f.kind !== 'phb')).map(r => r.lvl);
+    const hint = el('p', { class: 'cls-variant-hint' }, VARIANT_TOOLTIP);
+    hint.hidden = true;
+    return el('div', { class: 'cls-variant-notes' },
+      hint,
+      tceLv.length ? el('button', {
+        class: 'cls-tce-toggle',
+        onClick: () => {
+          if (tceLv.some(l => l > 5)) progAll = true;
+          rerender();
+          detailEl.querySelector('[data-sec="prog"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        },
+      }, 'TCE меняет: ' + tceLv.join(' · ') + ' ур. — смотреть в таблице') : null,
+      on ? el('p', { class: 'cls-variant-warn' }, 'Включён вариант TCE (Tasha\'s Cauldron of Everything) — уточни у Мастера, какой вариант используется.') : null,
+    );
+  }
+
+  // ── ④E Развитие по уровням (ТЗ v0.27) ──
+  function pickLevel(cls, r) {
+    selLvl = r.lvl;
+    const spec = { level: r, cls, title: `${r.lvl} уровень` };
+    pinnedRule = spec;
+    detailEl.querySelectorAll('[data-lvl]').forEach(n => n.classList.toggle('is-sel', +n.dataset.lvl === r.lvl));
+    if (WIDE.matches) showRule(spec); else openRuleSheet(spec);
+  }
+  function buildProgressionSection(cls) {
+    const v    = clsVariant(st);
+    const rows = progRows(cls, v);
+    const tceLv = cls.id === 'artificer' ? [] : progRows(cls, 'tce').filter(r => r.feats.some(f => f.kind !== 'phb')).map(r => r.lvl);
+    const cols = PROG_COLS[cls.id] || [];
+    const shown = progAll ? rows : rows.slice(0, 5);
+    const featEls = r => r.feats.length
+      ? r.feats.flatMap((f, i) => [i ? el('span', { class: 'cls-prog-sep' }, ', ') : null,
+          el('span', { class: 'cls-prog-f is-' + f.kind, title: f.kind === 'gone' ? (f.replacedBy ? `Заменено на «${f.replacedBy}»` : 'Нет в версии TCE') : '' }, f.name)])
+      : [el('span', { class: 'cls-prog-f is-none' }, '—')];
+    const rowCls = r => (selLvl === r.lvl ? ' is-sel' : '') + (v === 'tce' && tceLv.includes(r.lvl) ? ' has-tce' : '');
+    const table = el('table', { class: 'cls-prog' },
+      el('thead', {}, el('tr', {},
+        el('th', {}, 'Ур.'), el('th', { title: 'Бонус мастерства' }, 'БМ'), el('th', {}, 'Умения'),
+        ...cols.map(c => el('th', { class: 'cls-prog-num' }, c)))),
+      el('tbody', {}, ...shown.map(r => {
+        const tr = el('tr', { class: 'cls-prog-row' + rowCls(r), tabindex: '0', 'data-lvl': String(r.lvl), onClick: () => pickLevel(cls, r) },
+          el('td', { class: 'cls-prog-lv' }, String(r.lvl)),
+          el('td', { class: 'cls-prog-pb' }, r.pb),
+          el('td', { class: 'cls-prog-feats' }, ...featEls(r)),
+          ...r.vals.map(x => el('td', { class: 'cls-prog-num' }, x)));
+        tr.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickLevel(cls, r); } });
+        return tr;
+      })),
+    );
+    // Мобиле — список строк вместо таблицы
+    const list = el('div', { class: 'cls-prog-list' }, ...shown.map(r =>
+      el('button', { class: 'cls-prog-item' + rowCls(r), 'data-lvl': String(r.lvl), onClick: () => pickLevel(cls, r) },
+        el('span', { class: 'cls-prog-item-hd' },
+          el('span', { class: 'cls-prog-item-lv' }, r.lvl + ' ур.'),
+          el('span', { class: 'cls-prog-item-meta' }, [r.pb, ...cols.map((c, i) => `${c} ${r.vals[i]}`)].join(' · '))),
+        el('span', { class: 'cls-prog-item-feats' }, ...featEls(r)))));
+    const laterTce = tceLv.filter(l => l > 5);
+    return el('section', { class: 'cls-sec', 'data-sec': 'prog' },
+      el('div', { class: 'cls-sec-hd' }, 'Развитие по уровням',
+        v === 'tce' ? el('span', { class: 'cls-prog-legend' }, el('span', { class: 'cls-prog-f is-tce' }, 'золотом — TCE'), ' · ', el('span', { class: 'cls-prog-f is-gone' }, 'заменено')) : null),
+      el('p', { class: 'cls-choice-hint' }, 'Нажмите на уровень, чтобы увидеть все его умения.'),
+      table, list,
+      !progAll ? el('div', { class: 'cls-prog-more' },
+        el('button', { class: 'cls-prog-all', onClick: () => { progAll = true; rerender(); } }, 'Показать все 20 уровней'),
+        laterTce.length ? el('span', { class: 'cls-prog-more-tce' }, 'ещё TCE: ' + laterTce.join(', ') + ' ур.') : null)
+        : el('div', { class: 'cls-prog-more' },
+            el('button', { class: 'cls-prog-all', onClick: () => { progAll = false; rerender(); } }, 'Свернуть до 5 уровня')),
+    );
+  }
+
+  // ── ④ Особенности и выборы 1-го уровня ──
+  function buildLvl1Section(cls) {
+    const v  = clsVariant(st);
+    const cc = st.mecClassChoices;
+    const blocks = [];
+
+    if (cls.id === 'fighter') {
+      const styles = clsStylesFor(v);
+      blocks.push(choiceBlock('fighting_style', 'Боевой стиль', 'Пассивная техника боя — работает всю игру автоматически.',
+        el('div', { class: 'cls-opt-grid' }, ...styles.map(s => {
+          const on = cc.fighting_style === s.name;
+          const spec = { key: 'style:' + s.name, title: s.name, short: s.desc };
+          const nameEl = el('span', { class: 'cls-opt-name' }, (on ? '✓ ' : '') + s.name, s.source === 'TCE' ? srcBadge('TCE') : null);
+          const card = el('button', {
+            class: 'cls-opt' + (on ? ' is-on' : ''),
+            onClick: () => {
+              pinnedRule = spec;
+              if (on) { showRule(spec); return; }
+              cc.fighting_style = s.name;
+              if (s.name !== 'Превосходная техника') delete cc.maneuver;
+              save(); rerender();
+            },
+          }, nameEl, el('span', { class: 'cls-opt-desc' }, s.desc));
+          nameEl.append(ruleHook(card, spec));
+          return card;
+        })),
+      ));
+      if (cc.fighting_style === 'Превосходная техника' && v === 'tce') {
+        const pick = cc.maneuver ? [cc.maneuver] : [];
+        const onPick = arr => { cc.maneuver = arr[0] || null; save(); rerender(); };
+        const mRule = o => ({ key: 'maneuver:' + o, title: o });
+        blocks.push(blockRule(choiceBlock('maneuver', 'Приём мастера боевых искусств',
+          'Один особый приём и одна кость превосходства (к6), которая восстанавливается на отдыхе.',
+          el('div', { class: 'cls-chip-group' }, 'Книга игрока'),
+          multiChips(MANEUVERS.PHB, pick, 1, onPick, new Map(), mRule),
+          el('div', { class: 'cls-chip-group' }, 'Котёл Таши'),
+          multiChips(MANEUVERS.TCE, pick, 1, onPick, new Map(), mRule),
+        ), { key: 'style:Превосходная техника', title: 'Превосходная техника', short: 'Один приём мастера боевых искусств и одна кость превосходства к6.' }));
+      }
+    }
+
+    if (cls.id === 'ranger' && v === 'phb') {
+      const fe = cc.favored_enemy || { mode: 'type' };
+      const setFe = next => {
+        cc.favored_enemy = next;
+        save(); rerender();
+      };
+      const modeBtn = (mode, label) => el('button', {
+        class: 'cls-mode-btn' + (fe.mode === mode ? ' is-on' : ''),
+        onClick: () => { if (fe.mode !== mode) { delete cc.favored_enemy_language; setFe({ mode }); } },
+      }, label);
+      const body = fe.mode === 'humanoids'
+        // Решение заказчика 2026-09-27: без своего списка рас — свободный ввод, подсказка — пример с dnd.su
+        ? [el('p', { class: 'cls-choice-sub' }, 'Впишите две гуманоидные расы (например, гноллов и орков):'),
+           el('div', { class: 'cls-hum-inputs' }, ...[0, 1].map(i => {
+             const inp = el('input', { class: 'cnew-input cls-hum-input', type: 'text', placeholder: i ? 'Вторая раса' : 'Первая раса' });
+             inp.value = (fe.races || [])[i] || '';
+             inp.addEventListener('input', () => {
+               const races = [...(cc.favored_enemy?.races || ['', ''])];
+               races[i] = inp.value;
+               const was = clsEnemySpeaks(cc.favored_enemy);
+               cc.favored_enemy = { mode: 'humanoids', races };
+               save();
+               if (was !== clsEnemySpeaks(cc.favored_enemy)) rerender(); else refreshStatus();
+             });
+             return inp;
+           }))]
+        : [multiChips(FAVORED_ENEMY_TYPES.map(t => t.name), fe.type ? [fe.type] : [], 1,
+            arr => setFe({ mode: 'type', type: arr[0] || null }))];
+      const feRule = { key: 'feat:Следопыт:ИЗБРАННЫЙ ВРАГ', title: 'Избранный враг', short: 'Против кого ваш персонаж особенно опасен: его легче выследить и о нём больше знаешь.' };
+      blocks.push(blockRule(choiceBlock('favored_enemy', 'Избранный враг', feRule.short,
+        el('div', { class: 'cls-mode' }, modeBtn('type', 'Тип существ'), modeBtn('humanoids', 'Две расы гуманоидов')),
+        ...body,
+      ), feRule));
+      const speaks = clsEnemySpeaks(cc.favored_enemy);
+      if (speaks === 'yes' || speaks === 'maybe') {
+        blocks.push(choiceBlock(speaks === 'yes' ? 'favored_enemy_language' : null,
+          'Язык избранного врага' + (speaks === 'maybe' ? ' (необязательно)' : ''),
+          'Когда вы получаете это умение, вы также обучаетесь одному из языков, на котором говорит ваш избранный враг, если он вообще умеет говорить.', // dnd.su
+          langSelect(cc.favored_enemy_language, val => { cc.favored_enemy_language = val; save(); refreshStatus(); }),
+        ));
+        blockRule(blocks[blocks.length - 1], feRule);
+      }
+      const neRule = { key: 'feat:Следопыт:ИССЛЕДОВАТЕЛЬ ПРИРОДЫ', title: 'Исследователь природы', short: 'Где ваш персонаж как дома: там он не плутает и находит больше припасов.' };
+      blocks.push(blockRule(choiceBlock('favored_terrain', 'Избранная местность', neRule.short,
+        multiChips(FAVORED_TERRAINS, cc.favored_terrain ? [cc.favored_terrain] : [], 1,
+          arr => { cc.favored_terrain = arr[0] || null; save(); rerender(); }),
+      ), neRule));
+    }
+    if (cls.id === 'ranger' && v === 'tce') {
+      blocks.push(infoCard('Предпочтительный противник', 'Заменяет «Избранного врага». Выбирать ничего не нужно: в бою вы отмечаете цель и наносите ей дополнительный урон.', 'feat:Следопыт:Предпочтительный противник'));
+      blocks.push(infoCard('Искусный исследователь', 'Заменяет «Исследователя природы». Компетентность в одном навыке и 2 языка. ' + EXPERTISE_TEASER, 'feat:Следопыт:Искусный исследователь'));
+    }
+    if (cls.id === 'rogue') {
+      blocks.push(infoCard('Компетентность', 'Два навыка (или навык и воровские инструменты), в которых вы особенно хороши. ' + EXPERTISE_TEASER));
+    }
+
+    const feats = clsLvl1FeatureNames(cls.name, v);
+    const hasChoices = blocks.length > 0;
+    return el('section', { class: 'cls-sec' },
+      el('div', { class: 'cls-sec-hd' }, 'Особенности и выборы 1-го уровня'),
+      feats.length
+        ? el('div', { class: 'cls-feat-line' },
+            el('span', { class: 'cls-prof-label' }, 'Получаете автоматически'),
+            el('div', { class: 'cls-feat-chips' }, ...feats.map(f => el('span', { class: 'cls-feat' }, f))))
+        : null,
+      ...blocks,
+      !hasChoices && !clsSubclassList(st)
+        ? el('p', { class: 'cls-choice-hint' }, 'На 1 уровне больше выбирать нечего — особенности работают сами.')
+        : null,
+    );
+  }
+
+  // ── ⑤ Подкласс ──
+  function buildSubclassNested(sub) {
+    const out = [];
+    const sc = st.mecSubclassChoices;
+    const classSkills = new Set(st.mecChosen || []);
+    sub.choices.forEach(c => {
+      const cur = clsSubChoice(st, c.id);
+      const set = arr => { sc[c.id] = arr; save(); rerender(); };
+      let body;
+      if (c.from === '@language') {
+        body = multiChips(LANGUAGES, cur, c.n, set);
+      } else if (c.from === '@weapon') {
+        const sel = el('select', { class: 'mech-bg-select' },
+          el('option', { value: '' }, '— не выбрано —'),
+          ...clsHexWeaponOptions().map(w => el('option', { value: w }, w)));
+        sel.value = cur[0] || '';
+        sel.addEventListener('change', () => { sc[c.id] = sel.value ? [sel.value] : []; save(); });
+        body = sel;
+      } else {
+        const blocked = new Map();
+        if (c.id === 'skills') c.from.forEach(o => { if (classSkills.has(o)) blocked.set(o, 'навык класса'); });
+        body = multiChips(c.from, cur, c.n, set, blocked);
+      }
+      const hint = c.optional
+        ? 'Необязательно при создании: оружие можно сменить после продолжительного отдыха.'
+        : c.expertise ? 'Эти навыки вы получаете с компетентностью — удвоенным бонусом мастерства.' : null;
+      out.push(choiceBlock(c.optional ? null : 'sub_' + c.id,
+        c.label + (c.n > 1 ? ` — выберите ${c.n}` : '') + (c.optional ? ' (необязательно)' : ''), hint, body));
+    });
+    (sub.spellStepNote || []).forEach(n =>
+      out.push(el('p', { class: 'cls-choice-hint' }, `${n} — выберете на шаге «Заклинания».`)));
+    return out;
+  }
+
+  /** Подзаголовок группы подклассов: полное название книги + код, тултип с описанием книги (ТЗ v0.26). */
+  function subGroupHeader(code) {
+    const inf = subSourceInfo(code);
+    const h = el('div', { class: 'cls-sub-group' },
+      el('span', { class: 'cls-sub-group-name' }, inf.name),
+      code ? el('span', { class: 'cls-sub-group-code' }, code) : null);
+    if (inf.desc) {
+      h.addEventListener('mouseenter', e => showSrcTip(e, { name: inf.name, desc: inf.desc }));
+      h.addEventListener('mouseleave', hideSrcTip);
+    }
+    return h;
+  }
+
+  /** Единая карточка подкласса для режимов A и B (решение @designer, ТЗ v0.26): маркер · название · описание, без бейджа. */
+  function subCard({ name, desc, on, mode, onPick, spec, extra = [] }) {
+    const marker = mode === 'A'
+      ? el('span', { class: 'cls-sub-radio' }, on ? '●' : '○')
+      : el('span', { class: 'cls-sub-mark' + (on ? ' is-on' : '') }, on ? '★ намечено' : '☆ наметить');
+    const hd = el('button', { class: 'cls-sub-hd', 'aria-pressed': on ? 'true' : 'false',
+      onClick: () => { pinnedRule = spec; onPick(); } },
+      mode === 'A' ? marker : null,
+      el('span', { class: 'cls-opt-name' }, name),
+      mode === 'B' ? marker : null,
+    );
+    const card = el('div', { class: 'cls-sub' + (on ? ' is-on' : '') },
+      el('div', { class: 'cls-sub-top' }, hd),
+      desc ? el('p', { class: 'cls-opt-desc' }, desc) : null,
+      ...extra,
+    );
+    card.querySelector('.cls-sub-top').append(ruleHook(card, spec));
+    return card;
+  }
+
+  function buildSubclassSection(cls) {
+    const subs = clsSubclassList(st);
+    if (subs) {
+      const lbl = SUBCLASS_PICK_LABEL[cls.id];
+      return el('section', { class: 'cls-sec', 'data-ck': 'subclass' },
+        el('div', { class: 'cls-sec-hd' }, lbl.title, el('span', { class: 'cls-sec-req' }, 'обязательно')),
+        el('p', { class: 'cls-choice-hint' }, 'Это ключевой выбор, который определяет вашу магию с первого уровня. ' + lbl.pick + '.'),
+        ...groupBySource(subs, s => s.source).flatMap(([code, arr]) => [
+          subGroupHeader(code),
+          el('div', { class: 'cls-sub-list' }, ...arr.map(s => {
+            const on = st.mecSubclass === s.id;
+            const lines = clsGrantLines(s.grants);
+            const extra = [
+              s.dmOnly ? el('p', { class: 'cls-sub-dm' }, 'Вариант из Руководства Мастера для злодеев — только с разрешения Мастера.') : null,
+            ];
+            if (on) extra.push(
+              lines.length ? el('div', { class: 'cls-sub-gives' },
+                el('span', { class: 'cls-prof-label' }, 'Что даёт на 1 уровне'),
+                el('ul', {}, ...lines.map(l => el('li', {}, l)))) : null,
+              ...buildSubclassNested(s),
+            );
+            return subCard({
+              name: s.name, desc: s.desc, on, mode: 'A', extra,
+              spec: { key: 'sub:' + s.id, title: s.name, short: s.desc, lines },
+              onPick: () => {
+                if (on) { showRule(pinnedRule); return; }
+                st.mecSubclass = s.id;
+                st.mecSubclassChoices = {};
+                save(); rerender();
+              },
+            });
+          })),
+        ]),
+      );
+    }
+    // Режим B — предпросмотр
+    const lvl = SUBCLASS_LEVEL[cls.id] || 3;
+    const list = Object.entries(SUBCLASS_DESCRIPTIONS).filter(([, d]) => d.class === cls.name);
+    if (!list.length) return null;
+    const codeOf = ([, d]) => SOURCES.find(s => s.id === d.sourceId)?.code || '';
+    const det = el('details', { class: 'cls-sec cls-sub-preview' },
+      el('summary', { class: 'cls-sec-hd' }, 'Уже думаете о специализации? ▾'),
+      el('p', { class: 'cls-choice-hint' },
+        `Подкласс выбирается на ${lvl}-м уровне. Здесь можно наметить направление — это ни к чему не обязывает.`),
+      ...groupBySource(list, codeOf).flatMap(([code, arr]) => [
+        subGroupHeader(code),
+        el('div', { class: 'cls-sub-list' }, ...arr.map(([name, d]) => {
+          const on = st.mecSubclassPreview === name;
+          return subCard({
+            name, desc: d.description, on, mode: 'B',
+            spec: { key: `subprev:${cls.name}:${name}`, title: name, short: d.description },
+            onPick: () => { st.mecSubclassPreview = on ? null : name; save(); rerender(); },
+          });
+        })),
+      ]),
+    );
+    if (st.mecSubclassPreview) det.open = true;
+    return det;
   }
 
   function updateDetail() {
     detailEl.innerHTML = '';
     const cls = CLASS_DATA.find(c => c.id === st.mecClass);
     if (!cls) {
+      checklistEl = null;
       detailEl.append(el('p', { class: 'mech-cls-ph' }, 'Выберите класс'));
       return;
     }
@@ -1263,121 +2250,27 @@ function buildClassStep(st, goMech) {
       b.addEventListener('mouseleave', hideSrcTip);
       return b;
     });
-
-    const clsData = mecClsData(st);
-    const opts     = clsData ? (clsData.list ?? ALL_SKILLS) : [];
-    const count    = clsData?.count ?? 0;
-    const chosen   = new Set(st.mecChosen || []);
-    const clsPicks = [...chosen].filter(s => opts.includes(s));
-    const atLimit  = clsPicks.length >= count;
-
-    // Sorted by ability-score grouping (SKILLS_BY_AB order), not alphabetically —
-    // matches how players scan a skill sheet (str → dex → int → wis → cha).
-    const skillChips = [...opts].sort((a, b) => ALL_SKILLS.indexOf(a) - ALL_SKILLS.indexOf(b)).map(name => {
-      const isPicked = chosen.has(name);
-      const isDisabled = !isPicked && atLimit;
-      const chip = el('button', {
-        class: 'cls-skill-chip' + (isPicked ? ' is-picked' : '') + (isDisabled ? ' is-dim' : ''),
-        onClick: () => {
-          const s = new Set(st.mecChosen || []);
-          if (isPicked) {
-            s.delete(name);
-          } else if (!atLimit) {
-            s.add(name);
-          } else return;
-          st.mecChosen = [...s];
-          scheduleSave(st);
-          updateDetail();
-          updateFoot();
-        },
-      }, (isPicked ? '✓ ' : '') + name);
-      chip.disabled = isDisabled;
-      const colorVar = skillColorVar(name);
-      if (colorVar) chip.style.setProperty('--chip-c', colorVar);
-      return chip;
-    });
-
-    const counterText = `Выбрано навыков: ${clsPicks.length} / ${count}`;
-
-    // ── Proficiency block ──
-    const prof = CLASS_PROF_DATA[cls.id];
-    const profBlock = prof
-      ? el('div', { class: 'cls-prof-block' },
-          el('div', { class: 'cls-prof-row' },
-            el('div', { class: 'cls-prof-cell' },
-              el('span', { class: 'cls-prof-label' }, 'Кость Хитов'),
-              el('span', { class: 'cls-prof-value cls-prof-hitdie' }, prof.hitDie),
-            ),
-            el('div', { class: 'cls-prof-cell' },
-              el('span', { class: 'cls-prof-label' }, 'Спасброски'),
-              el('span', { class: 'cls-prof-value' }, prof.saves.join(', ')),
-            ),
-          ),
-          el('div', { class: 'cls-prof-row' },
-            el('div', { class: 'cls-prof-cell cls-prof-cell--full' },
-              el('span', { class: 'cls-prof-label' }, 'Доспехи'),
-              el('span', { class: 'cls-prof-value' }, prof.armor),
-            ),
-          ),
-          el('div', { class: 'cls-prof-row' },
-            el('div', { class: 'cls-prof-cell cls-prof-cell--full' },
-              el('span', { class: 'cls-prof-label' }, 'Оружие'),
-              el('span', { class: 'cls-prof-value' }, prof.weapons),
-            ),
-          ),
-          prof.tools !== 'нет'
-            ? el('div', { class: 'cls-prof-row' },
-                el('div', { class: 'cls-prof-cell cls-prof-cell--full' },
-                  el('span', { class: 'cls-prof-label' }, 'Инструменты'),
-                  el('span', { class: 'cls-prof-value' }, prof.tools),
-                ),
-              )
-            : null,
-          CLASS_TOOL_CHOICE[cls.id]
-            ? (() => {
-                const spec = CLASS_TOOL_CHOICE[cls.id];
-                const groups = spec.groups || [{ label: spec.label, type: spec.type }];
-                const max    = spec.count || 1;
-                if (!st.mecClassToolChoice) st.mecClassToolChoice = {};
-                const saved  = st.mecClassToolChoice[cls.id] || [];
-                const msEl = buildBgMultiSel({
-                  label: max > 1 ? 'Выберите ' + max : 'Выберите', // дизайн 2026-09-27: подпись уже над контролом
-                  max,
-                  groups,
-                  initialSelected: saved,
-                  onChange: (_n, keys) => {
-                    st.mecClassToolChoice[cls.id] = keys;
-                    scheduleSave(st);
-                  },
-                });
-                return el('div', { class: 'cls-prof-row' },
-                  el('div', { class: 'cls-prof-cell cls-prof-cell--full' },
-                    el('span', { class: 'cls-prof-label' }, spec.label),
-                    el('div', { class: 'cls-tool-choices' }, msEl),
-                  ),
-                );
-              })()
-            : null,
-        )
-      : null;
+    checklistEl = el('div', { class: 'cls-checklist', role: 'status' });
+    renderChecklist();
 
     detailEl.append(
       el('div', { class: 'mech-cls-header' },
         el('h3', { class: 'mech-cls-name' }, cls.name),
+        buildVariantSwitch(cls),
         el('div', { class: 'mech-cls-roles' }, ...badges),
       ),
+      buildVariantNote(cls),
+      checklistEl,
       el('p', { class: `mech-cls-rp rp-${cls.rp}` }, rpLabel(cls)),
       el('p', { class: 'mech-cls-rp rp-1' }, 'Ключевые характеристики: ' + cls.stats),
       el('p', { class: 'mech-cls-desc' }, cls.desc),
-      ...(profBlock ? [profBlock] : []),
-      el('div', { class: 'cls-skill-block' },
-        el('div', { class: 'cls-skill-block-header' },
-          el('span', { class: 'cls-skill-block-title' }, 'Навыки владения'),
-          el('span', { class: 'cls-skill-counter' + (atLimit ? ' is-done' : '') }, counterText),
-        ),
-        el('div', { class: 'cls-skill-chips' }, ...skillChips),
-      ),
+      buildProgressionSection(cls),
+      buildProfBlock(cls),
+      buildSkillBlock(),
+      buildLvl1Section(cls),
+      buildSubclassSection(cls),
     );
+    showRule(pinnedRule);
   }
 
   function updateList() {
@@ -1406,15 +2299,18 @@ function buildClassStep(st, goMech) {
       const btn = el('button', {
         class: `mech-cls-item${st.mecClass === cls.id ? ' is-selected' : ''}`,
         onClick: () => {
-          // Reset skill picks when class changes
-          if (st.mecClass !== cls.id) st.mecChosen = [];
+          // ТЗ 4.4.2 «Смена класса»: сбрасываются все зависимые выборы
+          if (st.mecClass !== cls.id) { clsResetForNewClass(st); pinnedRule = null; progAll = false; selLvl = null; }
           st.mecClass = cls.id;
           scheduleSave(st);
           listEl.querySelectorAll('.mech-cls-item').forEach(b =>
             b.classList.toggle('is-selected', b.dataset.id === cls.id)
           );
+          detailEl.scrollTop = 0;
           updateDetail();
           updateFoot();
+          placeDetail();
+          if (mq.matches) btn.scrollIntoView({ behavior: 'smooth', block: 'start' });
         },
       },
         cls.name,
@@ -1425,15 +2321,36 @@ function buildClassStep(st, goMech) {
     });
   }
 
-  const footEl = el('div', { class: 'mech-foot' });
+  // Мобиле (ТЗ 4.4.3 «Мобильная вёрстка», относится и к шагу Класс): одна прокрутка страницы,
+  // панель детали раскрывается аккордеоном под выбранной строкой списка.
+  const layoutEl = el('div', { class: 'mech-cls-layout' }, el('div', { class: 'mech-list-wrap' }, listEl), detailEl);
+  const mq = window.matchMedia('(max-width: 600px)');
+  function placeDetail() {
+    if (mq.matches) {
+      const selBtn = listEl.querySelector('.mech-cls-item.is-selected');
+      if (selBtn) selBtn.after(detailEl);
+      else listEl.after(detailEl);
+    } else if (detailEl.parentElement !== layoutEl) {
+      layoutEl.insertBefore(detailEl, rulesEl.parentElement === layoutEl ? rulesEl : null);
+    }
+  }
+  mq.addEventListener('change', placeDetail);
+  // Панель «Правило» — третья колонка только на ≥1200 px; уже — шторка по «ⓘ»
+  function placeRules() {
+    if (WIDE.matches) { layoutEl.append(rulesEl); layoutEl.classList.add('has-rules'); }
+    else { rulesEl.remove(); layoutEl.classList.remove('has-rules'); }
+  }
+  WIDE.addEventListener('change', placeRules);
+  placeRules();
 
   updateList();
   updateDetail();
   updateFoot();
+  placeDetail();
 
-  return el('div', { class: 'mech-step-body' },
+  return el('div', { class: 'mech-step-body is-cls' },
     el('h2', { class: 'mech-step-title' }, 'Выберите класс'),
-    el('div', { class: 'mech-cls-layout' }, el('div', { class: 'mech-list-wrap' }, listEl), detailEl),
+    layoutEl,
     footEl,
   );
 }
@@ -1441,9 +2358,11 @@ function buildClassStep(st, goMech) {
 // ─── Race data ────────────────────────────────────────────────────────────────
 
 const RACE_DATA = {
+  // 2026-09-27 (заказчик): расы не из PHB удалены из данных — в них были ошибки и выдуманные записи
+  // (docs/reviews/2026-09-27_dndsu-content-audit.md). Будут заведены заново по dnd.su.
   PHB: [
     { name: 'Дварф',      sub: ['Горный', 'Холмовой'],       desc: 'Стойкий подземный народ с многовековой традицией кузнечного дела и горной добычи. Непоколебимы в бою, верны клану и слову.' },
-    { name: 'Эльф',       sub: ['Высший', 'Лесной', 'Дроу'], desc: 'Долгоживущий изящный народ с врождённой связью с магией. Острые чувства, природная грация и глубокая память делают эльфов превосходными магами и лучниками.' },
+    { name: 'Эльф',       sub: ['Высший', 'Лесной', 'Тёмный эльф (дроу)'], desc: 'Долгоживущий изящный народ с врождённой связью с магией. Острые чувства, природная грация и глубокая память делают эльфов превосходными магами и лучниками.' },
     { name: 'Полурослик', sub: ['Легконогий', 'Коренастый'], desc: 'Небольшой, но бесстрашный народ. Природная удача и умение оставаться в тени помогают им выходить из самых сложных переделок.' },
     { name: 'Человек',    sub: ['Стандартный', 'Альтернативный'],   desc: 'Самая распространённая и разнообразная раса. Люди быстро учатся и адаптируются, нередко превосходя другие народы за счёт амбиций.' },
     { name: 'Драконорождённый', sub: [],                     desc: 'Гордый народ с чешуёй и кровью дракона. Наделены оружейным дыханием и врождённой устойчивостью к стихиям.' },
@@ -1452,103 +2371,6 @@ const RACE_DATA = {
     { name: 'Полуорк',    sub: [],                           desc: 'Потомки людей и орков, наследующие выносливость обоих. Физически мощны и не уступают там, где другие давно сложили бы оружие.' },
     { name: 'Тифлинг',   sub: [],                           desc: 'Потомки людей с инфернальным наследием от давнего дьявольского договора. Несмотря на предрассудки, многие тифлинги куют собственную судьбу.' },
   ],
-  SCAG: [
-    { name: 'Дварф Серого Пика', sub: [],                           desc: 'Горные дварфы, укрывшиеся в Горах Серого Пика. Суровее своих собратьев, с природной магией земли.' },
-    { name: 'Эладрин',           sub: ['Весенний', 'Летний', 'Осенний', 'Зимний'], desc: 'Эльфы Страны Фей, чей облик и настрой меняется вместе со временами года. Непредсказуемы и прекрасны.' },
-    { name: 'Дроу (Восход)',     sub: [],                           desc: 'Дроу, отвергнувшие культ Ллос и поднявшиеся на поверхность. Несут тяжесть прошлого, но выбирают собственный путь.' },
-    { name: 'Полуэльф (вар.)',   sub: [],                           desc: 'Вариант полуэльфа с улучшенными расовыми чертами, привязанными к эльфийскому наследию.' },
-  ],
-  MToF: [
-    { name: 'Гитьянки',  sub: [], desc: 'Воинственные завоеватели Астрального плана. Жёсткая иерархия, телепатия и врождённое владение псионикой.' },
-    { name: 'Гитзерай',  sub: [], desc: 'Монахи и философы, ищущие совершенства разума. Мастера псионики и самодисциплины.' },
-    { name: 'Эладрин',   sub: ['Весенний', 'Летний', 'Осенний', 'Зимний'], desc: 'Фейские эльфы, воплощающие силу времён года. Могут менять подрасу на длинном отдыхе.' },
-    { name: 'Гифт',      sub: [], desc: 'Астральные торговцы с телепатическими способностями и природной тягой к торговле и дипломатии.' },
-    { name: 'Юань-Ти',   sub: [], desc: 'Потомки людей, смешавших кровь со змеями. Холодны, расчётливы и устойчивы к магии.' },
-    { name: 'Шемасх',    sub: [], desc: 'Демонические гуманоиды, порождённые Пучиной. Хаотичны, непредсказуемы, но обладают мощными врождёнными способностями.' },
-    { name: 'Деваид',    sub: [], desc: 'Небесные гуманоиды из Семи Небес. Благородны, излучают свет и несут в себе часть небесной силы.' },
-    { name: 'Дуэргар',   sub: [], desc: 'Серые дварфы Подземья, порабощённые иллитидами. Мрачны, выносливы, обладают псионической невидимостью и ростом.' },
-  ],
-  VGtM: [
-    { name: 'Аасимар',   sub: ['Защитник', 'Каратель', 'Падший'], desc: 'Потомки небесных существ, несущие в душе искру горнего света. Каждый аасимар — воплощение своей небесной линии.' },
-    { name: 'Фирболг',   sub: [], desc: 'Великаноподобные лесные отшельники, говорящие с природой. Предпочитают мир войне, но страшны в схватке.' },
-    { name: 'Голиаф',    sub: [], desc: 'Горные гиганты, живущие по строгому кодексу чести. Каждый поступок оценивается общиной — слабости недопустимы.' },
-    { name: 'Кенку',     sub: [], desc: 'Птицеподобные имитаторы, утратившие собственный голос. Общаются звуками и фразами из памяти, мастера маскировки.' },
-    { name: 'Кобольд',   sub: [], desc: 'Маленькие чешуйчатые существа, живущие стаями. Компенсируют слабость числом, ловушками и неугасимой трусостью.' },
-    { name: 'Ящеролюд',  sub: [], desc: 'Хладнокровные рептилии с практичным взглядом на мир. Не знают эмоций в человеческом смысле, зато обладают природными доспехами.' },
-    { name: 'Орк',       sub: [], desc: 'Мощные воины с силой и выносливостью, превосходящими большинство рас. Движимы первобытной страстью к схватке.' },
-    { name: 'Табакси',   sub: [], desc: 'Кошачьи следопыты из далёких джунглей. Непревзойдённые скалолазы, бегуны и охотники за редкими знаниями.' },
-    { name: 'Тритон',    sub: [], desc: 'Морской народ, веками охранявший глубины от тьмы. Гордятся своей миссией и с трудом привыкают к жизни на суше.' },
-    { name: 'Юань-Ти (Чистокровный)', sub: [], desc: 'Наиболее человекоподобные из юань-ти, скрывающие змеиную природу под внешностью людей. Устойчивы к ядам и магии.' },
-  ],
-  MPMM: [
-    { name: 'Аасимар',   sub: ['Защитник', 'Каратель', 'Падший'], desc: 'Обновлённые правила аасимара из MPMM. Небесное наследие с гибкой настройкой характеристик.' },
-    { name: 'Centaur',   sub: [], desc: 'Полулюди-полукони с природной скоростью и силой копыт.' },
-    { name: 'Changeling', sub: [], desc: 'Оборотни-социальщики, меняющие облик по желанию.' },
-    { name: 'Duergar',   sub: [], desc: 'Серые дварфы Подземья с псионической невидимостью.' },
-    { name: 'Эладрин',   sub: ['Весенний', 'Летний', 'Осенний', 'Зимний'], desc: 'Фейские эльфы со сменой сезонных подрас.' },
-    { name: 'Fairy',     sub: [], desc: 'Крылатый фейский народ с природной магией.' },
-    { name: 'Фирболг',   sub: [], desc: 'Лесные великаны с даром природной магии.' },
-    { name: 'Гифт',      sub: [], desc: 'Астральные телепаты-торговцы.' },
-    { name: 'Голиаф',    sub: [], desc: 'Горные гиганты, живущие по кодексу чести.' },
-    { name: 'Harengon',  sub: [], desc: 'Зайцеподобный фейский народ с природной удачей.' },
-    { name: 'Кенку',     sub: [], desc: 'Птицеподобные имитаторы без собственного голоса.' },
-    { name: 'Кобольд',   sub: [], desc: 'Маленькие чешуйчатые существа, сильные в стае.' },
-    { name: 'Leonin',    sub: [], desc: 'Гордый львиноподобный народ с природным бесстрашием.' },
-    { name: 'Ящеролюд',  sub: [], desc: 'Хладнокровные рептилии с практичным взглядом на мир.' },
-    { name: 'Minotaur',  sub: [], desc: 'Мощные быкоголовые воины с природной стойкостью.' },
-    { name: 'Орк',       sub: [], desc: 'Выносливые воины с первобытной страстью к схватке.' },
-    { name: 'Satyr',     sub: [], desc: 'Козлоногий фейский народ, устойчивый к магии.' },
-    { name: 'Табакси',   sub: [], desc: 'Кошачьи следопыты — мастера скорости и лазанья.' },
-    { name: 'Тритон',    sub: [], desc: 'Морской народ, стражи глубин.' },
-    { name: 'Warforged', sub: [], desc: 'Живые боевые конструкты из металла и дерева. Не нуждаются в сне и пище, но стремятся понять смысл своего существования.' },
-    { name: 'Юань-Ти',  sub: [], desc: 'Змеелюди с холодным расчётом и устойчивостью к яду.' },
-  ],
-  VRGR: [
-    { name: 'Dhampir',   sub: [], desc: 'Полувампиры на грани двух природ. Питаются жизненной силой, но сохраняют разум живых.' },
-    { name: 'Hexblood',  sub: [], desc: 'Отмеченные ведьминым договором. Несут в себе тёмную магию фей и чувствуют сверхъестественное.' },
-    { name: 'Reborn',    sub: [], desc: 'Вернувшиеся из смерти с туманными воспоминаниями. Устойчивы к яду и болезням, не нуждаются во сне.' },
-  ],
-  WBW: [
-    { name: 'Fairy',    sub: [], desc: 'Крылатый народ Страны Фей с природной магией и способностью летать.' },
-    { name: 'Harengon', sub: [], desc: 'Зайцеподобные существа из Страны Фей с природной удачей и невероятной прыжковой способностью.' },
-  ],
-  MOT: [
-    { name: 'Centaur',  sub: [], desc: 'Гордый народ полулюдей-полуконей из мира Терос. Быстры, сильны и верны традициям предков.' },
-    { name: 'Leonin',   sub: [], desc: 'Величественный львиноподобный народ, хранящий независимость от богов Терос.' },
-    { name: 'Minotaur', sub: [], desc: 'Быкоголовые воители с природной яростью и острым чутьём к опасности.' },
-    { name: 'Satyr',    sub: [], desc: 'Козлоногие гуляки, устойчивые к любой магии. Обожают веселье и ценят свободу превыше всего.' },
-    { name: 'Тритон',   sub: [], desc: 'Морской народ, посланный богами охранять побережья Терос.' },
-  ],
-  GGR: [
-    { name: 'Centaur',      sub: [], desc: 'Полулюди-полукони из гильдии Груул — дикие и свободолюбивые.' },
-    { name: 'Goblin',       sub: [], desc: 'Маленькие хитрые существа, члены гильдии Имеркул. Умны, злопамятны и мастерски прячутся.' },
-    { name: 'Loxodon',      sub: [], desc: 'Слоноподобный народ гильдии Селесния — мудрые, спокойные и физически мощные.' },
-    { name: 'Minotaur',     sub: [], desc: 'Быкоголовые воины гильдии Боррос — прямолинейны, яростны и верны долгу.' },
-    { name: 'Simic Hybrid', sub: [], desc: 'Люди и мерфолки, модифицированные магией Симика. Несут черты морских существ — плавники, жабры, щупальца.' },
-    { name: 'Vedalken',     sub: [], desc: 'Синекожие интеллектуалы гильдии Иззет. Рациональны, холодны и одержимы совершенством.' },
-  ],
-  RLW: [
-    { name: 'Changeling', sub: [], desc: 'Оборотни Эберрона с даром принимать любой облик. Прирождённые шпионы и дипломаты.' },
-    { name: 'Kalashtar',  sub: [], desc: 'Люди, сросшиеся с духами кварри. Псионические способности и природная защита от зла снов.' },
-    { name: 'Орк Эберрона', sub: [], desc: 'Орки Эберрона — стражи природы и духов, а не просто варвары. Гармонируют с миром иначе, чем их аналоги из других сеттингов.' },
-    { name: 'Shifter',    sub: ['Beasthide', 'Longtooth', 'Swiftstride', 'Wildhunt'], desc: 'Потомки ликантропов Эберрона, способные временно усиливать звериные черты.' },
-    { name: 'Warforged',  sub: [], desc: 'Боевые конструкты, созданные для Последней Войны. Теперь ищут своё место в мире, который их больше не нуждается в бою.' },
-  ],
-  SAS: [
-    { name: 'Astral Elf', sub: [], desc: 'Эльфы, живущие в вечности Астрального плана. Медитация заменяет им сон, а время для них почти остановилось.' },
-    { name: 'Autognome',  sub: [], desc: 'Самосозданные гномьи конструкты, вырвавшиеся на свободу. Механическое тело, но живой разум.' },
-    { name: 'Giff',       sub: [], desc: 'Бегемотоподобные наёмники с любовью к огнестрельному оружию и военной дисциплине.' },
-    { name: 'Hadozee',    sub: [], desc: 'Обезьяноподобные моряки с перепончатыми крыльями. Прирождённые вахтенные и воздушные акробаты.' },
-    { name: 'Plasmoid',   sub: [], desc: 'Разумные амёбы, принимающие любую форму. Могут сжиматься в щели и поглощать предметы.' },
-    { name: 'Thri-kreen', sub: [], desc: 'Насекомоподобные охотники с четырьмя руками и природной телепатией. Никогда не спят.' },
-  ],
-  TP:  [{ name: 'Tortle',    sub: [], desc: 'Черепахолюди с природным панцирем вместо доспехов. Мудрые, медлительные и невозмутимые странники.' }],
-  OGA: [{ name: 'Grung',     sub: [], desc: 'Ядовитые лягушкоподобные существа из джунглей. Высокомерны и считают все другие расы ниже себя.' }],
-  LR:  [{ name: 'Locathah',  sub: [], desc: 'Рыбоподобный прибрежный народ, долго пребывавший в рабстве. Восстание дало им свободу и несгибаемую волю.' }],
-  AI:  [],
-  POA: [],
-  XGtE: [],
-  TCE: [],
 };
 
 // ─── Background data ──────────────────────────────────────────────────────────
@@ -1622,18 +2444,21 @@ function bgChoiceOptions(type) {
 //                              proficient», SCAG), отдельного выбора нет.
 // Без `item` — только владение, в снаряжение ничего не попадает (Благородный, Преступник, Чужеземец).
 const BACKGROUND_DATA = {
+  // 2026-09-27 (заказчик): предыстории не из PHB удалены из данных — названия, навыки и снаряжение расходились с dnd.su
+  // (docs/reviews/2026-09-27_dndsu-content-audit.md). Будут заведены заново по dnd.su.
   PHB: [
     {
       name: 'Прислужник',
       skills: 'Проницательность, Религия',
-      equipment: 'Символ священного заступника, молитвенник или 5 палочек благовоний, набор облачения, простая одежда, кошель с 15 зм',
+      equipment: 'Священный символ (подаренный вам в момент принятия священного сана), молитвенник или молитвенный барабан, 5 палочек благовоний, ряса, комплект обычной одежды, поясной кошель с 15 зм', // dnd.su 2026-09-27
+
       choices: [{ label: 'Язык', type: 'language', count: 2 }],
       desc: 'Вы провели годы, служа в храме — помогали жрецам проводить ритуалы, ухаживали за святилищем и наставляли верующих. Годы смиренного служения сформировали вашу веру, и теперь вы несёте свет избранного пантеона в широкий мир. Боги вашего храма готовы бесплатно оказывать вам лечебную помощь, а вы можете найти пристанище в любом храме, связанном с вашей верой.',
     },
     {
       name: 'Артист',
       skills: 'Акробатика, Выступление',
-      equipment: 'Музыкальный инструмент (на ваш выбор), подарок от поклонника, костюм, кошель с 15 зм',
+      equipment: 'Музыкальный инструмент (на ваш выбор), подарок от поклонницы (любовное письмо, локон волос или безделушка), костюм, поясной кошель с 15 зм', // dnd.su 2026-09-27
       tools: ['Набор для грима'],
       choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1, item: {} }],
       desc: 'Вы умеете привлекать к себе внимание и развлекать толпу. Музыка, акробатика, поэзия или театральное искусство — вы мастер своего дела. Выступая в тавернах, на ярмарках и при дворах знати, вы завоевали поклонников и связи. Артисты и развлекатели могут принять вас и оказать помощь, а публика охотно бросает монеты к вашим ногам.',
@@ -1641,7 +2466,7 @@ const BACKGROUND_DATA = {
     {
       name: 'Гладиатор',
       skills: 'Акробатика, Выступление',
-      equipment: 'Музыкальный инструмент или недорогое необычное оружие (трезубец, сеть) на ваш выбор, подарок от поклонника, костюм, кошель с 15 зм',
+      equipment: 'Музыкальный инструмент (на ваш выбор) или недорогое, но необычное оружие, такое как трезубец или сеть, подарок от поклонницы (любовное письмо, локон волос или безделушка), костюм, поясной кошель с 15 зм', // dnd.su 2026-09-27
       tools: ['Набор для грима'],
       choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1, item: { extra: ['Трезубец', 'Сеть'] } }],
       desc: 'Вы сражались на потеху толпе — на аренах и в ямах для боёв, где публика жаждет крови и зрелища не меньше, чем музыки или стихов. Каждый ваш выход — представление: эффектный удар, дерзкая поза, заигрывание с трибунами. Артисты и владельцы арен готовы принять вас, а публика охотно бросает монеты к вашим ногам после удачного боя.',
@@ -1649,7 +2474,7 @@ const BACKGROUND_DATA = {
     {
       name: 'Беспризорник',
       skills: 'Ловкость рук, Скрытность',
-      equipment: 'Небольшой нож, карта родного города, ручная мышь, памятная вещь о родителях, обычная одежда, кошель с 10 зм',
+      equipment: 'Маленький нож, карта города, в котором вы выросли, ручная мышь, безделушка в память о родителях, комплект обычной одежды, поясной кошель с 10 зм', // dnd.su 2026-09-27
       tools: ['Воровские инструменты', 'Набор для грима'],
       choices: [],
       desc: 'Вы выросли на улицах города без семьи и крова, научившись выживать там, где другие погибли бы. Улица научила вас двигаться незаметно, находить пропитание и ценить каждое убежище. Вы знаете тайные ходы и переулки знакомого города, а среди уличного люда всегда найдёте кров и кусок хлеба в обмен на мелкую услугу.',
@@ -1657,35 +2482,45 @@ const BACKGROUND_DATA = {
     {
       name: 'Благородный',
       skills: 'История, Убеждение',
-      equipment: 'Комплект отличной одежды, кольцо с гербом, свиток родословной, кошель с 25 зм',
+      equipment: 'Комплект отличной одежды, кольцо-печатка, свиток с генеалогическим древом, кошелёк с 25 зм', // dnd.su 2026-09-27
       choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы выросли среди богатства, власти и привилегий. Ваша семья владеет землями, имеет авторитет при дворе и поколениями влияет на судьбы региона. Вы знаете придворный этикет, умеете вести себя среди знати и привыкли к тому, что люди обращают внимание на ваш титул. Ваши знакомства открывают двери туда, куда простолюдинам вход закрыт.',
     },
     {
       name: 'Рыцарь',
       skills: 'История, Убеждение',
-      equipment: 'Комплект отличной одежды, кольцо с гербом, свиток родословной, кошель с 25 зм',
+      equipment: 'Комплект отличной одежды, кольцо-печатка, свиток с генеалогическим древом, кошелёк с 25 зм; можно добавить в снаряжение знамя или подарок от леди, которой вы вручили своё сердце', // dnd.su 2026-09-27
       choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы выросли среди богатства, власти и привилегий, но ваше место в обществе связано не только с происхождением, но и с данной клятвой — служить сюзерену, ордену или идее. Вас обучали этикету, верховой езде и обращению с оружием, а за вами присматривают верные слуги, готовые сопровождать вас в путешествиях. Знакомства вашей семьи открывают двери туда, куда простолюдинам вход закрыт.',
     },
     {
       name: 'Гильдейский ремесленник',
       skills: 'Проницательность, Убеждение',
-      equipment: 'Ремесленные инструменты (на ваш выбор), рекомендательное письмо от гильдии, дорожная одежда, кошель с 15 зм',
+      equipment: 'Один вид ремесленных инструментов, рекомендательное письмо из гильдии, комплект дорожной одежды, поясной кошель с 15 зм', // dnd.su 2026-09-27
       choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1, item: {} }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы — опытный мастер своего ремесла и полноправный член торговой или ремесленной гильдии. Гильдия — ваша семья: она обеспечивает работу, защиту и социальные связи. В любом городе, где есть отделение вашей гильдии, вы можете рассчитывать на бесплатный ночлег и помощь соратников. Гильдия также поможет с юридической защитой, если дело дойдёт до суда.',
     },
     {
       name: 'Купец гильдии',
       skills: 'Проницательность, Убеждение',
-      equipment: 'Рекомендательное письмо от гильдии, комплект одежды мастера, кошель с 15 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 2 }],
+      // dnd.su 2026-09-27, «Разновидность гильдейского ремесленника: гильдейский купец»: «Вместо владения ремесленным
+      // инструментом вы можете овладеть инструментами навигатора или дополнительным языком. А вместо наличия ремесленных
+      // инструментов вы можете начать игру с мулом и телегой.»
+      equipment: 'Мул и телега, рекомендательное письмо из гильдии, комплект дорожной одежды, поясной кошель с 15 зм', // dnd.su 2026-09-27
+      choices: [
+        { label: 'Язык', type: 'language', count: 1 },
+        { label: 'Инструменты навигатора или язык', type: 'nav_or_lang', count: 1, groups: [
+          { label: 'Инструменты навигатора', type: 'fixed', value: 'Инструменты навигатора' },
+          { label: 'Язык', type: 'language' },
+        ] },
+      ],
       desc: 'Вы — опытный торговец и полноправный член купеческой гильдии, ведущей дела в разных городах и странах. Караваны, склады и деловые связи — ваш мир. Гильдия — ваша семья: она обеспечивает работу, защиту и социальные связи. В любом городе, где есть отделение вашей гильдии, вы можете рассчитывать на бесплатный ночлег и помощь соратников. Гильдия также поможет с юридической защитой, если дело дойдёт до суда.',
     },
     {
       name: 'Шарлатан',
       skills: 'Обман, Ловкость рук',
-      equipment: 'Набор отличной одежды, набор для грима, набор инструментов мошенника, кошель с 15 зм',
+      equipment: 'Комплект отличной одежды, набор для грима, приспособление для жульничества на ваш выбор (десять запечатанных бутылей с подкрашенной жидкостью, набор шулерских костей, колода краплёных карт или кольцо с печатью какого-нибудь воображаемого герцога), поясной кошель с 15 зм', // dnd.su 2026-09-27
+
       tools: ['Набор для грима', 'Набор для фальсификации'],
       choices: [],
       desc: 'Вы всегда умели видеть слабости людей и использовать их в своих целях. Фальшивые личности, ловкий язык, убедительная ложь — всё это ваши главные инструменты. Возможно, вы торговали поддельными снадобьями, продавали "уникальные реликвии" или просто обчищали карманы зазевавшихся богачей. У вас всегда есть запасная легенда, а подобные вам мошенники готовы укрыть вас и передать весточку без лишних вопросов.',
@@ -1693,7 +2528,7 @@ const BACKGROUND_DATA = {
     {
       name: 'Моряк',
       skills: 'Атлетика, Восприятие',
-      equipment: 'Кофель-нагель (дубинка), 50 футов шёлковой верёвки, талисман на удачу, обычная одежда, кошель с 10 зм',
+      equipment: 'Кофель-нагель (дубинка), 50 футов шёлковой верёвки, талисман, такой как кроличья лапка или камень с дыркой (можете совершить бросок по таблице безделушек), комплект обычной одежды, поясной кошель с 10 зм', // dnd.su 2026-09-27
       tools: ['Инструменты навигатора', 'Транспорт (водный)'],
       choices: [],
       desc: 'Вы провели годы на море: на торговом судне, рыбацкой шхуне или военном корабле. Жизнь под парусом закалила тело, обострила чувства и научила работать в команде. Вы умеете читать ветер, предсказывать погоду и найдёте общий язык с любым моряком. В портовых городах вам без труда найдётся попутное судно, а морские кабаки встретят вас как своего.',
@@ -1701,7 +2536,7 @@ const BACKGROUND_DATA = {
     {
       name: 'Пират',
       skills: 'Атлетика, Восприятие',
-      equipment: 'Кофель-нагель (дубинка), 50 футов шёлковой верёвки, талисман на удачу, обычная одежда, кошель с 10 зм',
+      equipment: 'Кофель-нагель (дубинка), 50 футов шёлковой верёвки, талисман, такой как кроличья лапка или камень с дыркой (можете совершить бросок по таблице безделушек), комплект обычной одежды, поясной кошель с 10 зм', // dnd.su 2026-09-27
       tools: ['Инструменты навигатора', 'Транспорт (водный)'],
       choices: [],
       desc: 'Вы бороздили моря под чёрным флагом — грабили торговые суда и делили добычу с командой, для которой закон был пустым звуком. Ваше имя внушает страх в портовых тавернах: буйная матросня предпочитает не связываться с человеком вашей репутации, а стражники нередко закрывают глаза на мелкие проступки, лишь бы не иметь с вами дела.',
@@ -1709,14 +2544,15 @@ const BACKGROUND_DATA = {
     {
       name: 'Мудрец',
       skills: 'История, Магия',
-      equipment: 'Бутылочка чернил, перо, небольшой нож, письмо от коллеги с неотвеченным вопросом, записная книжка, мешок с 10 зм',
+      equipment: 'Бутылочка чернил, писчее перо, небольшой нож, письмо от мёртвого коллеги с вопросом, на который вы пока не можете ответить, комплект обычной одежды, поясной кошель с 10 зм', // dnd.su 2026-09-27
+
       choices: [{ label: 'Язык', type: 'language', count: 2 }],
       desc: 'Вы провели годы, погружённых в книги, свитки и манускрипты в поисках знаний о мире. Библиотеки, академии и архивы были вашим домом. Вы изучали историю, магию, естественные науки или богословие — а может быть, всё сразу. Другие учёные и исследователи готовы делиться с вами знаниями в обмен на ваши, а любая крупная библиотека, вероятно, хранит труды, к которым вы имеете доступ.',
     },
     {
       name: 'Народный герой',
       skills: 'Уход за животными, Выживание',
-      equipment: 'Ремесленные инструменты (на ваш выбор), лопата, железный горшок, обычная одежда, кошель с 10 зм',
+      equipment: 'Ремесленные инструменты (один вид на ваш выбор), лопата, железный горшок, комплект обычной одежды, поясной кошель с 10 зм', // dnd.su 2026-09-27
       tools: ['Транспорт (наземный)'],
       choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1, item: {} }],
       desc: 'Вы — простой человек из простой семьи, но однажды судьба поставила вас перед выбором, и вы поступили правильно. Теперь люди из вашей деревни или округи смотрят на вас как на заступника и надеются, что вы защитите их от тирании и зла. Простые крестьяне и ремесленники рады помочь вам: спрятать, накормить, передать весть, — ведь вы один из них.',
@@ -1724,7 +2560,8 @@ const BACKGROUND_DATA = {
     {
       name: 'Отшельник',
       skills: 'Медицина, Религия',
-      equipment: 'Принадлежности для рукоделия, дневник в кожаной обложке, набор трав, зимняя одежда, кошель с 5 зм',
+      equipment: 'Контейнер для свитков, битком набитый вашими молитвами и изысканиями, тёплое одеяло, комплект обычной одежды, набор травника, 5 зм', // dnd.su 2026-09-27
+
       tools: ['Набор травника'],
       choices: [{ label: 'Язык', type: 'language', count: 1 }],
       desc: 'Долгие годы вы провели в уединении вдали от общества — в монастырской келье, лесной хижине или пещере. Одиночество давало вам время для размышлений, молитвы или исследований. Быть может, вы искали ответы на великие вопросы, бежали от преследования или несли суровое покаяние. Теперь за вами стоит открытие или понимание, изменившее ваш взгляд на мир.',
@@ -1732,7 +2569,7 @@ const BACKGROUND_DATA = {
     {
       name: 'Преступник',
       skills: 'Обман, Скрытность',
-      equipment: 'Ломик, тёмная обычная одежда с капюшоном, кошель с 15 зм',
+      equipment: 'Ломик, комплект обычной тёмной одежды с капюшоном, поясной кошель с 15 зм', // dnd.su 2026-09-27
       tools: ['Воровские инструменты'],
       choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }],
       desc: 'До приключений вы нарушали закон — и довольно успешно. Кражи, контрабанда, шантаж или убийства на заказ: у вас за плечами богатый опыт незаконной деятельности. Вы знаете, как связаться с фехтовальщиками краденого, скупщиками информации и другими преступниками. Члены воровских гильдий и уличных банд, как правило, относятся к вам с уважением — или по меньшей мере не мешают.',
@@ -1740,7 +2577,7 @@ const BACKGROUND_DATA = {
     {
       name: 'Шпион',
       skills: 'Обман, Скрытность',
-      equipment: 'Ломик, тёмная обычная одежда с капюшоном, кошель с 15 зм',
+      equipment: 'Ломик, комплект обычной тёмной одежды с капюшоном, поясной кошель с 15 зм', // dnd.su 2026-09-27
       tools: ['Воровские инструменты'],
       choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }],
       desc: 'До приключений вы работали на разведку — собирали сведения, вели наблюдение и передавали донесения тем, кто платил за информацию. Слежка, шифры и явочные квартиры — привычная часть вашей прошлой жизни. Вы знаете, как связаться с осведомителями, скупщиками информации и другими агентами. Люди из мира тайных служб и преступного подполья, как правило, относятся к вам с уважением — или по меньшей мере не мешают.',
@@ -1748,14 +2585,14 @@ const BACKGROUND_DATA = {
     {
       name: 'Чужеземец',
       skills: 'Атлетика, Выживание',
-      equipment: 'Посох, охотничий капкан, трофей убитого животного, дорожная одежда, кошель с 10 зм',
+      equipment: 'Посох, капкан, трофей с убитого животного, комплект дорожной одежды, поясной кошель с 10 зм', // dnd.su 2026-09-27
       choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы выросли вдали от цивилизации — в лесах, тундре, степях или горах. Дикая природа была вашим домом, а племя или семья — всем миром. Вы умеете выживать там, где городской житель обречён на гибель: находить пропитание, строить укрытие и ориентироваться без карт. Люди племён и охотники встретят вас как своего, если вы разделите их обычаи.',
     },
     {
       name: 'Солдат',
       skills: 'Атлетика, Запугивание',
-      equipment: 'Знак отличия, трофей с павшего врага, набор игральных костей или колода карт, обычная одежда, кошель с 10 зм',
+      equipment: 'Знак отличия, трофей с убитого врага (кинжал, сломанный клинок или кусок знамени), набор игровых костей или колода карт, комплект обычной одежды, поясной кошель с 10 зм', // dnd.su 2026-09-27
       tools: ['Транспорт (наземный)'],
       choices: [{ label: 'Игровой набор', type: 'gaming', count: 1, item: { list: ['Игральные кости', 'Карты'] } }],
       desc: 'Вы долгие годы служили в армии — регулярных войсках, городской страже или наёмном отряде. Война научила вас дисциплине, тактике и тому, как выжить в хаосе битвы. У вас есть звание и послужной список: солдаты и ветераны признают в вас своего, офицеры уважают ваш опыт, а военные лагеря и гарнизоны готовы принять вас.',
@@ -1773,137 +2610,6 @@ const BACKGROUND_DATA = {
         { label: 'Снаряжение от предыстории', type: 'bg_equipment', count: 1 },
       ],
       desc: 'Возможно, вы захотите изменить некоторые особенности предыстории, чтобы они лучше подходили вашему персонажу или игровому миру. Для создания собственной предыстории вы можете изменить одно умение на любое другое, выбрать два любых навыка и выбрать владение инструментами и языками, чтобы в сумму их было не больше двух, из образцов других предысторий. Вы можете взять набор снаряжения из выбранной предыстории или потратить золото для закупки снаряжения, как сказано в главе 5. И наконец, выберите две черты характера, один идеал, одну привязанность и одну слабость.',
-    },
-  ],
-  SCAG: [
-    {
-      name: 'Городская стража',
-      skills: 'Атлетика, Проницательность',
-      equipment: 'Эмблема городской стражи, манускрипт с городским уставом, обычная одежда, кошель с 10 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 2 }],
-      desc: 'Вы служили в городской страже или дозоре, охраняя покой мирных жителей от преступников и монстров. Годы патрулирования улиц научили вас читать людей, замечать подозрительное поведение и действовать решительно. Вы знаете, как работают силы правопорядка в большинстве городов, и представители власти склонны прислушиваться к вам.',
-    },
-    {
-      name: 'Клановый мастер',
-      skills: 'История, Проницательность',
-      equipment: 'Памятный предмет из дома клана, обычная одежда, кошель с 5 зм',
-      choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1, item: { same: true } }, { label: 'Язык', type: 'language', count: 1 }],
-      desc: 'Вы выросли в клане гномов-мастеров или иного народа с богатыми традициями ремесла. Ваши изделия — предмет гордости клана, а секреты мастерства передавались из рук в руки поколениями. Вы умеете ценить качественную работу и сразу видите, когда мастер халтурит. Гномские кланы-мастера повсюду примут вас как равного и помогут с торговыми контактами.',
-    },
-    {
-      name: 'Монастырский учёный',
-      skills: 'История + 1 из: Магия, Природа, Религия',
-      equipment: 'Письмо о принятии в монастырь, записная книжка, перо и чернила, обычная одежда, кошель с 10 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 2 }],
-      desc: 'Вы получили образование в монастырском скриптории или академическом хранилище знаний — месте, где книги переписывались вручную и тщательно охранялись. Вы усвоили строгую методологию и доступ к редким источникам. Учёные заведения обычно готовы предоставить вам доступ к архивам в обмен на помощь с исследованиями, а академики относятся к вам как к коллеге.',
-    },
-    {
-      name: 'Придворный',
-      skills: 'Проницательность, Убеждение',
-      equipment: 'Комплект придворной одежды, рекомендательное письмо ко двору, кошель с 5 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 2 }],
-      desc: 'Вы вращались при королевском или герцогском дворе, постигая тонкости дипломатии, интриг и этикета. Придворная жизнь научила вас читать политические течения, выбирать слова с ювелирной точностью и никогда не показывать истинных намерений. Дворяне и чиновники знакомы с вашим типом: они готовы принять вас на аудиенции там, куда обычный человек не попадёт.',
-    },
-    {
-      name: 'Дальний странник',
-      skills: 'Восприятие + 1 по выбору',
-      equipment: 'Путевые вещи, реликвия из далёкого дома, записная книжка, кошель с 5 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Инструмент/набор', type: 'instrument', count: 1, item: { same: true } }],
-      desc: 'Вы пришли из страны настолько далёкой, что большинство людей здесь никогда о ней не слышали. Ваш акцент, одежда и обычаи выдают в вас чужеземца, вызывая у людей смесь восхищения и подозрения. Вы сохранили связи с теми, кто путешествует между мирами и народами, — торговцами дальних маршрутов, дипломатами, лазутчиками.',
-    },
-    {
-      name: 'Наследник',
-      skills: 'Выживание + 1 по выбору',
-      equipment: 'Предмет наследства (согласуется с DM), путевая одежда, кошель с 15 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Игровой набор', type: 'gaming', count: 1, item: { same: true } }],
-      desc: 'Вы унаследовали нечто ценное — старинный артефакт, долг, миссию или тайну. Это наследство определяет ваш путь и не даёт вам покоя. Быть может, вы единственный, кто знает о нём, или, напротив, многие хотят забрать его у вас силой. Те, кто связан с вашим наследством, могут стать союзниками или врагами.',
-    },
-    {
-      name: 'Рыцарь ордена',
-      skills: 'Убеждение + 1 по выбору',
-      equipment: 'Символ ордена, путевая одежда, кошель с 10 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Игровой набор', type: 'gaming', count: 1 }],
-      desc: 'Вы посвящены в рыцарский или религиозный орден, преследующий особые цели: защиту слабых, уничтожение зла или охрану реликвий. Орден обеспечивает вас братством, ресурсами и кровом в подконтрольных ему местах. Взамен вы несёте его символ и обязаны блюсти устав. Члены ордена относятся к вам как к брату, а простые люди нередко чтят вашу принадлежность к нему.',
-    },
-    {
-      name: 'Ветеран наёмник',
-      skills: 'Атлетика, Убеждение',
-      equipment: 'Знак воинского звания, значок отряда, выбранный игровой набор, обычная одежда, кошель с 10 зм',
-      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1, item: {} }],
-      desc: 'Вы продавали меч тому, кто платил больше, сражаясь в разных армиях и под разными знамёнами. Наёмная жизнь научила вас оценивать нанимателей, не задавать лишних вопросов и знать, когда пора уходить. Другие ветераны наёмных отрядов узнают вас по манере держаться и охотно делятся слухами о контрактах и войнах.',
-    },
-    {
-      name: 'Городской охотник',
-      skills: '3 из: Обман, Скрытность, Проницательность, Убеждение',
-      equipment: 'Подходящая одежда, кошель с 20 зм',
-      choices: [{ type: 'pick2of3', label: '2 из 3 на выбор:', options: [
-        { label: 'Игровой набор',      type: 'gaming' },
-        { label: 'Муз. инструмент',    type: 'instrument' },
-        { label: 'Вор. инструменты',   type: 'fixed', value: 'Воровские инструменты' },
-      ]}],
-      desc: 'Вы охотились за беглецами и разыскиваемыми преступниками в городских трущобах. Ваша работа требовала терпения, умения вживаться в образ и готовности действовать грязными методами. Вы знаете, как найти нужного человека в мегаполисе, а сеть информаторов — таверщики, уличные торговцы, прачки — готова сообщить о передвижениях за небольшую плату.',
-    },
-    {
-      name: 'Член племени Угтардов',
-      skills: 'Атлетика, Выживание',
-      equipment: 'Охотничий трофей, дорожная одежда, кошель с 10 зм',
-      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
-      desc: 'Вы выросли в одном из кочевых племён Угтардов — варварского народа севера Фаэруна, хранящего память о своих предках-великанах. Охота, набеги и жизнь под открытым небом — вот что сформировало вас. Угтарды уважают силу и чтут предков: вы знаете ритуалы, которые позволят вам найти приют у любого отделившегося племени на Севере.',
-    },
-    {
-      name: 'Дворянин Уотердипа',
-      skills: 'История, Убеждение',
-      equipment: 'Комплект отличной одежды, рекомендательное письмо, кошель с 20 зм',
-      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }, { label: 'Язык', type: 'language', count: 2 }],
-      desc: 'Вы происходите из одной из благородных семей Уотердипа — богатейшего торгового города Побережья Мечей. Ваши связи в городе открывают двери в советы лордов, купеческие клубы и тайные ложи. За пределами Уотердипа ваш титул значит меньше, зато золото и письма с рекомендациями заменяют его с лихвой.',
-    },
-  ],
-  GGR: [
-    {
-      name: 'Агент Азория',
-      skills: 'Проницательность, Убеждение',
-      equipment: 'Форменная одежда чиновника, набор чернил и пера, кошель с 10 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 2 }],
-      desc: 'Вы служили в рядах гильдии Азорий — законодательного совета Равники, пишущего законы и толкующего их в судах. Вы хорошо знаете букву закона и умеете использовать её в своих целях. Члены гильдии окажут вам правовую помощь, а в суде у вас есть шанс получить снисхождение, если вы готовы апеллировать к нужным статутам.',
-    },
-    {
-      name: 'Культист Груула',
-      skills: 'Атлетика, Запугивание',
-      equipment: 'Ритуальный тотем, оружие с клановыми надписями, путевая одежда, кошель с 10 зм',
-      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }],
-      desc: 'Вы принадлежите к дикарским кланам Груул — разрушителей цивилизации, живущих в руинах на краю Равники. Цивилизация для вас — тюрьма, а дикость — освобождение. Члены кланов Груул примут вас в лагере и поделятся пищей, а животные Диких земель чувствуют в вас родственную душу.',
-    },
-    {
-      name: 'Дитя Диммира',
-      skills: 'Обман, Скрытность',
-      equipment: 'Тёмный плащ, набор для грима, кошель с 15 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 2 }],
-      desc: 'Вы выросли в тенях гильдии Диммир — культа теней и секретов, торгующего информацией и плетущего заговоры. Вас приучили хранить тайны, использовать псевдонимы и никому не доверять полностью. Шпионы Диммира передадут вам засекреченные сведения, если сочтут это выгодным для гильдии.',
-    },
-  ],
-  VRGR: [
-    {
-      name: 'Преследуемый',
-      skills: 'Медицина, Скрытность',
-      equipment: 'Амулет с именем любимого человека, одежда с последнего мирного дня, кошель с 1 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Игровой набор', type: 'gaming', count: 1 }],
-      desc: 'Вы пережили нечто ужасное — нападение монстра, контакт с тёмной магией или трагедию, оставившую след на вашей душе. Кошмары не дают вам покоя, а странные видения порой смешиваются с реальностью. Те, кто также прошёл через ужасы, видят в вас своего и готовы укрыть вас — ведь вы знаете, что значит бояться темноты.',
-    },
-    {
-      name: 'Следователь',
-      skills: 'Медицина + 1 по выбору',
-      equipment: 'Записная книжка со старыми заметками, чернила и перо, обычная одежда, кошель с 10 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Инструмент', type: 'artisan', count: 1 }],
-      desc: 'Вы методично распутываете тайны: ищете улики, опрашиваете свидетелей и выстраиваете картину произошедшего из разрозненных фрагментов. Вас нанимали для расследования преступлений, исчезновений или сверхъестественных явлений. Информаторы, библиотекари и репортёры охотно общаются с вами — каждый надеется на свою выгоду от вашего расследования.',
-    },
-  ],
-  WBW: [
-    {
-      name: 'Работник балагана',
-      skills: 'Акробатика, Обман',
-      equipment: 'Маскировочный костюм, набор для грима, путевая одежда, кошель с 8 зм',
-      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }],
-      desc: 'Вы работали в Балагане Диковин Лускин — таинственном фейском передвижном цирке, путешествующем между мирами. Акробат, дрессировщик, иллюзионист или просто разнорабочий — вы видели чудеса, недоступные смертным. Сотрудники балагана по всему Мультивселенной узнают вас по особому жесту и окажут мелкую помощь.',
     },
   ],
 };
@@ -2641,7 +3347,7 @@ function buildBackgroundStep(st, goMech) {
             initialSelected: saved,
             onChange: (n, keys) => { cnt = n; st.mecBgChoiceData[ci] = keys; recheckFoot(); } }))];
       }
-      if (ch.count >= 2) {
+      if (ch.count >= 2 || ch.groups) { // groups — выбор из нескольких групп (Гильдейский купец: навигатор или язык)
         const saved = st.mecBgChoiceData[ci] || [];
         let cnt = saved.length;
         checkers.push(() => cnt >= ch.count);
@@ -2830,23 +3536,14 @@ const STAT_RACE_ASI = {
   'Полурослик':{ dex:2 },        'Человек':   {},
   'Драконорождённый': { str:2,cha:1 }, 'Гном': { int:2 },
   'Полуэльф':  { cha:2 },        'Полуорк':   { str:2,con:1 },
-  'Тифлинг':   { int:1,cha:2 },  'Голиаф':    { str:2,con:1 },
-  'Аасимар':   { cha:2 },        'Фирболг':   { wis:2,str:1 },
-  'Кенку':     { dex:2,wis:1 },  'Тритон':    { str:1,con:1,cha:1 },
-  'Юань-Ти':   { int:1,cha:2 },  'Табакси':   { dex:2,cha:1 },
-  'Ящеролюд':  { con:2,int:1 },  'Орк':       { str:2,con:1 },
-  'Кобольд':   { dex:2 },        'Гитьянки':  { str:2,int:1 },
-  'Гитзерай':  { dex:2,wis:1 },  'Дуэргар':   { con:2,str:1 },
+  'Тифлинг':   { int:1,cha:2 },  
 };
 
 const STAT_SUBRACE_ASI = {
   'Горный':      { str:2 },              'Холмовой':  { wis:1 },
-  'Высший':      { int:1 },              'Лесной':    { wis:1 },  'Дроу':    { cha:1 },
+  'Высший':      { int:1 },              'Лесной':    { wis:1 },  'Тёмный эльф (дроу)': { cha:1 },
   'Легконогий':  { cha:1 },              'Коренастый': { con:1 },
   'Скальный':    { con:1 },
-  'Защитник':    { wis:1 },              'Каратель':  { str:1 },  'Падший':  { str:1 },
-  'Весенний':    { dex:1,cha:1 },        'Летний':    { str:1,dex:1 },
-  'Осенний':     { con:1,wis:1 },        'Зимний':    { int:1,wis:1 },
   // Human subraces — Standard gets +1 to all, Variant is player's choice (handled separately)
   'Стандартный': { str:1,dex:1,con:1,int:1,wis:1,cha:1 },
 };
@@ -3480,41 +4177,26 @@ const CLASS_EQUIP = {
 };
 
 const BG_EQUIP = {
-  'Прислужник':       ['Символ веры', 'Молитвенник или 5 палочек благовоний', '5 свечей', 'Облачение'],
-  'Артист':           ['Подарок от поклонника', 'Костюм'],
-  'Гладиатор':        ['Подарок от поклонника', 'Костюм'],
-  'Беспризорник':     ['Небольшой нож', 'Карта города', 'Тёмный плащ'],
-  'Благородный':      ['Тонкие одежды', 'Перстень с гербом', 'Рекомендательное письмо'],
-  'Рыцарь':           ['Тонкие одежды', 'Перстень с гербом', 'Рекомендательное письмо'],
-  'Гильдейский ремесленник': ['Рекомендательное письмо от гильдии', 'Дорожная одежда'],
-  'Купец гильдии': ['Письмо от гильдии', 'Опрятная одежда'],
-  'Городская стража':    ['Форменная одежда', 'Рожок', 'Кандалы'],
-  'Клановый мастер':     ['Памятный предмет клана', 'Обычная одежда'],
-  'Монастырский учёный': ['Письмо о принятии', 'Записная книжка', 'Перо и чернила', 'Обычная одежда'],
-  'Придворный':          ['Придворная одежда', 'Рекомендательное письмо'],
-  'Дальний странник':    ['Реликвия из дома', 'Записная книжка', 'Путевые вещи'],
-  'Наследник':           ['Предмет наследства', 'Путевая одежда'],
-  'Рыцарь ордена':       ['Символ ордена', 'Путевая одежда'],
-  'Ветеран наёмник':     ['Знак воинского звания', 'Значок отряда', 'Обычная одежда'],
-  'Городской охотник':   ['Подходящая одежда'],
-  'Член племени Угтардов': ['Охотничий трофей', 'Дорожная одежда'],
-  'Дворянин Уотердипа':  ['Отличная одежда', 'Рекомендательное письмо'],
-  'Агент Азория':        ['Форменная одежда', 'Чернила и перо'],
-  'Культист Груула':     ['Ритуальный тотем', 'Оружие с надписями', 'Путевая одежда'],
-  'Дитя Диммира':        ['Тёмный плащ', 'Набор для грима'],
-  'Преследуемый':        ['Амулет с именем любимого', 'Одежда с мирного дня'],
-  'Следователь':         ['Записная книжка', 'Чернила и перо', 'Обычная одежда'],
-  'Работник балагана':   ['Маскировочный костюм', 'Набор для грима', 'Путевая одежда'],
-  'Шарлатан':         ['Шулерские карты', 'Одежда разных сословий'],
-  'Моряк':            ['Дубина', '50 фут. канат', 'Дорожная одежда'],
-  'Пират':            ['Дубина', '50 фут. канат', 'Дорожная одежда'],
-  'Мудрец':           ['Чернила', 'Перо', 'Нож для бумаги', 'Письмо с вопросом'],
-  'Народный герой':   ['Лопата', 'Железный горшок', 'Обычная одежда'],
-  'Отшельник':        ['Свитки с заметками', 'Зимнее одеяло', 'Огниво'],
-  'Преступник':       ['Ломик', 'Тёмная одежда с капюшоном'],
-  'Шпион':            ['Ломик', 'Тёмная одежда с капюшоном'],
-  'Чужеземец':        ['Путевые дневники', 'Карты родной земли', 'Дорожные одежды'],
-  'Солдат':           ['Знак отличия', 'Трофей с павшего врага', 'Обычная одежда'],
+  // 2026-09-27: предметы — по строке «Снаряжение» страниц dnd.su (tools/raw_dndsu/2014/pages). Без монет (BG_GOLD)
+  // и без предметов, которые выбираются через choices[].item (муз. инструмент, ремесленные инструменты, игровой набор Солдата).
+  'Прислужник': ['Священный символ (подаренный вам в момент принятия священного сана)', 'Молитвенник или молитвенный барабан', '5 палочек благовоний', 'Ряса', 'Комплект обычной одежды'],
+  'Артист': ['Подарок от поклонницы (любовное письмо, локон волос или безделушка)', 'Костюм'],
+  'Гладиатор': ['Подарок от поклонницы (любовное письмо, локон волос или безделушка)', 'Костюм'],
+  'Беспризорник': ['Маленький нож', 'Карта города, в котором вы выросли', 'Ручная мышь', 'Безделушка в память о родителях', 'Комплект обычной одежды'],
+  'Благородный': ['Комплект отличной одежды', 'Кольцо-печатка', 'Свиток с генеалогическим древом'],
+  'Рыцарь': ['Комплект отличной одежды', 'Кольцо-печатка', 'Свиток с генеалогическим древом'],
+  'Гильдейский ремесленник': ['Рекомендательное письмо из гильдии', 'Комплект дорожной одежды'],
+  'Купец гильдии': ['Мул и телега', 'Рекомендательное письмо из гильдии', 'Комплект дорожной одежды'],
+  'Шарлатан': ['Комплект отличной одежды', 'Набор для грима', 'Приспособление для жульничества на ваш выбор (десять запечатанных бутылей с подкрашенной жидкостью, набор шулерских костей, колода краплёных карт или кольцо с печатью какого-нибудь воображаемого герцога)'],
+  'Моряк': ['Кофель-нагель (дубинка)', '50 футов шёлковой верёвки', 'Талисман (такой как кроличья лапка или камень с дыркой)', 'Комплект обычной одежды'],
+  'Пират': ['Кофель-нагель (дубинка)', '50 футов шёлковой верёвки', 'Талисман (такой как кроличья лапка или камень с дыркой)', 'Комплект обычной одежды'],
+  'Мудрец': ['Бутылочка чернил', 'Писчее перо', 'Небольшой нож', 'Письмо от мёртвого коллеги с вопросом, на который вы пока не можете ответить', 'Комплект обычной одежды'],
+  'Народный герой': ['Лопата', 'Железный горшок', 'Комплект обычной одежды'],
+  'Отшельник': ['Контейнер для свитков, битком набитый вашими молитвами и изысканиями', 'Тёплое одеяло', 'Комплект обычной одежды', 'Набор травника'],
+  'Преступник': ['Ломик', 'Комплект обычной тёмной одежды с капюшоном'],
+  'Шпион': ['Ломик', 'Комплект обычной тёмной одежды с капюшоном'],
+  'Чужеземец': ['Посох', 'Капкан', 'Трофей с убитого животного', 'Комплект дорожной одежды'],
+  'Солдат': ['Знак отличия', 'Трофей с убитого врага (кинжал, сломанный клинок или кусок знамени)', 'Комплект обычной одежды'],
 };
 
 const BG_GOLD = {
@@ -3524,16 +4206,9 @@ const BG_GOLD = {
   'Народный герой': 10, 'Отшельник': 5, 'Преступник': 15, 'Шпион': 15, 'Чужеземец': 10,
   'Солдат': 10, 'Собственная предыстория': 0,
   // SCAG
-  'Городская стража': 10, 'Клановый мастер': 5, 'Монастырский учёный': 10,
-  'Придворный': 5, 'Дальний странник': 5, 'Наследник': 15,
-  'Рыцарь ордена': 10, 'Ветеран наёмник': 10, 'Городской охотник': 20,
-  'Член племени Угтардов': 10, 'Дворянин Уотердипа': 20,
   // GGR
-  'Агент Азория': 10, 'Культист Груула': 10, 'Дитя Диммира': 15,
   // VRGR
-  'Преследуемый': 1, 'Следователь': 10,
   // WBW
-  'Работник балагана': 8,
 };
 
 const CLASS_GOLD = {
@@ -3610,7 +4285,8 @@ const EQUIP_FREE_CHOICES = {
 
 function resolveEquipOpts(item) {
   if (EQUIP_FREE_CHOICES[item]) return EQUIP_FREE_CHOICES[item];
-  if (item.includes(' или ')) return item.split(' или ');
+  // 2026-09-27: «или» внутри скобок — это пояснение из dnd.su («трофей (кинжал … или кусок знамени)»), а не выбор
+  if (item.replace(/\([^)]*\)/g, '').includes(' или ')) return item.split(' или ');
   return null;
 }
 
