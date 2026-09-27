@@ -2,8 +2,20 @@
  * HeroSummoner — Service Worker
  * Strategy: cache-first for assets, always update in background.
  */
-const CACHE = 'herosummoner-v8';
+const CACHE = 'herosummoner-v44';
 
+// NOTE (2026-09-08 review): this list had drifted from the actual import graph — it precached
+// the retired create.js/create.css screen (never imported by app.js, see docs/reviews/
+// 2026-09-08_backend-frontend-review.md) while missing the *active* create-new.js/create-new.css
+// and the data files it actually reads. Rebuilt from js/app.js's real import graph below.
+// js/data/class_features.js, class_feature_descriptions.js and subclass_features.js are
+// intentionally NOT precached yet — nothing imports them (see docs/FIX_PLAN.md, P0) — add them
+// back here once a screen actually wires them in, otherwise this ships dead weight offline.
+// 2026-09-12: added js/data/background_descriptions.js — it WAS already imported (by js/pdf.js),
+// just missing from this list; a prior pass mistakenly assumed it was unused (see
+// docs/reviews/2026-09-12_backgrounds-naming-review.md) and briefly stubbed it out, which broke
+// the background-feature line in PDF exports offline and online. Root cause of the "unused" miss:
+// grepped only create-new.js/sheet.js/app.js/router.js/db.js, never pdf.js.
 const PRECACHE = [
   './',
   './index.html',
@@ -11,17 +23,21 @@ const PRECACHE = [
   './css/tokens.css',
   './css/base.css',
   './css/characters.css',
-  './css/create.css',
+  './css/create-new.css',
+  './css/sheet.css',
   './js/app.js',
   './js/router.js',
   './js/db.js',
   './js/utils.js',
+  './js/pdf.js',
   './js/screens/characters.js',
-  './js/screens/create.js',
+  './js/screens/create-new.js',
   './js/screens/sheet.js',
-  './js/data/class_features.js',
-  './js/data/class_feature_descriptions.js',
-  './js/data/subclass_features.js',
+  './js/data/equipment.js',
+  './js/data/spells.js',
+  './js/data/race_descriptions.js',
+  './js/data/class_descriptions.js',
+  './js/data/background_descriptions.js',
   './assets/icon_4.svg',
 ];
 

@@ -1,31 +1,29 @@
-# Dependencies
-node_modules/
+# HeroSummoner — .gitignore (белый список)
+# В публичный репозиторий (и на GitHub Pages) идёт ТОЛЬКО сам сервис.
+# Логика: сначала игнорируем всё в корне, потом явно разрешаем нужное.
+# Новый файл сервиса в корне? Добавь строку `!/имя_файла` ниже.
 
-# Build output
-dist/
-.cache/
+# 1. Игнорировать всё в корне репозитория
+/*
 
-# Editor
-.vscode/
-.idea/
-*.swp
-.DS_Store
+# 2. Разрешить сервис
+!/.gitignore
+!/index.html
+!/manifest.json
+!/sw.js
+!/css/
+!/js/
+!/assets/
+
+# 3. Мусор, который может завестись внутри разрешённых папок
 Thumbs.db
+desktop.ini
+.DS_Store
+*.bak
+*.tmp
+*.orig
+*~
 
-# Env / secrets
-.env
-.env.local
-
-# Push helper (contains token — never commit)
-*.bat
-*.ps1
-
-# Reference materials — not part of the app
-Мокапы/
-ТЗ/
-
-# AI working files — instructions, mockups, tasks
-AI_working/
-CLAUDE.md
-plans.md
-product-team.jsx
+# Всё прочее остаётся только локально:
+# docs/ (ТЗ, встречи, ревью, мокапы), .claude/, CLAUDE.md, plans.md,
+# product-team.jsx, Claude outputs/, tools/, *.pdf, *.bat

@@ -20,6 +20,9 @@ export const ROLE_TOOLTIPS = {
 export const CLASS_DESCRIPTIONS = {
 
   'Варвар': {
+    id:            'barbarian',
+    gen:           'Варвара',
+    statsLabel:    'Сила, Телосложение',
     keyAbilities:  ['str', 'con'],
     roles:         ['Танк', 'Дамагер'],
     rpComplexity:  1,
@@ -31,6 +34,9 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Бард': {
+    id:            'bard',
+    gen:           'Барда',
+    statsLabel:    'Харизма',
     keyAbilities:  ['cha'],
     roles:         ['Саппорт', 'Дизейблер', 'Социальщик'],
     rpComplexity:  3,
@@ -42,6 +48,9 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Воин': {
+    id:            'fighter',
+    gen:           'Воина',
+    statsLabel:    'Сила или Ловкость, Телосложение',
     keyAbilities:  ['str', 'dex'],
     roles:         ['Танк', 'Дамагер'],
     rpComplexity:  1,
@@ -53,10 +62,13 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Волшебник': {
+    id:            'wizard',
+    gen:           'Волшебника',
+    statsLabel:    'Интеллект',
     keyAbilities:  ['int'],
     roles:         ['Дамагер', 'Дизейблер'],
     rpComplexity:  2,
-    description:   'Самый мощный заклинатель: огромный список заклинаний на любой случай. Хрупкий, но способен менять ход сражения одним заклинанием. Требует внимания к ресурсам и подготовке.',
+    description:   'Один из самых гибких заклинателей: огромный список заклинаний на любой случай. Хрупкий, но способен менять ход сражения одним заклинанием. Требует внимания к ресурсам и подготовке.',
     feature: {
       title: 'Книга заклинаний',
       text:  'Хранит огромный список заклинаний. Можно переписывать из свитков и чужих книг. Каждый день готовит нужные.',
@@ -64,6 +76,9 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Друид': {
+    id:            'druid',
+    gen:           'Друида',
+    statsLabel:    'Мудрость',
     keyAbilities:  ['wis'],
     roles:         ['Саппорт', 'Дамагер', 'Скаут'],
     rpComplexity:  2,
@@ -75,6 +90,9 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Жрец': {
+    id:            'cleric',
+    gen:           'Жреца',
+    statsLabel:    'Мудрость',
     keyAbilities:  ['wis'],
     roles:         ['Саппорт', 'Танк', 'Дамагер'],
     rpComplexity:  2,
@@ -86,6 +104,10 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Изобретатель': {
+    id:            'artificer',
+    gen:           'Изобретателя',
+    statsLabel:    'Интеллект',
+    tag:           'TCE',
     keyAbilities:  ['int'],
     roles:         ['Саппорт', 'Дамагер'],
     rpComplexity:  2,
@@ -97,6 +119,9 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Колдун': {
+    id:            'warlock',
+    gen:           'Колдуна',
+    statsLabel:    'Харизма',
     keyAbilities:  ['cha'],
     roles:         ['Дамагер', 'Дизейблер', 'Социальщик'],
     rpComplexity:  3,
@@ -108,6 +133,9 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Монах': {
+    id:            'monk',
+    gen:           'Монаха',
+    statsLabel:    'Ловкость, Мудрость',
     keyAbilities:  ['dex', 'wis'],
     roles:         ['Дамагер', 'Скаут'],
     rpComplexity:  2,
@@ -119,6 +147,9 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Паладин': {
+    id:            'paladin',
+    gen:           'Паладина',
+    statsLabel:    'Сила, Харизма',
     keyAbilities:  ['str', 'cha'],
     roles:         ['Танк', 'Дамагер', 'Саппорт'],
     rpComplexity:  3,
@@ -130,6 +161,9 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Плут': {
+    id:            'rogue',
+    gen:           'Плута',
+    statsLabel:    'Ловкость',
     keyAbilities:  ['dex'],
     roles:         ['Дамагер', 'Скаут', 'Социальщик'],
     rpComplexity:  2,
@@ -141,6 +175,9 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Следопыт': {
+    id:            'ranger',
+    gen:           'Следопыта',
+    statsLabel:    'Ловкость, Мудрость',
     keyAbilities:  ['dex', 'wis'],
     roles:         ['Дамагер', 'Скаут'],
     rpComplexity:  2,
@@ -152,10 +189,13 @@ export const CLASS_DESCRIPTIONS = {
   },
 
   'Чародей': {
+    id:            'sorcerer',
+    gen:           'Чародея',
+    statsLabel:    'Харизма',
     keyAbilities:  ['cha'],
     roles:         ['Дамагер', 'Дизейблер'],
     rpComplexity:  1,
-    description:   'Магия в крови — врождённая сила, не требующая учёбы. Меньше заклинаний, чем у Волшебника, но их можно усиливать через Метамагию. Простой и мощный заклинатель.',
+    description:   'Магия в крови — врождённая сила, а не выученная наука. Знает меньше заклинаний, чем Волшебник, но умеет гибко подстраивать их через Метамагию — тратить Очки Чародейства с умом сложнее, чем кажется на первый взгляд.',
     feature: {
       title: 'Метамагия',
       text:  'Может усиливать свои заклинания: удваивать дальность, ускорять каст, распространять на несколько целей. Магия врождённая, без книг.',
@@ -170,3 +210,12 @@ export const RP_COMPLEXITY_LABELS = {
   2: 'Нужно не забывать про отыгрыш',
   3: (cls) => `Отыгрыш — важная часть игры за ${cls}`,
 };
+
+// Display order for the class picker (matches the original hardcoded CLASS_DATA order
+// in create-new.js: alphabetical by English class id, with Artificer appended last
+// since it was added later via TCE).
+export const CLASS_ORDER = [
+  'Варвар', 'Бард', 'Жрец', 'Друид', 'Воин', 'Монах',
+  'Паладин', 'Следопыт', 'Плут', 'Чародей', 'Колдун', 'Волшебник',
+  'Изобретатель',
+];

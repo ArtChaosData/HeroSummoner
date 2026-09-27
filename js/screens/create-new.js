@@ -7,10 +7,10 @@ import { DB } from '../db.js';
 import { ARMOUR, WEAPONS, EQUIPMENT, TOOLS } from '../data/equipment.js';
 import { getCantripsForClass, getLevel1SpellsForClass } from '../data/spells.js';
 import { RACE_DESCRIPTIONS } from '../data/race_descriptions.js';
+import { CLASS_DESCRIPTIONS, CLASS_ORDER } from '../data/class_descriptions.js';
 
 // Maps RACE_DATA names that differ from RACE_DESCRIPTIONS keys
 const RACE_DESC_ALIASES = {
-  'Драконид': 'Дракорождённый',
   'Duergar':  'Дуэргар',
 };
 
@@ -26,22 +26,27 @@ function freshState() {
     appearance: '', backstory: '', allies: '', features: '', treasure: '',
     portrait: null,
     // mechanics
-    mecStep:     'edition',
+    mecStep:     'class',
     mecMaxStep:  0,
-    mecEdition:  null,
-    mecSources:  [],
+    mecEdition:  '5e',
+    mecSources:  ['PHB'],
     mecClass:      null,
     mecRace:       null,
     mecSubrace:    null,
     mecBackground: null,
     mecStats:            { str:8, dex:8, con:8, int:8, wis:8, cha:8 },
     mecVariantHumanAsi:  {},
+    mecHalfElfAsi:       {},
+    mecRaceSkills:       [],
+    mecRaceChoices:      {},
+    mecDeviceChoices:    {},
     mecChosen:           [],
     mecStatMethod:       'pointbuy',
     mecStdAssign:        {},
     mecRolls:            [],
     mecRollAssign:       {},
     mecBgChoiceData: {},
+    mecClassToolChoice: {},
     mecEquipMode:    'standard',
     mecEquipGold:    null,
     mecEquipChoices: {},
@@ -243,7 +248,7 @@ function buildConcept(st, go) {
             'Хаотично-злой',
           ];
           const sel = el('select', { class: 'cnew-input cnew-alignment-sel' },
-            el('option', { value: '' }, '— Мировоззрение —'),
+            el('option', { value: '' }, 'Мировоззрение'),
             ...ALIGNMENTS.map(a => el('option', { value: a }, a)),
           );
           sel.value = st.alignment || '';
@@ -302,7 +307,6 @@ function buildConcept(st, go) {
 // ─── Mechanics: constants ─────────────────────────────────────────────────────
 
 const MECH_STEPS = [
-  { id: 'edition',    label: 'Редакция' },
   { id: 'class',      label: 'Класс' },
   { id: 'race',       label: 'Раса' },
   { id: 'background', label: 'Предыстория' },
@@ -336,7 +340,7 @@ async function saveCharToDB(st, status) {
   const raceName = st.mecRace       ? st.mecRace.split('::')[1]       : '';
   const asiMap   = mecRacialAsi(st);
   const bgSkillsList = mecBgSkills(st);
-  const edition  = st.mecEdition === 'one-dnd' ? '2024' : '2014';
+  const edition  = '2014';
 
   const stats = {};
   for (const key of ['str','dex','con','int','wis','cha']) {
@@ -348,6 +352,10 @@ async function saveCharToDB(st, status) {
 
   // Capture wizard state for edit-draft flow (exclude portrait to save space)
   const { portrait: _p, ...wizardSnap } = st;
+
+  const raceChoices = mecRaceRecordChoices(st);
+  const bgProfs     = mecBgProfs(st);
+  mecSyncBgItems(st);
 
   const record = {
     name:       st.name?.trim() || 'Без имени',
@@ -361,7 +369,13 @@ async function saveCharToDB(st, status) {
     background: bgName,
     level:      1,
     stats,
-    skills:     [...(st.mecChosen || []), ...bgSkillsList],
+    skills:     [...new Set([...(st.mecChosen || []), ...(st.mecRaceSkills || []), ...mecRaceGrantedSkills(st), ...bgSkillsList])],
+    languages:         [...new Set([...raceChoices.languages, ...bgProfs.langs])],
+    raceCantrips:      raceChoices.cantrips,
+    feats:             raceChoices.feats,
+    // 2026-09-26: владения инструментами из всех источников (раса + класс + предыстория).
+    toolProficiencies: dedupeCI([...raceChoices.tools, ...mecClassToolProfs(st), ...bgProfs.tools]),
+    dragonAncestry:    raceChoices.dragonAncestry,
     maxHp,
     hp:         maxHp,
     portrait:   st.portrait || null,
@@ -395,11 +409,8 @@ const SOURCEBOOKS = {
     { id: 'AI',   name: "Acquisitions Incorporated",             desc: 'Корпоративные правила и подкласс.' },
     { id: 'POA',  name: "Princes of the Apocalypse",             desc: 'Приключение с доп. заклинаниями и предметами.' },
     { id: 'TP',   name: "Tortle Package",                        desc: 'Раса Черепахолюдей.' },
-    { id: 'OGA',  name: "One Grung Above",                       desc: 'Раса Гранг.' },
+    { id: 'OGA',  name: "One Grung Above",                       desc: 'Раса Грунг.' },
     { id: 'LR',   name: "Locathah Rising",                       desc: 'Раса Локата.' },
-  ],
-  'one-dnd': [
-    { id: 'PHB24', name: "Player's Handbook 2024", desc: 'Обновлённая Книга Игрока — всегда активна.', locked: true },
   ],
 };
 
@@ -411,10 +422,10 @@ const SRC_CONTENT = {
     races: [
       'Дварф (Горный)', 'Дварф (Холмовой)',
       'Эльф (Высший)', 'Эльф (Лесной)', 'Дроу',
-      'Полурослик (Легконогий)', 'Полурослик (Крепкий)',
-      'Человек', 'Человек (Вариант)',
-      'Драконид',
-      'Гном (Каменный)', 'Гном (Лесной)',
+      'Полурослик (Легконогий)', 'Полурослик (Коренастый)',
+      'Человек', 'Человек (Альтернативный)',
+      'Драконорождённый',
+      'Гном (Лесной)', 'Гном (Скальный)',
       'Полуэльф', 'Полуорк', 'Тифлинг',
     ],
     subs: [],
@@ -593,7 +604,7 @@ function buildSrcBlock(src, c) {
 }
 
 function buildSrcPreview(st) {
-  const books = SOURCEBOOKS[st.mecEdition] || [];
+  const books = SOURCEBOOKS['5e'] || [];
   const active = books.filter(b => !b.locked && st.mecSources.includes(b.id));
   if (!active.length) return null;
 
@@ -629,7 +640,7 @@ function hideSrcTip() { _srcTip?.remove(); _srcTip = null; }
 
 function buildMechProgress(st, goMech, magic) {
   const steps     = MECH_STEPS.filter(s => !s.magic || magic);
-  const cur       = steps.findIndex(s => s.id === (st.mecStep || 'edition'));
+  const cur       = steps.findIndex(s => s.id === (st.mecStep || 'class'));
   const maxIdx    = st.mecMaxStep || 0;
   const statsIdx  = steps.findIndex(s => s.id === 'stats');
   return el('nav', { class: 'mech-progress' },
@@ -645,88 +656,6 @@ function buildMechProgress(st, goMech, magic) {
       const btn = el('button', attrs, s.label);
       return i < steps.length - 1 ? [btn, el('span', { class: 'mech-sep' }, '›')] : [btn];
     }),
-  );
-}
-
-// ─── Mechanics: edition step ──────────────────────────────────────────────────
-
-function buildEditionStep(st, goMech) {
-  const ed   = st.mecEdition;
-  const srcs = ed ? SOURCEBOOKS[ed] : null;
-
-  function selectEd(val) {
-    st.mecEdition = val;
-    st.mecSources = val === '5e' ? ['PHB'] : ['PHB24'];
-    scheduleSave(st);
-    goMech('edition');
-  }
-
-  // Preview updated in-place — no full re-render on chip toggle
-  const previewWrap = el('div', {});
-  function refreshPreview() {
-    previewWrap.innerHTML = '';
-    const p = buildSrcPreview(st);
-    if (p) previewWrap.append(p);
-  }
-  refreshPreview();
-
-  function toggleSrc(id, chipEl) {
-    st.mecSources = st.mecSources.includes(id)
-      ? st.mecSources.filter(x => x !== id)
-      : [...st.mecSources, id];
-    chipEl.classList.toggle('is-active', st.mecSources.includes(id));
-    scheduleSave(st);
-    refreshPreview();
-  }
-
-  const ED_META = {
-    '5e':      ['2014', 'D&D 5e',    'Классическое издание'],
-    'one-dnd': ['2024', 'D&D One',   'Переработанное издание'],
-  };
-
-  return el('div', { class: 'mech-step-body' },
-    el('div', { class: 'mech-edition-scroll' },
-      el('h2', { class: 'mech-step-title' }, 'Выберите редакцию'),
-
-      el('div', { class: 'mech-ed-cards' },
-        ...Object.entries(ED_META).map(([val, [year, name, sub]]) =>
-          el('button', {
-            class: `mech-ed-card${ed === val ? ' is-selected' : ''}`,
-            onClick: () => selectEd(val),
-          },
-            el('span', { class: 'mech-ed-year' }, year),
-            el('span', { class: 'mech-ed-name' }, name),
-            el('span', { class: 'mech-ed-sub'  }, sub),
-          )
-        ),
-      ),
-
-      srcs ? el('div', { class: 'mech-sources' },
-        el('p', { class: 'mech-sources-label' }, 'Дополнения'),
-        el('div', { class: 'mech-src-chips' },
-          ...srcs.map(src => {
-            const chipAttrs = {
-              class: `mech-src-chip${st.mecSources.includes(src.id) ? ' is-active' : ''}${src.locked ? ' is-locked' : ''}`,
-            };
-            if (src.locked) chipAttrs.disabled = 'true';
-            else chipAttrs.onClick = e => toggleSrc(src.id, e.currentTarget);
-            const chip = el('button', chipAttrs, src.id);
-            chip.addEventListener('mouseenter', e => showSrcTip(e, src));
-            chip.addEventListener('mouseleave', hideSrcTip);
-            return chip;
-          }),
-        ),
-        el('p', { class: 'mech-src-hint' }, 'Если вы не знаете, что выбрать — уточните у Мастера.'),
-      ) : null,
-
-      previewWrap,
-    ),
-
-    ed ? el('div', { class: 'mech-foot' },
-      ed === 'one-dnd'
-        ? el('button', { class: 'cnew-save-btn mech-foot-wip', disabled: 'true' }, 'В разработке')
-        : el('button', { class: 'cnew-save-btn', onClick: () => goMech('class') }, 'Далее → Класс'),
-    ) : null,
   );
 }
 
@@ -963,7 +892,7 @@ function buildFinalStep(st, goMech, go) {
     return inp;
   }
   const alignSel = el('select', { class: 'final-inp final-select' },
-    el('option', { value: '' }, '— не выбрано —'),
+    el('option', { value: '' }, 'Не выбрано'),
     ...ALIGNMENTS.map(a => el('option', { value: a }, a)),
   );
   alignSel.value = st.alignment || '';
@@ -1081,12 +1010,11 @@ function buildFinalStep(st, goMech, go) {
   const bgItems    = srcBgName ? (BG_EQUIP[srcBgName] || []) : [];
 
   // Material choice items (instrument/artisan/gaming) selected on equip step
+  // 2026-09-26: только предметы-инструменты (см. схему `item`), не владения.
   function matChoiceEls(resolvedBgName) {
     if (!resolvedBgName) return [];
-    const bgObj = Object.values(BACKGROUND_DATA).flat().find(b => b.name === resolvedBgName);
-    return (bgObj?.choices || [])
-      .filter(ch => ['instrument', 'artisan', 'gaming'].includes(ch.type))
-      .map(ch => makeChoiceSel(bgChoiceOptions(ch.type), `bgch_${ch.type}`, st));
+    mecSyncBgItems(st);
+    return mecBgItemChoices(st).map(({ ch, profVal }) => buildBgItemEl(st, ch, profVal));
   }
 
   function equipCol(sourceLabel, sourceClass, items, prefix, extraEls) {
@@ -1123,47 +1051,31 @@ function buildFinalStep(st, goMech, go) {
   );
 
   // ── Proficiencies (languages / tools from bg choices) ────────────────────
-  const langs  = [];
-  const tools  = [];
-  if (st.mecBackground) {
-    const [srcId, bName] = st.mecBackground.split('::');
-    const bgObj = (BACKGROUND_DATA[srcId] || []).find(b => b.name === bName);
-    const EQUIP_TYPES = new Set(['instrument', 'artisan', 'gaming', 'bg_equipment']);
-    let ci = 0;
-    (bgObj?.choices || []).forEach(ch => {
-      if (EQUIP_TYPES.has(ch.type)) { ci++; return; }
-      const data = st.mecBgChoiceData?.[ci];
-      ci++;
-      if (!data) return;
-      if (Array.isArray(data)) {
-        data.forEach(key => {
-          const [type, ...rest] = key.split('::');
-          const val = rest.join('::');
-          if (type === 'language') langs.push(val);
-          else tools.push(val);
-        });
-      } else if (typeof data === 'string' && data) {
-        if (ch.type === 'language') langs.push(data);
-        else tools.push(data);
-      }
-    });
-  }
-  // Also add tool choices made on equip step (instrument/artisan/gaming)
-  if (st.mecBackground) {
-    const [srcId, bName] = st.mecBackground.split('::');
-    const bgObj = Object.values(BACKGROUND_DATA).flat().find(b => b.name === bName);
-    (bgObj?.choices || [])
-      .filter(ch => ['instrument', 'artisan', 'gaming'].includes(ch.type))
-      .forEach(ch => {
-        const val = (st.mecEquipChoices || {})[`bgch_${ch.type}`];
-        if (val) tools.push(val);
-      });
-  }
+  // 2026-09-26: единый источник — mecBgProfs(); предмет в снаряжении на владение не влияет.
+  const { langs, tools } = mecBgProfs(st);
 
   // Class profs
   const AB_SHORT2 = { str:'Сила', dex:'Ловкость', con:'Телосложение', int:'Интеллект', wis:'Мудрость', cha:'Харизма' };
   const clsSavesStr  = (clsData?.saves || []).map(k => AB_SHORT2[k] ?? k).join(', ');
   const clsSkillsStr = (st.mecChosen || []).join(', ');
+  // Class tool proficiency (fixed, e.g. Друид → «набор травника», Плут → «воровские инструменты»)
+  // — was shown on the class-select screen (CLASS_PROF_DATA) but never carried into this review
+  // or into pdf.js. For Бард/Монах/Изобретатель, CLASS_PROF_DATA.tools was only ever descriptive
+  // text ("три музыкальных инструмента на выбор") because the actual picker (CLASS_TOOL_CHOICE)
+  // wrote its selection to a key nothing downstream read — now that it's wired to
+  // `st.mecClassToolChoice`, show the real picks once made (Изобретатель keeps its two fixed
+  // tools alongside the chosen one; Бард/Монах's descriptive text is choice-only, so the actual
+  // picks replace it).
+  const clsToolPickNames = ((st.mecClassToolChoice || {})[st.mecClass] || [])
+    .map(k => k.split('::').slice(1).join('::'));
+  const clsFixedToolsStr = (CLASS_PROF_DATA[st.mecClass]?.tools && CLASS_PROF_DATA[st.mecClass].tools !== 'нет')
+    ? CLASS_PROF_DATA[st.mecClass].tools
+    : '';
+  const clsToolsStr = clsToolPickNames.length
+    ? (st.mecClass === 'artificer'
+        ? [...new Set([...(clsFixedToolsStr ? clsFixedToolsStr.split(', ') : []), ...clsToolPickNames])].join(', ')
+        : clsToolPickNames.join(', '))
+    : clsFixedToolsStr;
 
   function profCol(sourceLabel, sourceClass, rows) {
     return el('div', { class: 'final-profs-col' },
@@ -1178,9 +1090,10 @@ function buildFinalStep(st, goMech, go) {
     );
   }
 
-  const clsProfCol = (clsData && (clsSavesStr || clsSkillsStr)) ? profCol(clsName, 'is-class', [
-    clsSavesStr  ? profRow('Спасброски', clsSavesStr)  : null,
-    clsSkillsStr ? profRow('Навыки',     clsSkillsStr) : null,
+  const clsProfCol = (clsData && (clsSavesStr || clsSkillsStr || clsToolsStr)) ? profCol(clsName, 'is-class', [
+    clsSavesStr  ? profRow('Спасброски',   clsSavesStr)  : null,
+    clsSkillsStr ? profRow('Навыки',       clsSkillsStr) : null,
+    clsToolsStr  ? profRow('Инструменты',  clsToolsStr)  : null,
   ]) : null;
 
   const bgProfCol = (langs.length || tools.length) ? profCol(bgName ?? 'Предыстория', 'is-bg', [
@@ -1224,8 +1137,9 @@ const MAGIC_CLASSES = new Set([
 ]);
 
 function buildMechanics(st, go, container) {
-  if (!st.mecStep)    st.mecStep    = 'edition';
-  if (!st.mecSources) st.mecSources = [];
+  if (!st.mecStep || st.mecStep === 'edition') st.mecStep = 'class';
+  if (!st.mecEdition)                          st.mecEdition = '5e';
+  if (!st.mecSources || !st.mecSources.length) st.mecSources = ['PHB'];
 
   // Dynamically determine if the selected class is a spellcaster
   const magic = !!(st.mecClass && MAGIC_CLASSES.has(st.mecClass));
@@ -1246,8 +1160,7 @@ function buildMechanics(st, go, container) {
     ),
     buildMechProgress(st, goMech, magic),
     el('div', { class: 'mech-content' },
-      st.mecStep === 'edition'      ? buildEditionStep(st, goMech)
-        : st.mecStep === 'class'      ? buildClassStep(st, goMech)
+      st.mecStep === 'class'      ? buildClassStep(st, goMech)
         : st.mecStep === 'race'       ? buildRaceStep(st, goMech)
         : st.mecStep === 'background' ? buildBackgroundStep(st, goMech)
         : st.mecStep === 'stats'      ? buildStatsStep(st, goMech)
@@ -1275,38 +1188,40 @@ function rpLabel(cls) {
   return `Отыгрыш — важная часть игры за ${cls.gen}`;
 }
 
-const CLASS_DATA = [
-  { id: 'barbarian',  name: 'Варвар',        gen: 'Варвара',       roles: ['Танк', 'Дамагер'],                    rp: 1, stats: 'Сила, Телосложение',           desc: 'Воин, черпающий силу из первобытной ярости. Мощные атаки и природная живучесть без магии.' },
-  { id: 'bard',       name: 'Бард',          gen: 'Барда',         roles: ['Дизейблер', 'Саппорт', 'Социальщик'], rp: 3, stats: 'Харизма',                         desc: 'Маг и артист, вдохновляющий союзников и дурачащий врагов. Универсальный класс с широким набором заклинаний.' },
-  { id: 'cleric',     name: 'Жрец',          gen: 'Жреца',         roles: ['Саппорт', 'Танк'],                    rp: 2, stats: 'Мудрость',                         desc: 'Служитель бога, несущий свет или тьму по его воле. Лучший целитель в игре с доступом к тяжёлым доспехам.' },
-  { id: 'druid',      name: 'Друид',         gen: 'Друида',        roles: ['Саппорт', 'Дизейблер'],               rp: 2, stats: 'Мудрость',                         desc: 'Страж природы, меняющий облик и повелевающий стихиями. Гибкий класс с уникальными формами зверей.' },
-  { id: 'fighter',    name: 'Воин',          gen: 'Воина',         roles: ['Танк', 'Дамагер'],                    rp: 1, stats: 'Сила или Ловкость, Телосложение',  desc: 'Мастер боя с любым оружием и доспехами. Простой в освоении, эффективный на любом уровне.' },
-  { id: 'monk',       name: 'Монах',         gen: 'Монаха',        roles: ['Дамагер', 'Скаут', 'Дизейблер'],      rp: 1, stats: 'Ловкость, Мудрость',              desc: 'Аскет, преобразующий внутреннюю энергию ки в боевые приёмы. Быстрый и мобильный ближний боец.' },
-  { id: 'paladin',    name: 'Паладин',       gen: 'Паладина',      roles: ['Танк', 'Саппорт'],                    rp: 3, stats: 'Сила, Харизма',                   desc: 'Священный воин, связанный клятвой служения. Сочетает тяжёлые доспехи с мощными заклинаниями.' },
-  { id: 'ranger',     name: 'Следопыт',      gen: 'Следопыта',     roles: ['Скаут', 'Дамагер'],                   rp: 1, stats: 'Ловкость, Мудрость',              desc: 'Охотник и следопыт, мастер дальних пространств. Специализируется на конкретном враге или местности.' },
-  { id: 'rogue',      name: 'Плут',          gen: 'Плута',         roles: ['Скаут', 'Дамагер', 'Социальщик'],     rp: 1, stats: 'Ловкость',                         desc: 'Хитрец и мастер теней. Наносит огромный урон из засады и незаменим в разведке.' },
-  { id: 'sorcerer',   name: 'Чародей',       gen: 'Чародея',       roles: ['Дамагер', 'Саппорт'],                 rp: 2, stats: 'Харизма',                         desc: 'Маг с врождённой магией в крови. Меньше заклинаний, чем у волшебника, но больше гибкости в их использовании.' },
-  { id: 'warlock',    name: 'Колдун',        gen: 'Колдуна',       roles: ['Дамагер', 'Дизейблер'],               rp: 3, stats: 'Харизма',                         desc: 'Смертный, заключивший сделку с могущественным существом. Восстанавливает слоты заклинаний на коротком отдыхе.' },
-  { id: 'wizard',     name: 'Волшебник',     gen: 'Волшебника',    roles: ['Дамагер', 'Саппорт', 'Дизейблер'],    rp: 2, stats: 'Интеллект',                       desc: 'Учёный магии с самым широким арсеналом заклинаний. Требует подготовки, но открывает огромные возможности.' },
-  { id: 'artificer',  name: 'Изобретатель',  gen: 'Изобретателя',  roles: ['Саппорт', 'Дамагер'],                 rp: 2, stats: 'Интеллект',                       tag: 'TCE', desc: 'Мастер магических устройств и зелий. Единственный класс, использующий магические предметы как основной инструмент.' },
-];
+// Derived from CLASS_DESCRIPTIONS (js/data/class_descriptions.js) — single source of truth
+// for class name/roles/rp-complexity/flavor text. Do NOT hardcode class data here again;
+// see docs/reviews/2026-09-08_backend-frontend-review.md (finding #1) for why this was split
+// into two drifting copies before.
+const CLASS_DATA = CLASS_ORDER.map(name => {
+  const c = CLASS_DESCRIPTIONS[name];
+  return {
+    id:    c.id,
+    name,
+    gen:   c.gen,
+    roles: c.roles,
+    rp:    c.rpComplexity,
+    stats: c.statsLabel,
+    desc:  c.description,
+    ...(c.tag ? { tag: c.tag } : {}),
+  };
+});
 
 // ─── Class proficiency data ──────────────────────────────────────────────────
 
 const CLASS_PROF_DATA = {
   barbarian: { hitDie:'к12', armor:'лёгкие, средние, щиты',        weapons:'простое, воинское',                                          tools:'нет',                                          saves:['Сила','Телосложение'] },
-  bard:      { hitDie:'к8',  armor:'лёгкие',                        weapons:'простое, ручные арбалеты, длинные мечи, рапиры, короткие мечи', tools:'три музыкальных инструмента на выбор',        saves:['Ловкость','Харизма'] },
+  bard:      { hitDie:'к8',  armor:'лёгкие',                        weapons:'простое, короткие мечи, длинные мечи, рапира, ручные арбалеты', tools:'три музыкальных инструмента на выбор',        saves:['Ловкость','Харизма'] },
   cleric:    { hitDie:'к8',  armor:'лёгкие, средние, щиты',        weapons:'простое',                                                    tools:'нет',                                          saves:['Мудрость','Харизма'] },
-  druid:     { hitDie:'к8',  armor:'лёгкие, средние (не металл), щиты (не металл)', weapons:'дубины, кинжалы, дротики, серпы, посохи, пращи, копья', tools:'набор травника',                 saves:['Интеллект','Мудрость'] },
+  druid:     { hitDie:'к8',  armor:'лёгкие, средние (не металл), щиты (не металл)', weapons:'боевые посохи, булавы, дротики, дубинки, кинжалы, копья, метательные копья, пращи, серпы, скимитары', tools:'набор травника',                 saves:['Интеллект','Мудрость'] },
   fighter:   { hitDie:'к10', armor:'все, щиты',                    weapons:'простое, воинское',                                          tools:'нет',                                          saves:['Сила','Телосложение'] },
   monk:      { hitDie:'к8',  armor:'нет',                          weapons:'простое, короткие мечи',                                     tools:'один вид ремесленных или муз. инструментов',  saves:['Сила','Ловкость'] },
   paladin:   { hitDie:'к10', armor:'все, щиты',                    weapons:'простое, воинское',                                          tools:'нет',                                          saves:['Мудрость','Харизма'] },
   ranger:    { hitDie:'к10', armor:'лёгкие, средние, щиты',        weapons:'простое, воинское',                                          tools:'нет',                                          saves:['Сила','Ловкость'] },
-  rogue:     { hitDie:'к8',  armor:'лёгкие',                       weapons:'простое, ручные арбалеты, длинные мечи, рапиры, короткие мечи', tools:'воровские инструменты',                     saves:['Ловкость','Интеллект'] },
-  sorcerer:  { hitDie:'к6',  armor:'нет',                          weapons:'кинжалы, дротики, пращи, посохи, лёгкие арбалеты',           tools:'нет',                                          saves:['Телосложение','Харизма'] },
+  rogue:     { hitDie:'к8',  armor:'лёгкие',                       weapons:'простое, короткие мечи, длинные мечи, рапира, ручные арбалеты', tools:'воровские инструменты',                     saves:['Ловкость','Интеллект'] },
+  sorcerer:  { hitDie:'к6',  armor:'нет',                          weapons:'кинжалы, дротики, посохи, пращи, лёгкие арбалеты',           tools:'нет',                                          saves:['Телосложение','Харизма'] },
   warlock:   { hitDie:'к8',  armor:'лёгкие',                       weapons:'простое',                                                    tools:'нет',                                          saves:['Мудрость','Харизма'] },
-  wizard:    { hitDie:'к6',  armor:'нет',                          weapons:'кинжалы, дротики, пращи, посохи, лёгкие арбалеты',           tools:'нет',                                          saves:['Интеллект','Мудрость'] },
-  artificer: { hitDie:'к8',  armor:'лёгкие, средние, щиты',        weapons:'простое',                                                    tools:'воровские инструменты, набор ремесленника (2 вида)', saves:['Телосложение','Интеллект'] },
+  wizard:    { hitDie:'к6',  armor:'нет',                          weapons:'кинжалы, дротики, пращи, боевые посохи, лёгкие арбалеты',    tools:'нет',                                          saves:['Интеллект','Мудрость'] },
+  artificer: { hitDie:'к8',  armor:'лёгкие, средние, щиты',        weapons:'простое',                                                    tools:'воровские инструменты, инструменты умельца', saves:['Телосложение','Интеллект'] },
 };
 
 // ─── Class step: builder ──────────────────────────────────────────────────────
@@ -1356,7 +1271,9 @@ function buildClassStep(st, goMech) {
     const clsPicks = [...chosen].filter(s => opts.includes(s));
     const atLimit  = clsPicks.length >= count;
 
-    const skillChips = [...opts].sort((a, b) => a.localeCompare(b, 'ru')).map(name => {
+    // Sorted by ability-score grouping (SKILLS_BY_AB order), not alphabetically —
+    // matches how players scan a skill sheet (str → dex → int → wis → cha).
+    const skillChips = [...opts].sort((a, b) => ALL_SKILLS.indexOf(a) - ALL_SKILLS.indexOf(b)).map(name => {
       const isPicked = chosen.has(name);
       const isDisabled = !isPicked && atLimit;
       const chip = el('button', {
@@ -1375,6 +1292,8 @@ function buildClassStep(st, goMech) {
         },
       }, (isPicked ? '✓ ' : '') + name);
       chip.disabled = isDisabled;
+      const colorVar = skillColorVar(name);
+      if (colorVar) chip.style.setProperty('--chip-c', colorVar);
       return chip;
     });
 
@@ -1414,6 +1333,31 @@ function buildClassStep(st, goMech) {
                 ),
               )
             : null,
+          CLASS_TOOL_CHOICE[cls.id]
+            ? (() => {
+                const spec = CLASS_TOOL_CHOICE[cls.id];
+                const groups = spec.groups || [{ label: spec.label, type: spec.type }];
+                const max    = spec.count || 1;
+                if (!st.mecClassToolChoice) st.mecClassToolChoice = {};
+                const saved  = st.mecClassToolChoice[cls.id] || [];
+                const msEl = buildBgMultiSel({
+                  label: max > 1 ? 'Выберите ' + max : 'Выберите', // дизайн 2026-09-27: подпись уже над контролом
+                  max,
+                  groups,
+                  initialSelected: saved,
+                  onChange: (_n, keys) => {
+                    st.mecClassToolChoice[cls.id] = keys;
+                    scheduleSave(st);
+                  },
+                });
+                return el('div', { class: 'cls-prof-row' },
+                  el('div', { class: 'cls-prof-cell cls-prof-cell--full' },
+                    el('span', { class: 'cls-prof-label' }, spec.label),
+                    el('div', { class: 'cls-tool-choices' }, msEl),
+                  ),
+                );
+              })()
+            : null,
         )
       : null;
 
@@ -1438,10 +1382,27 @@ function buildClassStep(st, goMech) {
 
   function updateList() {
     listEl.innerHTML = '';
+    // All classes are always shown, regardless of mecSources — the class list isn't
+    // gated by sourcebook selection (that flow is deferred, see docs/plans). A class
+    // sourced from a supplement just carries a `tag` badge with a tooltip naming it.
+    // Tagged (non-core) classes sort after the core alphabetical list — better UX
+    // than slotting Изобретатель alphabetically among the PHB classes.
     const visible = CLASS_DATA
-      .filter(cls => !cls.tag || st.mecSources.includes(cls.tag))
-      .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+      .slice()
+      .sort((a, b) => {
+        if (!!a.tag !== !!b.tag) return a.tag ? 1 : -1;
+        return a.name.localeCompare(b.name, 'ru');
+      });
     visible.forEach(cls => {
+      let tagEl = null;
+      if (cls.tag) {
+        const srcObj = (SOURCEBOOKS['5e'] || []).find(s => s.id === cls.tag);
+        tagEl = el('span', { class: 'mech-cls-tag' }, cls.tag);
+        if (srcObj) {
+          tagEl.addEventListener('mouseenter', e => showSrcTip(e, srcObj));
+          tagEl.addEventListener('mouseleave', hideSrcTip);
+        }
+      }
       const btn = el('button', {
         class: `mech-cls-item${st.mecClass === cls.id ? ' is-selected' : ''}`,
         onClick: () => {
@@ -1457,7 +1418,7 @@ function buildClassStep(st, goMech) {
         },
       },
         cls.name,
-        cls.tag ? el('span', { class: 'mech-cls-tag' }, cls.tag) : null,
+        tagEl,
       );
       btn.dataset.id = cls.id;
       listEl.append(btn);
@@ -1483,10 +1444,10 @@ const RACE_DATA = {
   PHB: [
     { name: 'Дварф',      sub: ['Горный', 'Холмовой'],       desc: 'Стойкий подземный народ с многовековой традицией кузнечного дела и горной добычи. Непоколебимы в бою, верны клану и слову.' },
     { name: 'Эльф',       sub: ['Высший', 'Лесной', 'Дроу'], desc: 'Долгоживущий изящный народ с врождённой связью с магией. Острые чувства, природная грация и глубокая память делают эльфов превосходными магами и лучниками.' },
-    { name: 'Полурослик', sub: ['Легконогий', 'Крепкий'],    desc: 'Небольшой, но бесстрашный народ. Природная удача и умение оставаться в тени помогают им выходить из самых сложных переделок.' },
-    { name: 'Человек',    sub: ['Стандартный', 'Вариант'],   desc: 'Самая распространённая и разнообразная раса. Люди быстро учатся и адаптируются, нередко превосходя другие народы за счёт амбиций.' },
-    { name: 'Драконид',   sub: [],                           desc: 'Гордый народ с чешуёй и кровью дракона. Наделены оружейным дыханием и врождённой устойчивостью к стихиям.' },
-    { name: 'Гном',       sub: ['Каменный', 'Лесной'],       desc: 'Любопытный изобретательный народ, живущий столетиями. Прирождённые учёные и механики с природной устойчивостью к магии.' },
+    { name: 'Полурослик', sub: ['Легконогий', 'Коренастый'], desc: 'Небольшой, но бесстрашный народ. Природная удача и умение оставаться в тени помогают им выходить из самых сложных переделок.' },
+    { name: 'Человек',    sub: ['Стандартный', 'Альтернативный'],   desc: 'Самая распространённая и разнообразная раса. Люди быстро учатся и адаптируются, нередко превосходя другие народы за счёт амбиций.' },
+    { name: 'Драконорождённый', sub: [],                     desc: 'Гордый народ с чешуёй и кровью дракона. Наделены оружейным дыханием и врождённой устойчивостью к стихиям.' },
+    { name: 'Гном',       sub: ['Лесной', 'Скальный'],       desc: 'Любопытный изобретательный народ, живущий столетиями. Прирождённые учёные и механики с природной устойчивостью к магии.' },
     { name: 'Полуэльф',   sub: [],                           desc: 'Наследники двух миров — человеческой гибкости и эльфийской грации. Харизматичны, универсальны и умеют ладить с кем угодно.' },
     { name: 'Полуорк',    sub: [],                           desc: 'Потомки людей и орков, наследующие выносливость обоих. Физически мощны и не уступают там, где другие давно сложили бы оружие.' },
     { name: 'Тифлинг',   sub: [],                           desc: 'Потомки людей с инфернальным наследием от давнего дьявольского договора. Несмотря на предрассудки, многие тифлинги куют собственную судьбу.' },
@@ -1593,10 +1554,48 @@ const RACE_DATA = {
 // ─── Background data ──────────────────────────────────────────────────────────
 
 const LANGUAGES     = ['Бездны','Великанский','Гномский','Гоблинский','Глубокая речь','Дварфский','Драконий','Инфернальный','Небесный','Орочий','Первозданный','Полуросликов','Сильван','Общий Подземья','Эльфийский'];
+// PHB (2014) feats, for the race-trait "choose one feat" selector (Alternate/Variant Human).
+const PHB_FEATS = [
+  'Артистичный', 'Атлетичный', 'Бдительный', 'Боевой заклинатель', 'Борец', 'Везунчик',
+  'Верховой боец', 'Внимательный', 'Воинский адепт', 'Воодушевляющий лидер', 'Дикий атакующий',
+  'Драчун', 'Знаток лёгких доспехов', 'Знаток средних доспехов', 'Знаток тяжёлых доспехов',
+  'Использование двух оружий', 'Исследователь подземелий', 'Крепкий', 'Лекарь',
+  'Мастер большого оружия', 'Мастер древкового оружия', 'Мастер оружия', 'Мастер средних доспехов',
+  'Мастер тяжёлых доспехов', 'Мастер щитов', 'Меткие заклинания', 'Меткий стрелок', 'Налётчик',
+  'Оборонительный дуэлянт', 'Одарённый', 'Отличная память', 'Подвижный', 'Посвящённый в магию',
+  'Проныра', 'Ритуальный заклинатель', 'Стихийный адепт', 'Стойкий', 'Страж', 'Убийца магов',
+  'Устойчивый', 'Эксперт в арбалетах', 'Языковед',
+];
 const INSTRUMENTS   = ['Барабан','Виола','Волынка','Лира','Лютня','Рог','Скрипка','Флейта','Цимбалы','Шалмей'];
 const SIMPLE_WEAPONS = ['Булава','Дубина','Дротик','Жезл','Копьё','Кинжал','Кулак друида','Лёгкий арбалет','Посох','Праща','Ручной арбалет','Серп','Топор дровосека'];
 const GAMING_SETS = ['Игральные кости','Карты','Три Дракона Анти','Шахматы Дракона'];
 const ARTISAN_TOOLS = ['Инструменты алхимика','Инструменты бондаря','Инструменты гончара','Инструменты кожевника','Инструменты кузнеца','Инструменты каллиграфа','Инструменты каменщика','Инструменты плотника','Инструменты повара','Инструменты пивовара','Инструменты резчика','Инструменты сапожника','Инструменты стеклодува','Инструменты ткача','Инструменты ювелира'];
+
+// Class-level "pick a tool" proficiency choices (distinct from CLASS_PROF_DATA.tools,
+// which only displays the fixed/descriptive proficiency text). See docs/reviews/
+// 2026-09-10_class-screen-feedback.md and the 2026-09-10 re-review — Изобретатель needs
+// a 3rd (chosen) artisan tool on top of thieves'/tinker's tools; Монах needs a single
+// artisan-or-musical choice, shown as two grouped option lists (not one flat merged list);
+// Бард needs 3 independent musical-instrument picks ("три музыкальных инструмента на выбор").
+//
+// ⚠️ 2026-09-12: this used to render as `count` independent <select> elements (via
+// makeChoiceSel), each defaulting to `opts[0]` when unset — so on a fresh Bard all three
+// dropdowns silently showed the same instrument ("Барабан") with nothing forcing the player
+// to actually change any of them, which reads as "the selectors are broken/linked" even
+// though each one *did* write to its own state key. Replaced with `buildBgMultiSel` (the
+// same chip-style multi-pick widget the background step already uses for e.g. "Язык × 2"):
+// it starts with nothing pre-selected, can't select the same item twice, and its result is
+// now actually consumed downstream (see `mecClassToolChoice` in buildFinalStep / pdf.js) —
+// previously the picked value was written to `st.mecEquipChoices['cls_tool_...']` but never
+// read back anywhere, so the choice had no effect on the final sheet or PDF either way.
+const CLASS_TOOL_CHOICE = {
+  bard:      { label: 'Музыкальный инструмент', type: 'instrument', count: 3 },
+  artificer: { label: 'Ремесленный инструмент (на выбор)', type: 'artisan', count: 1 },
+  monk:      { label: 'Инструмент (на выбор)', groups: [
+                 { label: 'Инструменты ремесла',     type: 'artisan' },
+                 { label: 'Музыкальные инструменты', type: 'instrument' },
+               ] },
+};
 
 function bgChoiceOptions(type) {
   if (type === 'language')    return LANGUAGES;
@@ -1610,10 +1609,22 @@ function bgChoiceOptions(type) {
   return [];
 }
 
+// 2026-09-26 (заказчик): выбор типа instrument / artisan / gaming в `choices` — это ВЛАДЕНИЕ
+// (умение пользоваться), выбирается на экране предыстории и хранится в st.mecBgChoiceData[ci]
+// как ['<type>::<значение>']. Если книга ВДОБАВОК кладёт такой инструмент в стартовое снаряжение,
+// у выбора есть `item`:
+//   item: {}                 — предмет выбирается на шаге «Снаряжение» из того же списка
+//                              (по умолчанию — тот, которым персонаж владеет), хранится в
+//                              st.mecEquipChoices['bgch_<type>'] и на владение НЕ влияет;
+//   item: { list: [...] }    — предмет из своего списка (Солдат: кости или карты);
+//   item: { extra: [...] }   — к списку добавляются варианты (Гладиатор: трезубец, сеть);
+//   item: { same: true }     — предмет = инструмент, которым владеет («…with which you are
+//                              proficient», SCAG), отдельного выбора нет.
+// Без `item` — только владение, в снаряжение ничего не попадает (Благородный, Преступник, Чужеземец).
 const BACKGROUND_DATA = {
   PHB: [
     {
-      name: 'Аколит',
+      name: 'Прислужник',
       skills: 'Проницательность, Религия',
       equipment: 'Символ священного заступника, молитвенник или 5 палочек благовоний, набор облачения, простая одежда, кошель с 15 зм',
       choices: [{ label: 'Язык', type: 'language', count: 2 }],
@@ -1622,14 +1633,24 @@ const BACKGROUND_DATA = {
     {
       name: 'Артист',
       skills: 'Акробатика, Выступление',
-      equipment: 'Подарок от поклонника, маскировочный костюм, набор для грима, кошель с 15 зм',
-      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }],
+      equipment: 'Музыкальный инструмент (на ваш выбор), подарок от поклонника, костюм, кошель с 15 зм',
+      tools: ['Набор для грима'],
+      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1, item: {} }],
       desc: 'Вы умеете привлекать к себе внимание и развлекать толпу. Музыка, акробатика, поэзия или театральное искусство — вы мастер своего дела. Выступая в тавернах, на ярмарках и при дворах знати, вы завоевали поклонников и связи. Артисты и развлекатели могут принять вас и оказать помощь, а публика охотно бросает монеты к вашим ногам.',
+    },
+    {
+      name: 'Гладиатор',
+      skills: 'Акробатика, Выступление',
+      equipment: 'Музыкальный инструмент или недорогое необычное оружие (трезубец, сеть) на ваш выбор, подарок от поклонника, костюм, кошель с 15 зм',
+      tools: ['Набор для грима'],
+      choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1, item: { extra: ['Трезубец', 'Сеть'] } }],
+      desc: 'Вы сражались на потеху толпе — на аренах и в ямах для боёв, где публика жаждет крови и зрелища не меньше, чем музыки или стихов. Каждый ваш выход — представление: эффектный удар, дерзкая поза, заигрывание с трибунами. Артисты и владельцы арен готовы принять вас, а публика охотно бросает монеты к вашим ногам после удачного боя.',
     },
     {
       name: 'Беспризорник',
       skills: 'Ловкость рук, Скрытность',
-      equipment: 'Небольшой нож, карта родного города, домашняя крыса, одежда бедняка, набор для грима, воровские инструменты, кошель с 10 зм',
+      equipment: 'Небольшой нож, карта родного города, ручная мышь, памятная вещь о родителях, обычная одежда, кошель с 10 зм',
+      tools: ['Воровские инструменты', 'Набор для грима'],
       choices: [],
       desc: 'Вы выросли на улицах города без семьи и крова, научившись выживать там, где другие погибли бы. Улица научила вас двигаться незаметно, находить пропитание и ценить каждое убежище. Вы знаете тайные ходы и переулки знакомого города, а среди уличного люда всегда найдёте кров и кусок хлеба в обмен на мелкую услугу.',
     },
@@ -1641,25 +1662,49 @@ const BACKGROUND_DATA = {
       desc: 'Вы выросли среди богатства, власти и привилегий. Ваша семья владеет землями, имеет авторитет при дворе и поколениями влияет на судьбы региона. Вы знаете придворный этикет, умеете вести себя среди знати и привыкли к тому, что люди обращают внимание на ваш титул. Ваши знакомства открывают двери туда, куда простолюдинам вход закрыт.',
     },
     {
-      name: 'Гильдейский мастер',
+      name: 'Рыцарь',
+      skills: 'История, Убеждение',
+      equipment: 'Комплект отличной одежды, кольцо с гербом, свиток родословной, кошель с 25 зм',
+      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
+      desc: 'Вы выросли среди богатства, власти и привилегий, но ваше место в обществе связано не только с происхождением, но и с данной клятвой — служить сюзерену, ордену или идее. Вас обучали этикету, верховой езде и обращению с оружием, а за вами присматривают верные слуги, готовые сопровождать вас в путешествиях. Знакомства вашей семьи открывают двери туда, куда простолюдинам вход закрыт.',
+    },
+    {
+      name: 'Гильдейский ремесленник',
       skills: 'Проницательность, Убеждение',
-      equipment: 'Рекомендательное письмо от гильдии, комплект одежды мастера, кошель с 15 зм',
-      choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
+      equipment: 'Ремесленные инструменты (на ваш выбор), рекомендательное письмо от гильдии, дорожная одежда, кошель с 15 зм',
+      choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1, item: {} }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы — опытный мастер своего ремесла и полноправный член торговой или ремесленной гильдии. Гильдия — ваша семья: она обеспечивает работу, защиту и социальные связи. В любом городе, где есть отделение вашей гильдии, вы можете рассчитывать на бесплатный ночлег и помощь соратников. Гильдия также поможет с юридической защитой, если дело дойдёт до суда.',
     },
     {
-      name: 'Жулик',
+      name: 'Купец гильдии',
+      skills: 'Проницательность, Убеждение',
+      equipment: 'Рекомендательное письмо от гильдии, комплект одежды мастера, кошель с 15 зм',
+      choices: [{ label: 'Язык', type: 'language', count: 2 }],
+      desc: 'Вы — опытный торговец и полноправный член купеческой гильдии, ведущей дела в разных городах и странах. Караваны, склады и деловые связи — ваш мир. Гильдия — ваша семья: она обеспечивает работу, защиту и социальные связи. В любом городе, где есть отделение вашей гильдии, вы можете рассчитывать на бесплатный ночлег и помощь соратников. Гильдия также поможет с юридической защитой, если дело дойдёт до суда.',
+    },
+    {
+      name: 'Шарлатан',
       skills: 'Обман, Ловкость рук',
       equipment: 'Набор отличной одежды, набор для грима, набор инструментов мошенника, кошель с 15 зм',
+      tools: ['Набор для грима', 'Набор для фальсификации'],
       choices: [],
       desc: 'Вы всегда умели видеть слабости людей и использовать их в своих целях. Фальшивые личности, ловкий язык, убедительная ложь — всё это ваши главные инструменты. Возможно, вы торговали поддельными снадобьями, продавали "уникальные реликвии" или просто обчищали карманы зазевавшихся богачей. У вас всегда есть запасная легенда, а подобные вам мошенники готовы укрыть вас и передать весточку без лишних вопросов.',
     },
     {
-      name: 'Матрос',
+      name: 'Моряк',
       skills: 'Атлетика, Восприятие',
-      equipment: '50 футов шёлкового каната, сувенир на удачу, навигационные инструменты, общая одежда, кошель с 10 зм',
+      equipment: 'Кофель-нагель (дубинка), 50 футов шёлковой верёвки, талисман на удачу, обычная одежда, кошель с 10 зм',
+      tools: ['Инструменты навигатора', 'Транспорт (водный)'],
       choices: [],
       desc: 'Вы провели годы на море: на торговом судне, рыбацкой шхуне или военном корабле. Жизнь под парусом закалила тело, обострила чувства и научила работать в команде. Вы умеете читать ветер, предсказывать погоду и найдёте общий язык с любым моряком. В портовых городах вам без труда найдётся попутное судно, а морские кабаки встретят вас как своего.',
+    },
+    {
+      name: 'Пират',
+      skills: 'Атлетика, Восприятие',
+      equipment: 'Кофель-нагель (дубинка), 50 футов шёлковой верёвки, талисман на удачу, обычная одежда, кошель с 10 зм',
+      tools: ['Инструменты навигатора', 'Транспорт (водный)'],
+      choices: [],
+      desc: 'Вы бороздили моря под чёрным флагом — грабили торговые суда и делили добычу с командой, для которой закон был пустым звуком. Ваше имя внушает страх в портовых тавернах: буйная матросня предпочитает не связываться с человеком вашей репутации, а стражники нередко закрывают глаза на мелкие проступки, лишь бы не иметь с вами дела.',
     },
     {
       name: 'Мудрец',
@@ -1671,26 +1716,37 @@ const BACKGROUND_DATA = {
     {
       name: 'Народный герой',
       skills: 'Уход за животными, Выживание',
-      equipment: 'Лопата, котёл для готовки, транспортные средства (наземные), общая одежда, кошель с 10 зм',
-      choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1 }],
+      equipment: 'Ремесленные инструменты (на ваш выбор), лопата, железный горшок, обычная одежда, кошель с 10 зм',
+      tools: ['Транспорт (наземный)'],
+      choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1, item: {} }],
       desc: 'Вы — простой человек из простой семьи, но однажды судьба поставила вас перед выбором, и вы поступили правильно. Теперь люди из вашей деревни или округи смотрят на вас как на заступника и надеются, что вы защитите их от тирании и зла. Простые крестьяне и ремесленники рады помочь вам: спрятать, накормить, передать весть, — ведь вы один из них.',
     },
     {
       name: 'Отшельник',
       skills: 'Медицина, Религия',
       equipment: 'Принадлежности для рукоделия, дневник в кожаной обложке, набор трав, зимняя одежда, кошель с 5 зм',
+      tools: ['Набор травника'],
       choices: [{ label: 'Язык', type: 'language', count: 1 }],
       desc: 'Долгие годы вы провели в уединении вдали от общества — в монастырской келье, лесной хижине или пещере. Одиночество давало вам время для размышлений, молитвы или исследований. Быть может, вы искали ответы на великие вопросы, бежали от преследования или несли суровое покаяние. Теперь за вами стоит открытие или понимание, изменившее ваш взгляд на мир.',
     },
     {
       name: 'Преступник',
       skills: 'Обман, Скрытность',
-      equipment: 'Ломик, тёмная одежда с капюшоном, воровские инструменты, кошель с 15 зм',
+      equipment: 'Ломик, тёмная обычная одежда с капюшоном, кошель с 15 зм',
+      tools: ['Воровские инструменты'],
       choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }],
       desc: 'До приключений вы нарушали закон — и довольно успешно. Кражи, контрабанда, шантаж или убийства на заказ: у вас за плечами богатый опыт незаконной деятельности. Вы знаете, как связаться с фехтовальщиками краденого, скупщиками информации и другими преступниками. Члены воровских гильдий и уличных банд, как правило, относятся к вам с уважением — или по меньшей мере не мешают.',
     },
     {
-      name: 'Скиталец',
+      name: 'Шпион',
+      skills: 'Обман, Скрытность',
+      equipment: 'Ломик, тёмная обычная одежда с капюшоном, кошель с 15 зм',
+      tools: ['Воровские инструменты'],
+      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }],
+      desc: 'До приключений вы работали на разведку — собирали сведения, вели наблюдение и передавали донесения тем, кто платил за информацию. Слежка, шифры и явочные квартиры — привычная часть вашей прошлой жизни. Вы знаете, как связаться с осведомителями, скупщиками информации и другими агентами. Люди из мира тайных служб и преступного подполья, как правило, относятся к вам с уважением — или по меньшей мере не мешают.',
+    },
+    {
+      name: 'Чужеземец',
       skills: 'Атлетика, Выживание',
       equipment: 'Посох, охотничий капкан, трофей убитого животного, дорожная одежда, кошель с 10 зм',
       choices: [{ label: 'Муз. инструмент', type: 'instrument', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
@@ -1699,8 +1755,9 @@ const BACKGROUND_DATA = {
     {
       name: 'Солдат',
       skills: 'Атлетика, Запугивание',
-      equipment: 'Значок воинского звания, трофей с поверженного врага, транспортные средства (наземные), обычная одежда, кошель с 10 зм',
-      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }],
+      equipment: 'Знак отличия, трофей с павшего врага, набор игральных костей или колода карт, обычная одежда, кошель с 10 зм',
+      tools: ['Транспорт (наземный)'],
+      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1, item: { list: ['Игральные кости', 'Карты'] } }],
       desc: 'Вы долгие годы служили в армии — регулярных войсках, городской страже или наёмном отряде. Война научила вас дисциплине, тактике и тому, как выжить в хаосе битвы. У вас есть звание и послужной список: солдаты и ветераны признают в вас своего, офицеры уважают ваш опыт, а военные лагеря и гарнизоны готовы принять вас.',
     },
     {
@@ -1730,7 +1787,7 @@ const BACKGROUND_DATA = {
       name: 'Клановый мастер',
       skills: 'История, Проницательность',
       equipment: 'Памятный предмет из дома клана, обычная одежда, кошель с 5 зм',
-      choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1 }, { label: 'Язык', type: 'language', count: 1 }],
+      choices: [{ label: 'Ремесленный инструмент', type: 'artisan', count: 1, item: { same: true } }, { label: 'Язык', type: 'language', count: 1 }],
       desc: 'Вы выросли в клане гномов-мастеров или иного народа с богатыми традициями ремесла. Ваши изделия — предмет гордости клана, а секреты мастерства передавались из рук в руки поколениями. Вы умеете ценить качественную работу и сразу видите, когда мастер халтурит. Гномские кланы-мастера повсюду примут вас как равного и помогут с торговыми контактами.',
     },
     {
@@ -1751,14 +1808,14 @@ const BACKGROUND_DATA = {
       name: 'Дальний странник',
       skills: 'Восприятие + 1 по выбору',
       equipment: 'Путевые вещи, реликвия из далёкого дома, записная книжка, кошель с 5 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Инструмент/набор', type: 'instrument', count: 1 }],
+      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Инструмент/набор', type: 'instrument', count: 1, item: { same: true } }],
       desc: 'Вы пришли из страны настолько далёкой, что большинство людей здесь никогда о ней не слышали. Ваш акцент, одежда и обычаи выдают в вас чужеземца, вызывая у людей смесь восхищения и подозрения. Вы сохранили связи с теми, кто путешествует между мирами и народами, — торговцами дальних маршрутов, дипломатами, лазутчиками.',
     },
     {
       name: 'Наследник',
       skills: 'Выживание + 1 по выбору',
       equipment: 'Предмет наследства (согласуется с DM), путевая одежда, кошель с 15 зм',
-      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Игровой набор', type: 'gaming', count: 1 }],
+      choices: [{ label: 'Язык', type: 'language', count: 1 }, { label: 'Игровой набор', type: 'gaming', count: 1, item: { same: true } }],
       desc: 'Вы унаследовали нечто ценное — старинный артефакт, долг, миссию или тайну. Это наследство определяет ваш путь и не даёт вам покоя. Быть может, вы единственный, кто знает о нём, или, напротив, многие хотят забрать его у вас силой. Те, кто связан с вашим наследством, могут стать союзниками или врагами.',
     },
     {
@@ -1772,7 +1829,7 @@ const BACKGROUND_DATA = {
       name: 'Ветеран наёмник',
       skills: 'Атлетика, Убеждение',
       equipment: 'Знак воинского звания, значок отряда, выбранный игровой набор, обычная одежда, кошель с 10 зм',
-      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1 }],
+      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1, item: {} }],
       desc: 'Вы продавали меч тому, кто платил больше, сражаясь в разных армиях и под разными знамёнами. Наёмная жизнь научила вас оценивать нанимателей, не задавать лишних вопросов и знать, когда пора уходить. Другие ветераны наёмных отрядов узнают вас по манере держаться и охотно делятся слухами о контрактах и войнах.',
     },
     {
@@ -1857,6 +1914,7 @@ function buildRaceStep(st, goMech) {
   const listEl   = el('div', { class: 'mech-cls-list' });
   const detailEl = el('div', { class: 'mech-cls-detail' });
   const footEl   = el('div', { class: 'mech-foot' });
+  const ALL_SKILLS = Object.values(SKILLS_BY_AB).flat();
 
   function updateDetail() {
     detailEl.innerHTML = '';
@@ -1867,7 +1925,7 @@ function buildRaceStep(st, goMech) {
     const [srcId, raceName] = st.mecRace.split('::');
     const raceObj = (RACE_DATA[srcId] || []).find(r => r.name === raceName);
     if (!raceObj) return;
-    const srcObj = (SOURCEBOOKS[st.mecEdition] || []).find(s => s.id === srcId);
+    const srcObj = (SOURCEBOOKS['5e'] || []).find(s => s.id === srcId);
 
     const badge = el('span', { class: 'mech-race-src-badge' }, srcId);
     if (srcObj) {
@@ -1883,44 +1941,313 @@ function buildRaceStep(st, goMech) {
       || RACE_DESCRIPTIONS[_rn.replace(/\s*\([^)]+\)$/, '')]; // strip any trailing (…) suffix
 
     // ── ASI block ──
-    const _raceAsi = STAT_RACE_ASI[raceObj.name] || raceDesc?.asi || {};
-    const asiEntries = Object.entries(_raceAsi);
+    // 2026-09-11 (заказчик, UX-правка): бонус подрасы больше не показывается как
+    // текст-заглушка "+ подраса" — вместо этого он подмешивается прямо сюда, в общий
+    // блок «Бонусы», как только подраса выбрана. renderAsiBlock() пересчитывает блок
+    // заново при каждом выборе подрасы (см. обработчик клика на кнопке подрасы ниже).
     const STAT_LABELS = { str:'Сила', dex:'Ловкость', con:'Телосложение', int:'Интеллект', wis:'Мудрость', cha:'Харизма' };
-    const asiBlock = asiEntries.length
-      ? el('div', { class: 'mech-race-asi' },
-          el('span', { class: 'mech-race-asi-label' }, 'Бонусы:'),
-          ...asiEntries.map(([k, v]) =>
-            el('span', { class: 'mech-race-asi-badge' }, `${STAT_LABELS[k] || k} ${v > 0 ? '+' : ''}${v}`),
-          ),
-          asiEntries.length && raceObj.sub.length
-            ? el('span', { class: 'mech-race-asi-sub-note' }, ' + подраса')
-            : null,
-        )
-      : null;
+    const asiBlock = el('div', { class: 'mech-race-asi' });
+
+    // 2026-09-12 (заказчик, UX-правка v2): игрок отверг отдельный чип-пикер под «Бонусы» —
+    // «нужно дать селектор внутри блока Бонусов. Примерно как выбор муз инструмента у Барда».
+    // Теперь для Полуэльфа два свободных +1 (кроме уже зафиксированной +2 Харизмы) выбираются
+    // прямо здесь, парой инлайновых <select>, в том же стиле, что и пикер муз. инструмента
+    // барда на шаге снаряжения (классы equip-choice-sel/equip-choice-wrap/equip-choice-arrow).
+    // Без пустого состояния — сразу подставляются первые две подходящие характеристики.
+    const isHalfElf = raceObj.name === 'Полуэльф';
+
+    function buildHalfElfAsiInline() {
+      const pickable = ABILITIES.filter(a => a.key !== 'cha');
+      let keys = Object.keys(st.mecHalfElfAsi || {});
+      if (keys.length !== 2) {
+        const defaults = pickable.slice(0, 2).map(a => a.key);
+        st.mecHalfElfAsi = { [defaults[0]]: 1, [defaults[1]]: 1 };
+        scheduleSave(st);
+        keys = defaults;
+      }
+      const [a, b] = keys;
+      function makeAbilitySel(current, otherKey, onPick) {
+        const opts = pickable.filter(x => x.key !== otherKey);
+        const sel = el('select', { class: 'equip-choice-sel' }, ...opts.map(x => el('option', { value: x.key }, x.label)));
+        sel.value = current;
+        sel.addEventListener('change', () => onPick(sel.value));
+        return el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾'));
+      }
+      return el('span', { class: 'mech-race-asi-choice' },
+        el('span', { class: 'mech-race-asi-choice-pair' },
+          el('span', { class: 'mech-race-asi-choice-plus' }, '+1'),
+          makeAbilitySel(a, b, v => { st.mecHalfElfAsi = { [v]: 1, [b]: 1 }; scheduleSave(st); renderAsiBlock(); }),
+        ),
+        el('span', { class: 'mech-race-asi-choice-pair' },
+          el('span', { class: 'mech-race-asi-choice-plus' }, '+1'),
+          makeAbilitySel(b, a, v => { st.mecHalfElfAsi = { [a]: 1, [v]: 1 }; scheduleSave(st); renderAsiBlock(); }),
+        ),
+      );
+    }
+
+    function renderAsiBlock() {
+      asiBlock.innerHTML = '';
+      const baseAsi = STAT_RACE_ASI[raceObj.name] || raceDesc?.asi || {};
+      let subAsi = {};
+      if (st.mecSubrace && st.mecSubrace !== 'Альтернативный') {
+        const sInfo = (raceDesc?.subraces || []).find(sd =>
+          sd.name === st.mecSubrace || sd.name.includes(st.mecSubrace) || st.mecSubrace.includes(sd.name.split(' ')[0]));
+        subAsi = sInfo?.asi || STAT_SUBRACE_ASI[st.mecSubrace] || {};
+      }
+      const merged = { ...baseAsi };
+      Object.entries(subAsi).forEach(([k, v]) => { merged[k] = (merged[k] || 0) + v; });
+      const entries = Object.entries(merged);
+      asiBlock.style.display = (entries.length || isHalfElf) ? '' : 'none';
+      if (!entries.length && !isHalfElf) return;
+      asiBlock.append(
+        el('span', { class: 'mech-race-asi-label' }, 'Бонусы:'),
+        ...entries.map(([k, v]) =>
+          el('span', { class: 'mech-race-asi-badge' }, `${STAT_LABELS[k] || k} ${v > 0 ? '+' : ''}${v}`),
+        ),
+      );
+      if (isHalfElf) asiBlock.append(buildHalfElfAsiInline());
+    }
+    renderAsiBlock();
 
     // ── Speed / Size / Languages chips ──
-    const statsChips = (raceDesc?.speed || raceDesc?.size || raceDesc?.languages)
-      ? el('div', { class: 'mech-race-stats' },
-          raceDesc.speed     ? el('span', { class: 'mech-race-stat-chip' }, `⚡ ${raceDesc.speed} фут.`) : null,
-          raceDesc.size      ? el('span', { class: 'mech-race-stat-chip' }, `📐 ${raceDesc.size}`) : null,
-          raceDesc.languages ? el('span', { class: 'mech-race-stat-chip mech-race-stat-chip--lang' }, `🗣 ${raceDesc.languages}`) : null,
-        )
-      : null;
+    // 2026-09-12 (заказчик): Лесной эльф больше не описывает возросшую скорость отдельной
+    // чертой «Быстрые ноги» — вместо этого чип скорости наверху должен сам показывать
+    // 35 фут. для этой подрасы. Поэтому чип скорости больше не статичен на весь рендер
+    // расы — subrace.speed (если задан) переопределяет raceDesc.speed, и весь блок
+    // пересчитывается при каждом переключении подрасы (см. renderStatsChips() ниже).
+    const statsChipsEl = el('div', { class: 'mech-race-stats' });
+    function renderStatsChips() {
+      statsChipsEl.innerHTML = '';
+      let speed = raceDesc?.speed;
+      if (st.mecSubrace) {
+        const sInfo = (raceDesc?.subraces || []).find(sd =>
+          sd.name === st.mecSubrace || sd.name.includes(st.mecSubrace) || st.mecSubrace.includes(sd.name.split(' ')[0]));
+        if (sInfo?.speed) speed = sInfo.speed;
+      }
+      const hasAny = speed || raceDesc?.size || raceDesc?.languages;
+      statsChipsEl.style.display = hasAny ? '' : 'none';
+      if (!hasAny) return;
+      statsChipsEl.append(
+        speed              ? el('span', { class: 'mech-race-stat-chip' }, `⚡ ${speed} фут.`) : null,
+        raceDesc.size      ? el('span', { class: 'mech-race-stat-chip' }, `📐 ${raceDesc.size}`) : null,
+        raceDesc.languages ? el('span', { class: 'mech-race-stat-chip mech-race-stat-chip--lang' }, `🗣 ${raceDesc.languages}`) : null,
+      );
+    }
+    renderStatsChips();
 
-    // ── Traits block ──
-    const traitsBlock = raceDesc?.traits?.length
-      ? el('div', { class: 'mech-race-traits' },
-          el('p', { class: 'mech-pr-section' }, 'Расовые черты:'),
-          el('ul', { class: 'mech-race-trait-list' },
-            ...raceDesc.traits.map(t =>
-              el('li', { class: 'mech-race-trait-item' },
-                el('span', { class: 'mech-race-trait-title' }, t.title + '. '),
-                el('span', { class: 'mech-race-trait-text' }, t.text),
+    // ── Traits block (race traits + currently-selected subrace's traits, one list) ──
+    // 2026-09-11 (заказчик): подрасовые черты (напр. «Ремесленные знания»/«Жестянщик» у
+    // гнома) — это тоже расовые черты, поэтому выводятся в ТОМ ЖЕ списке «РАСОВЫЕ ЧЕРТЫ:»,
+    // что и общие черты расы, а не отдельным блоком под описанием подрасы. Пересчитывается
+    // через renderTraitsBlock() при каждом выборе подрасы, как и блок «Бонусы».
+    // 2026-09-11: `text-in-backticks` inside trait text renders as monospaced <code>
+    // (dice notation like `2к6`, DC formulas like `8 + модификатор Телосложения + бонус
+    // мастерства`) so mechanical bits stand out from the surrounding prose.
+    function renderInline(str) {
+      return str.split(/`([^`]+)`/g)
+        .filter(part => part !== '')
+        .map((part, i) => i % 2 === 1 ? el('code', { class: 'mech-trait-formula' }, part) : part);
+    }
+    function buildTraitLi(t) {
+      // 2026-09-11: t.text can be a string or an array of paragraphs (e.g. Dragonborn's
+      // multi-paragraph "Оружие дыхания") — the first paragraph stays inline after the
+      // title, the rest render as separate <p> blocks within the same trait item.
+      const paragraphs = Array.isArray(t.text) ? t.text : [t.text];
+      const li = el('li', { class: 'mech-race-trait-item' },
+        el('span', { class: 'mech-race-trait-title' }, t.title + '. '),
+        el('span', { class: 'mech-race-trait-text' }, ...renderInline(paragraphs[0])),
+        ...paragraphs.slice(1).map(p => el('p', { class: 'mech-race-trait-text-p' }, ...renderInline(p))),
+      );
+      if (t.devices?.length) {
+        // Reuses the existing subrace-picker button/text classes (mech-subrace-btns /
+        // mech-subrace-btn / mech-subrace-desc-text) instead of new device-* classes,
+        // since css/create-new.css isn't in this checkout to add matching rules to —
+        // this way the picker is already styled on the user's machine, no CSS needed.
+        // 2026-09-11: keyed by trait title in st.mecDeviceChoices (was a single shared
+        // st.mecTinkerDevice field) so two different "choose one of N" traits — e.g. Gnome's
+        // Жестянщик and Dwarf's Владение инструментами — never collide on the same key.
+        if (!st.mecDeviceChoices) st.mecDeviceChoices = {};
+        const devWrap = el('div', { class: 'mech-subrace-device-wrap' });
+        // 2026-09-11: a device can be a plain { name, text } (e.g. Gnome's Жестянщик
+        // options) or a structured { name, components, summary, checks[], dc[] } card
+        // (e.g. Dwarf's tool proficiencies, ported from the ttg.club item pages) —
+        // buildDeviceCard renders whichever shape is present instead of one flat <p>.
+        function buildDeviceCard(d) {
+          if (!d.checks && !d.dc && !d.components) {
+            return el('p', { class: 'mech-subrace-desc-text' }, d.text);
+          }
+          return el('div', { class: 'mech-device-card' },
+            d.summary ? el('p', { class: 'mech-device-summary' }, d.summary) : null,
+            d.components ? el('p', { class: 'mech-device-components' },
+              el('span', { class: 'mech-device-components-label' }, 'Состав: '), d.components) : null,
+            d.checks?.length ? el('ul', { class: 'mech-device-checks' },
+              ...d.checks.map(c => el('li', { class: 'mech-device-check-item' },
+                el('span', { class: 'mech-device-check-label' }, c.label + '. '),
+                c.text,
+              )),
+            ) : null,
+            d.dc?.length ? el('ul', { class: 'mech-device-dc' },
+              ...d.dc.map(x => el('li', { class: 'mech-device-dc-item' },
+                el('span', { class: 'mech-device-dc-action' }, x.action),
+                el('span', { class: 'mech-device-dc-value' }, 'Сл ' + x.value),
+              )),
+            ) : null,
+          );
+        }
+        const renderDevices = () => {
+          devWrap.innerHTML = '';
+          // 2026-09-26: у обязательного выбора (required) не подставляем первый вариант —
+          // иначе игрок видит подсвеченный «Белый», хотя ничего не выбирал.
+          const current = t.devices.find(d => d.name === st.mecDeviceChoices[t.title])
+            || (t.required ? null : t.devices[0]);
+          devWrap.append(
+            el('div', { class: 'mech-subrace-btns' },
+              ...t.devices.map(d =>
+                el('button', {
+                  class: `mech-subrace-btn${current?.name === d.name ? ' is-selected' : ''}`,
+                  onClick: () => {
+                    st.mecDeviceChoices[t.title] = d.name;
+                    scheduleSave(st);
+                    renderDevices();
+                    updateRaceFoot();
+                  },
+                }, d.name)
               ),
             ),
-          ),
-        )
-      : null;
+            current ? buildDeviceCard(current)
+              : el('p', { class: 'mech-subrace-desc-text' }, 'Выберите вариант, чтобы продолжить.'),
+          );
+        };
+        renderDevices();
+        li.append(devWrap);
+      }
+      // 2026-09-12 (заказчик): «Универсальность навыков» и подобные черты дают владение
+      // N навыками на выбор игрока (не привязано к списку класса — любой навык), поэтому
+      // нужен собственный пул выбора, отдельный от st.mecChosen (черты класса). Переиспользует
+      // готовую вёрстку/стили пикера навыков со шага класса (cls-skill-* классы), чтобы не
+      // тянуть новый CSS — только новое состояние st.mecRaceSkills и свой счётчик по count.
+      if (t.skillChoice) {
+        if (!st.mecRaceSkills) st.mecRaceSkills = [];
+        const count = t.skillChoice.count || 1;
+        const pool  = t.skillChoice.list || ALL_SKILLS;
+        const skillWrap = el('div', { class: 'cls-skill-block' });
+        function renderSkillPicker() {
+          skillWrap.innerHTML = '';
+          // 2026-09-12 (заказчик): нужно показать (некликабельно) какие навыки уже даёт
+          // класс — игрок иначе не поймёт, почему навык недоступен для выбора у расы.
+          // Заодно подчищаем st.mecRaceSkills от навыков, которые СТАЛИ классовыми уже
+          // после того, как игрок выбрал их у расы (например, вернулся на шаг класса и
+          // поменял выбор) — иначе счётчик застрянет на «выбрано», хотя выбор больше не
+          // валиден, и игрок не поймёт, почему кнопка «Далее» снова заблокирована.
+          const classChosen = new Set(st.mecChosen || []);
+          const cleaned = (st.mecRaceSkills || []).filter(s => !classChosen.has(s));
+          if (cleaned.length !== (st.mecRaceSkills || []).length) {
+            st.mecRaceSkills = cleaned;
+            scheduleSave(st);
+          }
+          const chosen  = new Set(st.mecRaceSkills || []);
+          const picks   = [...chosen].filter(s => pool.includes(s));
+          const atLimit = picks.length >= count;
+          const chips = [...pool].sort((a, b) => ALL_SKILLS.indexOf(a) - ALL_SKILLS.indexOf(b)).map(name => {
+            const isFromClass = classChosen.has(name);
+            const isPicked    = chosen.has(name);
+            const isDisabled  = isFromClass || (!isPicked && atLimit);
+            const chip = el('button', {
+              class: 'cls-skill-chip'
+                + (isPicked ? ' is-picked' : '')
+                + (isFromClass ? ' is-from-class' : '')
+                + (isDisabled && !isFromClass ? ' is-dim' : ''),
+              onClick: () => {
+                if (isFromClass) return;
+                const s = new Set(st.mecRaceSkills || []);
+                if (isPicked) s.delete(name);
+                else if (!atLimit) s.add(name);
+                else return;
+                st.mecRaceSkills = [...s];
+                scheduleSave(st);
+                renderSkillPicker();
+                updateRaceFoot();
+              },
+            }, (isFromClass ? '🔒 ' : isPicked ? '✓ ' : '') + name + (isFromClass ? ' (класс)' : ''));
+            chip.disabled = isDisabled;
+            const colorVar = skillColorVar(name);
+            if (colorVar) chip.style.setProperty('--chip-c', colorVar);
+            return chip;
+          });
+          skillWrap.append(
+            el('div', { class: 'cls-skill-block-header' },
+              el('span', { class: 'cls-skill-block-title' }, 'Выберите навыки'),
+              el('span', { class: 'cls-skill-counter' + (atLimit ? ' is-done' : '') }, `Выбрано навыков: ${picks.length} / ${count}`),
+            ),
+            el('div', { class: 'cls-skill-chips' }, ...chips),
+          );
+        }
+        renderSkillPicker();
+        li.append(skillWrap);
+      }
+      // 2026-09-12 (заказчик): черты типа «Дополнительный язык» (Человек) и «Черта»
+      // (Альтернативный человек — feat на выбор) — простой выбор N вариантов из
+      // фиксированного списка, без завязки на класс/предысторию. В отличие от навыков
+      // (список большой и «пиковый» отбор нагляднее чипами), тут игрок выбирает
+      // из готового списка — удобнее инлайновым <select>, как ASI-выбор у Полуэльфа,
+      // с сразу подставленным значением по умолчанию (без блокировки «Далее»).
+      if (t.choice) {
+        if (!st.mecRaceChoices) st.mecRaceChoices = {};
+        const count = t.choice.count || 1;
+        // 2026-09-26: для языка исключаем языки, которые раса уже знает (Полуэльфу не
+        // предлагаем Эльфийский, Высшему эльфу — Эльфийский и т.д.).
+        const pool  = t.choice.list || (t.choice.type === 'feat' ? PHB_FEATS
+          : LANGUAGES.filter(l => !mecRaceBaseLanguages(raceDesc).includes(l)));
+        const key   = t.title;
+        const choiceWrap = el('div', { class: 'mech-race-choice-selects' });
+        function renderChoiceSelects() {
+          choiceWrap.innerHTML = '';
+          const saved = st.mecRaceChoices[key] || [];
+          let picks = saved.filter(v => pool.includes(v));
+          if (picks.length !== count || picks.length !== saved.length) {
+            picks = pool.slice(0, count);
+            st.mecRaceChoices[key] = picks;
+            scheduleSave(st);
+          }
+          const selects = picks.map((val, idx) => {
+            const otherPicks = picks.filter((_, i) => i !== idx);
+            const opts = pool.filter(o => !otherPicks.includes(o));
+            const sel = el('select', { class: 'equip-choice-sel' }, ...opts.map(o => el('option', { value: o }, o)));
+            sel.value = val;
+            sel.addEventListener('change', () => {
+              const next = [...picks];
+              next[idx] = sel.value;
+              st.mecRaceChoices[key] = next;
+              scheduleSave(st);
+              renderChoiceSelects();
+            });
+            return el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾'));
+          });
+          choiceWrap.append(...selects);
+        }
+        renderChoiceSelects();
+        li.append(choiceWrap);
+      }
+      return li;
+    }
+
+    const traitsBlockEl = el('div', { class: 'mech-race-traits' });
+    function renderTraitsBlock() {
+      traitsBlockEl.innerHTML = '';
+      // 2026-09-12: this used to also skip 'Альтернативный' (was 'Вариант') the same way
+      // renderAsiBlock's subAsi lookup does — but that ASI-only exclusion doesn't belong
+      // here: Альтернативный now carries its own trait («Черта», feat choice) that must
+      // still render. Only renderAsiBlock's subAsi (fixed +N by subrace) should skip it,
+      // since Альтернативный's ASI is entirely player-chosen via mecVariantHumanAsi.
+      const allTraits = mecActiveRaceTraits(raceObj.name, st.mecSubrace);
+      traitsBlockEl.style.display = allTraits.length ? '' : 'none';
+      if (!allTraits.length) return;
+      traitsBlockEl.append(
+        el('p', { class: 'mech-pr-section' }, 'Расовые черты:'),
+        el('ul', { class: 'mech-race-trait-list' }, ...allTraits.map(buildTraitLi)),
+      );
+    }
+    renderTraitsBlock();
 
     detailEl.append(
       el('div', { class: 'mech-cls-header' },
@@ -1928,37 +2255,28 @@ function buildRaceStep(st, goMech) {
         badge,
       ),
       el('p', { class: 'mech-cls-desc' }, raceObj.desc),
-      ...(statsChips  ? [statsChips]  : []),
-      ...(asiBlock    ? [asiBlock]    : []),
-      ...(traitsBlock ? [traitsBlock] : []),
+      statsChipsEl,
     );
 
+    // 2026-09-11 (заказчик, UX-правка): выбор подрасы — сразу под чипами скорости/размера/
+    // языков, блок «Бонусы» — сразу под селектором подрасы (бонус подрасы уже подмешан
+    // renderAsiBlock()), затем текст описания подрасы, и в самом низу — единый список
+    // расовых черт (renderTraitsBlock()).
+    let subraceDescEl = null;
     if (raceObj.sub.length) {
       const subraceDescs = raceDesc?.subraces || [];
-      const subraceDescEl = el('div', { class: 'mech-subrace-desc' });
+      subraceDescEl = el('div', { class: 'mech-subrace-desc' });
       function updateSubraceDesc(s) {
         subraceDescEl.innerHTML = '';
         if (!s) return;
         const sInfo = subraceDescs.find(sd => sd.name === s || sd.name.includes(s) || s.includes(sd.name.split(' ')[0]));
-        if (sInfo) subraceDescEl.append(el('p', { class: 'mech-subrace-desc-text' }, sInfo.description));
+        if (!sInfo) return;
+        if (sInfo.description) subraceDescEl.append(el('p', { class: 'mech-subrace-desc-text' }, sInfo.description));
 
         // Special case: Variant human — ASI is player's choice, show interactive picker here
-        if (s === 'Вариант') {
-          subraceDescEl.append(buildVariantHumanPicker());
-          return;
-        }
-
-        // Use asi from race_descriptions first (handles per-race conflicts), fall back to STAT_SUBRACE_ASI
-        const asiData = sInfo?.asi || STAT_SUBRACE_ASI[s];
-        if (asiData) {
-          subraceDescEl.append(
-            el('div', { class: 'mech-race-asi mech-race-asi--sub' },
-              el('span', { class: 'mech-race-asi-label' }, 'Бонус подрасы:'),
-              ...Object.entries(asiData).map(([k, v]) =>
-                el('span', { class: 'mech-race-asi-badge' }, `${STAT_LABELS[k] || k} ${v > 0 ? '+' : ''}${v}`),
-              ),
-            ),
-          );
+        // (its own +1/+1 picks are handled separately, not merged into the race ASI block)
+        if (s === 'Альтернативный') {
+          subraceDescEl.append(buildAsiChoicePicker('mecVariantHumanAsi', [], '+1 к двум характеристикам'));
         }
       }
       if (st.mecSubrace) updateSubraceDesc(st.mecSubrace);
@@ -1972,62 +2290,83 @@ function buildRaceStep(st, goMech) {
                 const prev = st.mecSubrace;
                 st.mecSubrace = s;
                 // Clear Variant Human bonus picks when switching away from Вариант
-                if (prev === 'Вариант' && s !== 'Вариант') st.mecVariantHumanAsi = {};
+                if (prev === 'Альтернативный' && s !== 'Альтернативный') st.mecVariantHumanAsi = {};
+                // 2026-09-26: навыки, выбранные по черте подрасы (Альтернативный → «Навык»),
+                // не должны переживать смену подрасы — обрезаем до нового требуемого числа.
+                const reqSkills = mecRequiredRaceSkillCount(raceObj.name, s);
+                if ((st.mecRaceSkills || []).length > reqSkills) st.mecRaceSkills = (st.mecRaceSkills || []).slice(0, reqSkills);
                 scheduleSave(st);
                 detailEl.querySelectorAll('.mech-subrace-btn').forEach(b =>
                   b.classList.toggle('is-selected', b.textContent === s)
                 );
                 updateSubraceDesc(s);
+                renderAsiBlock();
+                renderStatsChips();
+                renderTraitsBlock();
                 updateRaceFoot();
               },
             }, s)
           ),
         ),
-        subraceDescEl,
       );
     }
+
+    detailEl.append(asiBlock);
+    if (subraceDescEl) detailEl.append(subraceDescEl);
+    detailEl.append(traitsBlockEl);
   }
 
   const _isVariantHuman = () =>
-    !!st.mecRace && st.mecRace.split('::')[1] === 'Человек' && st.mecSubrace === 'Вариант';
+    !!st.mecRace && st.mecRace.split('::')[1] === 'Человек' && st.mecSubrace === 'Альтернативный';
+  const _isHalfElf = () =>
+    !!st.mecRace && st.mecRace.split('::')[1] === 'Полуэльф';
 
-  function buildVariantHumanPicker() {
-    const STAT_LABELS_VH = { str:'Сила', dex:'Ловкость', con:'Телосложение', int:'Интеллект', wis:'Мудрость', cha:'Харизма' };
-    const chosen     = st.mecVariantHumanAsi || {};
-    const chosenKeys = Object.keys(chosen);
-    const needed     = 2 - chosenKeys.length;
-    const hint = needed > 0 ? `Выберите ещё ${needed}` : '✓ Выбрано';
+  // 2026-09-12: generalized "+1 to N abilities of your choice" picker — originally written
+  // just for Variant Human's ASI, now reused for Half-Elf's two free +1s (which exclude
+  // Харизма, already fixed at +2). Self-contained: owns its own wrapper and re-renders
+  // itself on pick instead of the caller re-querying the DOM by class.
+  function buildAsiChoicePicker(stateKey, excludeKeys, title) {
+    const STAT_LABELS_ASI = { str:'Сила', dex:'Ловкость', con:'Телосложение', int:'Интеллект', wis:'Мудрость', cha:'Харизма' };
+    const wrap = el('div', { class: 'vh-asi-picker' });
+    function render() {
+      wrap.innerHTML = '';
+      const chosen     = st[stateKey] || {};
+      const chosenKeys = Object.keys(chosen);
+      const needed     = 2 - chosenKeys.length;
+      const hint = needed > 0 ? `Выберите ещё ${needed}` : '✓ Выбрано';
+      const pickable = ABILITIES.filter(({ key }) => !excludeKeys.includes(key));
 
-    const chips = ABILITIES.map(({ key, label }) => {
-      const isChosen = !!chosen[key];
-      const canPick  = isChosen || chosenKeys.length < 2;
-      const btn = el('button', {
-        class: `vh-asi-chip${isChosen ? ' is-chosen' : ''}${!canPick ? ' is-disabled' : ''}`,
-        onClick: () => {
-          if (!st.mecVariantHumanAsi) st.mecVariantHumanAsi = {};
-          if (isChosen) {
-            delete st.mecVariantHumanAsi[key];
-          } else if (Object.keys(st.mecVariantHumanAsi).length < 2) {
-            st.mecVariantHumanAsi[key] = 1;
-          }
-          scheduleSave(st);
-          // Re-render picker and update foot button
-          const subraceDescEl = detailEl.querySelector('.mech-subrace-desc');
-          if (subraceDescEl) { subraceDescEl.innerHTML = ''; subraceDescEl.append(buildVariantHumanPicker()); }
-          updateRaceFoot();
-        },
-      }, isChosen ? `${STAT_LABELS_VH[key]} +1` : STAT_LABELS_VH[key]);
-      btn.disabled = !canPick;
-      return btn;
-    });
+      const chips = pickable.map(({ key }) => {
+        const isChosen = !!chosen[key];
+        const canPick  = isChosen || chosenKeys.length < 2;
+        const btn = el('button', {
+          class: `vh-asi-chip${isChosen ? ' is-chosen' : ''}${!canPick ? ' is-disabled' : ''}`,
+          onClick: () => {
+            if (!st[stateKey]) st[stateKey] = {};
+            if (isChosen) {
+              delete st[stateKey][key];
+            } else if (Object.keys(st[stateKey]).length < 2) {
+              st[stateKey][key] = 1;
+            }
+            scheduleSave(st);
+            render();
+            updateRaceFoot();
+          },
+        }, isChosen ? `${STAT_LABELS_ASI[key]} +1` : STAT_LABELS_ASI[key]);
+        btn.disabled = !canPick;
+        return btn;
+      });
 
-    return el('div', { class: 'vh-asi-picker' },
-      el('div', { class: 'vh-asi-header' },
-        el('span', { class: 'vh-asi-title' }, '+1 к двум характеристикам'),
-        el('span', { class: `vh-asi-hint${needed === 0 ? ' done' : ''}` }, hint),
-      ),
-      el('div', { class: 'vh-asi-chips' }, ...chips),
-    );
+      wrap.append(
+        el('div', { class: 'vh-asi-header' },
+          el('span', { class: 'vh-asi-title' }, title),
+          el('span', { class: `vh-asi-hint${needed === 0 ? ' done' : ''}` }, hint),
+        ),
+        el('div', { class: 'vh-asi-chips' }, ...chips),
+      );
+    }
+    render();
+    return wrap;
   }
 
   function updateRaceFoot() {
@@ -2037,9 +2376,16 @@ function buildRaceStep(st, goMech) {
     const raceObj = (RACE_DATA[srcId] || []).find(r => r.name === raceName);
     const needsSub = raceObj?.sub?.length > 0;
     const vhIncomplete = _isVariantHuman() && Object.keys(st.mecVariantHumanAsi || {}).length < 2;
-    const blocked = (needsSub && !st.mecSubrace) || vhIncomplete;
-    const tipText = !st.mecSubrace ? 'Выберите подрасу, чтобы продолжить'
-      : vhIncomplete ? 'Выберите +1 к двум характеристикам'
+    const heIncomplete = _isHalfElf() && Object.keys(st.mecHalfElfAsi || {}).length < 2;
+    const requiredSkills = mecRequiredRaceSkillCount(raceName, st.mecSubrace);
+    const skillsIncomplete = requiredSkills > 0 && (st.mecRaceSkills || []).length < requiredSkills;
+    const missingDevices = mecMissingRequiredDevices(st);
+    const blocked = (needsSub && !st.mecSubrace) || vhIncomplete || heIncomplete || skillsIncomplete
+      || missingDevices.length > 0;
+    const tipText = !st.mecSubrace && needsSub ? 'Выберите подрасу, чтобы продолжить'
+      : (vhIncomplete || heIncomplete) ? 'Выберите +1 к двум характеристикам'
+      : skillsIncomplete ? 'Выберите навыки, чтобы продолжить'
+      : missingDevices.length ? `Сделайте выбор: ${missingDevices.map(t => t.title).join(', ')}`
       : '';
     const btn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('background') }, 'Далее → Предыстория');
     btn.disabled = blocked;
@@ -2055,6 +2401,10 @@ function buildRaceStep(st, goMech) {
     st.mecRace    = key;
     st.mecSubrace = null;
     st.mecVariantHumanAsi = {};
+    st.mecHalfElfAsi = {};
+    st.mecRaceSkills = [];
+    st.mecRaceChoices = {};
+    st.mecDeviceChoices = {};
     scheduleSave(st);
     listEl.querySelectorAll('.mech-cls-item').forEach(b =>
       b.classList.toggle('is-selected', b.dataset.key === key)
@@ -2063,7 +2413,11 @@ function buildRaceStep(st, goMech) {
     updateRaceFoot();
   }
 
-  const books = (SOURCEBOOKS[st.mecEdition] || []).filter(b => st.mecSources.includes(b.id));
+  // 2026-09-11 (заказчик, UX-правка, не код): пока полный перенос ~93 рас с ttg.club не
+  // выверен, в списке показываем только PHB — это фильтр на отображение, а не удаление
+  // данных: RACE_DATA/SRC_CONTENT для остальных допов остаются в коде как есть, так что
+  // возврат к полному списку — это снова одна строка здесь, без повторного ввода данных.
+  const books = (SOURCEBOOKS['5e'] || []).filter(b => b.id === 'PHB');
   books.forEach(book => {
     const races = (RACE_DATA[book.id] || []).slice().sort((a, b) => a.name.localeCompare(b.name, 'ru'));
     if (!races.length) return;
@@ -2134,6 +2488,8 @@ function buildBgMultiSel({ label, max, maxPerGroup, groups, onChange, initialSel
     const allKeys = [];
     sel.forEach(s => s.forEach(k => { names.push(k.split('::').slice(1).join('::')); allKeys.push(k); }));
     triggerText.textContent = names.length ? names.join(', ') : label;
+    trigger.classList.toggle('is-filled', names.length > 0); // дизайн 2026-09-27: выбрано → --text-primary
+    trigger.title = names.join(', ');
     if (onChange) onChange(total, allKeys);
   }
 
@@ -2173,6 +2529,8 @@ function buildBgMultiSel({ label, max, maxPerGroup, groups, onChange, initialSel
     const initNames = [];
     sel.forEach(s => s.forEach(k => initNames.push(k.split('::').slice(1).join('::'))));
     triggerText.textContent = initNames.length ? initNames.join(', ') : label;
+    trigger.classList.toggle('is-filled', initNames.length > 0);
+    trigger.title = initNames.join(', ');
   }
 
   trigger.addEventListener('click', e => {
@@ -2205,7 +2563,7 @@ function buildBackgroundStep(st, goMech) {
     const [srcId, bgName] = st.mecBackground.split('::');
     const bgObj  = (BACKGROUND_DATA[srcId] || []).find(b => b.name === bgName);
     if (!bgObj) return;
-    const srcObj = (SOURCEBOOKS[st.mecEdition] || []).find(s => s.id === srcId);
+    const srcObj = (SOURCEBOOKS['5e'] || []).find(s => s.id === srcId);
 
     const badge = el('span', { class: 'mech-race-src-badge' }, srcId);
     if (srcObj) {
@@ -2236,43 +2594,73 @@ function buildBackgroundStep(st, goMech) {
     };
 
     if (!st.mecBgChoiceData) st.mecBgChoiceData = {};
+    const toolProfSelects = [];
     let choiceIdx = 0;
     const EQUIP_CHOICE_TYPES = new Set(['instrument', 'artisan', 'gaming', 'bg_equipment']); // shown on equipment screen
     const choiceEls = (bgObj.choices || []).flatMap(ch => {
       const ci = choiceIdx++;
       if (EQUIP_CHOICE_TYPES.has(ch.type)) {
         if (ch.type === 'bg_equipment') return [];
-        return [el('div', { class: 'mech-bg-row' },
-          el('span', { class: 'mech-bg-row-label' }, ch.label),
-          el('span', { class: 'mech-bg-row-value is-deferred' }, '→ выбор на шаге «Снаряжение»'),
-        )];
+        // 2026-09-26 (заказчик): это ВЛАДЕНИЕ инструментом (умение), выбирается здесь и
+        // хранится в mecBgChoiceData[ci] — отдельно от предмета в снаряжении (см. схему `item`
+        // над BACKGROUND_DATA). Показывается в строке «Владение инструментами» рядом с
+        // фиксированными владениями предыстории (renderToolProfRow ниже).
+        const opts = bgChoiceOptions(ch.type);
+        let current = mecBgToolProfValue(st, ci, ch);
+        if (current && !Array.isArray(st.mecBgChoiceData[ci])) {
+          // миграция черновика до 2026-09-26: переносим старое значение во владение
+          st.mecBgChoiceData[ci] = [`${ch.type}::${current}`];
+          st.mecBgProfSplit = true;
+          scheduleSave(st);
+        }
+        checkers.push(() => !!current);
+        const selEl = el('select', { class: 'mech-bg-select' },
+          el('option', { value: '' }, ch.label.charAt(0).toUpperCase() + ch.label.slice(1)),
+          ...opts.map(o => el('option', { value: o }, o)),
+        );
+        selEl.value = current;
+        selEl.addEventListener('change', () => {
+          current = selEl.value;
+          if (current) st.mecBgChoiceData[ci] = [`${ch.type}::${current}`];
+          else delete st.mecBgChoiceData[ci];
+          st.mecBgProfSplit = true;
+          scheduleSave(st);
+          recheckFoot();
+        });
+        toolProfSelects.push(selEl);
+        return [];
       }
       if (ch.type === 'pick2of3') {
         const saved = st.mecBgChoiceData[ci] || [];
         let cnt = saved.length;
         checkers.push(() => cnt >= 2);
-        return [buildBgMultiSel({ label: ch.label, max: 2, maxPerGroup: 1, groups: ch.options,
-          initialSelected: saved,
-          onChange: (n, keys) => { cnt = n; st.mecBgChoiceData[ci] = keys; recheckFoot(); } })];
+        // дизайн 2026-09-27: мультиселект — в той же сетке «ПОДПИСЬ | контрол», что и select
+        return [el('div', { class: 'mech-bg-row' },
+          el('span', { class: 'mech-bg-row-label' }, 'Владение инструментами'),
+          buildBgMultiSel({ label: ch.label.replace(/:\s*$/, ''), max: 2, maxPerGroup: 1, groups: ch.options,
+            initialSelected: saved,
+            onChange: (n, keys) => { cnt = n; st.mecBgChoiceData[ci] = keys; recheckFoot(); } }))];
       }
       if (ch.count >= 2) {
         const saved = st.mecBgChoiceData[ci] || [];
         let cnt = saved.length;
         checkers.push(() => cnt >= ch.count);
-        return [buildBgMultiSel({
-          label: ch.displayLabel || (ch.label + ' × ' + ch.count),
-          max: ch.count,
-          maxPerGroup: ch.maxPerGroup,
-          groups: ch.groups || [{ label: ch.label, type: ch.type }],
-          initialSelected: saved,
-          onChange: (n, keys) => { cnt = n; st.mecBgChoiceData[ci] = keys; recheckFoot(); },
-        })];
+        return [el('div', { class: 'mech-bg-row' },
+          el('span', { class: 'mech-bg-row-label' }, ch.label),
+          buildBgMultiSel({
+            label: 'Выберите ' + ch.count,
+            max: ch.count,
+            maxPerGroup: ch.maxPerGroup,
+            groups: ch.groups || [{ label: ch.label, type: ch.type }],
+            initialSelected: saved,
+            onChange: (n, keys) => { cnt = n; st.mecBgChoiceData[ci] = keys; recheckFoot(); },
+          }))];
       }
       const savedVal = st.mecBgChoiceData[ci] || '';
       let chosen = !!savedVal;
       checkers.push(() => chosen);
       const selEl = el('select', { class: 'mech-bg-select' },
-        el('option', { value: '' }, '— выберите —'),
+        el('option', { value: '' }, 'Выберите'),
         ...bgChoiceOptions(ch.type).map(o => el('option', { value: o }, o)),
       );
       selEl.value = savedVal;
@@ -2305,6 +2693,13 @@ function buildBackgroundStep(st, goMech) {
         el('span', { class: 'mech-bg-row-label' }, 'Навыки'),
         el('span', { class: 'mech-bg-row-value' }, bgObj.skills),
       ) : null,
+      ((bgObj.tools && bgObj.tools.length) || toolProfSelects.length) ? el('div', { class: 'mech-bg-row' },
+        el('span', { class: 'mech-bg-row-label' }, 'Владение инструментами'),
+        el('span', { class: 'mech-bg-row-value mech-bg-tool-profs' },
+          ...(bgObj.tools || []).flatMap((t, i) => [i ? ', ' : '', t]),
+          ...toolProfSelects.flatMap((sel, i) => [(i || (bgObj.tools || []).length) ? ', ' : '', sel]),
+        ),
+      ) : null,
       ...choiceEls,
       hintEl,
     ].filter(Boolean));
@@ -2312,7 +2707,13 @@ function buildBackgroundStep(st, goMech) {
 
   function selectBg(srcId, bgName) {
     const key = `${srcId}::${bgName}`;
-    if (st.mecBackground !== key) st.mecBgChoiceData = {};
+    if (st.mecBackground !== key) {
+      st.mecBgChoiceData = {};
+      // 2026-09-26: инструмент/набор теперь выбирается на этом шаге — при смене предыстории
+      // сбрасываем его, чтобы владение от прошлой предыстории не утекло в новую.
+      if (st.mecEquipChoices) for (const t of BG_TOOL_TYPES) delete st.mecEquipChoices[`bgch_${t}`];
+      st.mecBgItemCustom = {};
+    }
     st.mecBackground = key;
     st.mecBgOk = false;
     scheduleSave(st);
@@ -2323,7 +2724,7 @@ function buildBackgroundStep(st, goMech) {
   }
 
   // PHB is always included; other books only if selected
-  const allBooks = (SOURCEBOOKS[st.mecEdition] || []).filter(b =>
+  const allBooks = (SOURCEBOOKS['5e'] || []).filter(b =>
     b.locked || st.mecSources.includes(b.id)
   );
   allBooks.forEach(book => {
@@ -2391,31 +2792,43 @@ const SKILLS_BY_AB = {
   str: ['Атлетика'],
   dex: ['Акробатика', 'Ловкость рук', 'Скрытность'],
   con: [],
-  int: ['История', 'Магия', 'Природа', 'Расследование', 'Религия'],
+  int: ['Расследование', 'История', 'Магия', 'Природа', 'Религия'],
   wis: ['Восприятие', 'Выживание', 'Медицина', 'Проницательность', 'Уход за животными'],
   cha: ['Выступление', 'Запугивание', 'Обман', 'Убеждение'],
 };
 
+// Reverse lookup (skill name -> ability key) + the CSS var each ability paints its
+// skill chips with (--ab-str etc, defined in css/tokens.css). "Палитра 2" from the
+// 2026-09-10 colour pass — see docs/reviews/2026-09-10_class-screen-feedback.md.
+const SKILL_ABILITY = Object.fromEntries(
+  Object.entries(SKILLS_BY_AB).flatMap(([ab, names]) => names.map(name => [name, ab]))
+);
+const ABILITY_COLOR_VAR = { str: '--ab-str', dex: '--ab-dex', int: '--ab-int', wis: '--ab-wis', cha: '--ab-cha' };
+function skillColorVar(name) {
+  const ab = SKILL_ABILITY[name];
+  return ab && ABILITY_COLOR_VAR[ab] ? `var(${ABILITY_COLOR_VAR[ab]})` : null;
+}
+
 const STAT_CLASSES = {
   'Бард':         { saves:['dex','cha'], count:3, list:null },
   'Варвар':       { saves:['str','con'], count:2, list:['Атлетика','Восприятие','Природа','Запугивание','Уход за животными','Выживание'] },
-  'Воин':         { saves:['str','con'], count:2, list:['Акробатика','Атлетика','История','Восприятие','Уход за животными','Запугивание','Выживание'] },
-  'Волшебник':    { saves:['int','wis'], count:2, list:['История','Магия','Природа','Расследование','Медицина','Религия'] },
-  'Друид':        { saves:['int','wis'], count:2, list:['Магия','Медицина','Природа','Восприятие','Религия','Уход за животными','Выживание'] },
-  'Жрец':         { saves:['wis','cha'], count:2, list:['История','Магия','Медицина','Религия','Убеждение'] },
+  'Воин':         { saves:['str','con'], count:2, list:['Акробатика','Атлетика','История','Проницательность','Восприятие','Уход за животными','Запугивание','Выживание'] },
+  'Волшебник':    { saves:['int','wis'], count:2, list:['История','Магия','Проницательность','Расследование','Медицина','Религия'] },
+  'Друид':        { saves:['int','wis'], count:2, list:['Восприятие','Выживание','Магия','Медицина','Уход за животными','Природа','Проницательность','Религия'] },
+  'Жрец':         { saves:['wis','cha'], count:2, list:['История','Медицина','Проницательность','Религия','Убеждение'] },
   'Изобретатель': { saves:['con','int'], count:2, list:['История','Магия','Медицина','Природа','Расследование','Восприятие','Ловкость рук'] },
-  'Колдун':       { saves:['wis','cha'], count:2, list:['История','Магия','Обман','Запугивание','Природа','Религия'] },
-  'Монах':        { saves:['str','dex'], count:2, list:['Акробатика','Атлетика','История','Магия','Религия','Скрытность'] },
-  'Паладин':      { saves:['wis','cha'], count:2, list:['Атлетика','История','Магия','Медицина','Религия','Убеждение'] },
-  'Плут':         { saves:['dex','int'], count:4, list:['Акробатика','Атлетика','Восприятие','Обман','Запугивание','Расследование','Ловкость рук','Магия','Скрытность','Убеждение','Выступление'] },
-  'Следопыт':     { saves:['str','dex'], count:3, list:['Атлетика','Восприятие','Магия','Природа','Скрытность','Уход за животными','Выживание'] },
-  'Чародей':      { saves:['con','cha'], count:2, list:['История','Магия','Обман','Запугивание','Расследование','Религия','Убеждение'] },
+  'Колдун':       { saves:['wis','cha'], count:2, list:['История','Магия','Обман','Запугивание','Природа','Религия','Расследование'] },
+  'Монах':        { saves:['str','dex'], count:2, list:['Акробатика','Атлетика','История','Проницательность','Религия','Скрытность'] },
+  'Паладин':      { saves:['wis','cha'], count:2, list:['Атлетика','Запугивание','Медицина','Проницательность','Религия','Убеждение'] },
+  'Плут':         { saves:['dex','int'], count:4, list:['Акробатика','Атлетика','Восприятие','Обман','Запугивание','Расследование','Ловкость рук','Проницательность','Скрытность','Убеждение','Выступление'] },
+  'Следопыт':     { saves:['str','dex'], count:3, list:['Атлетика','Восприятие','Выживание','Природа','Проницательность','Расследование','Скрытность','Уход за животными'] },
+  'Чародей':      { saves:['con','cha'], count:2, list:['Запугивание','Магия','Обман','Проницательность','Религия','Убеждение'] },
 };
 
 const STAT_RACE_ASI = {
   'Дварф':     { con:2 },        'Эльф':      { dex:2 },
   'Полурослик':{ dex:2 },        'Человек':   {},
-  'Драконид':  { str:2,cha:1 },  'Гном':      { int:2 },
+  'Драконорождённый': { str:2,cha:1 }, 'Гном': { int:2 },
   'Полуэльф':  { cha:2 },        'Полуорк':   { str:2,con:1 },
   'Тифлинг':   { int:1,cha:2 },  'Голиаф':    { str:2,con:1 },
   'Аасимар':   { cha:2 },        'Фирболг':   { wis:2,str:1 },
@@ -2429,8 +2842,8 @@ const STAT_RACE_ASI = {
 const STAT_SUBRACE_ASI = {
   'Горный':      { str:2 },              'Холмовой':  { wis:1 },
   'Высший':      { int:1 },              'Лесной':    { wis:1 },  'Дроу':    { cha:1 },
-  'Легконогий':  { cha:1 },              'Крепкий':   { con:1 },
-  'Каменный':    { con:1 },
+  'Легконогий':  { cha:1 },              'Коренастый': { con:1 },
+  'Скальный':    { con:1 },
   'Защитник':    { wis:1 },              'Каратель':  { str:1 },  'Падший':  { str:1 },
   'Весенний':    { dex:1,cha:1 },        'Летний':    { str:1,dex:1 },
   'Осенний':     { con:1,wis:1 },        'Зимний':    { int:1,wis:1 },
@@ -2445,6 +2858,17 @@ function pbSpent(stats) {
 }
 const statMod = s => Math.floor((s - 10) / 2);
 const signNum  = n => n >= 0 ? `+${n}` : `${n}`;
+
+// 2026-09-26: фиксированные языки расы из строки `languages` («Общий, Эльфийский + один на
+// выбор»), без хвоста «+ … на выбор» и с приведением написания к списку LANGUAGES.
+const LANG_ALIASES = { 'Дварфийский': 'Дварфский', 'Великаний': 'Великанский' };
+function mecRaceBaseLanguages(raceDesc) {
+  if (!raceDesc?.languages) return [];
+  return raceDesc.languages.split(/,|\+/)
+    .map(s => s.replace(/\(.*\)/, '').trim())
+    .filter(s => s && !/на выбор/i.test(s))
+    .map(s => LANG_ALIASES[s] || s);
+}
 
 function _resolveRaceDesc(raceName) {
   return RACE_DESCRIPTIONS[raceName]
@@ -2468,7 +2892,242 @@ function mecRacialAsi(st) {
   if (st.mecVariantHumanAsi) {
     for (const [k, v] of Object.entries(st.mecVariantHumanAsi)) base[k] = (base[k] || 0) + v;
   }
+  // Half-Elf: merge player's chosen +1 to two abilities (besides the fixed +2 Харизма above)
+  if (raceName === 'Полуэльф' && st.mecHalfElfAsi) {
+    for (const [k, v] of Object.entries(st.mecHalfElfAsi)) base[k] = (base[k] || 0) + v;
+  }
   return base;
+}
+
+// 2026-09-12: some race traits grant proficiency in N skills of the player's choice
+// (e.g. Half-Elf's «Универсальность навыков» — any 2 skills, PHB) via `trait.skillChoice
+// = { count, list? }`. Sums the requirement across common + currently-selected subrace
+// traits so the race step's footer button can gate on it, same as the ASI-choice traits.
+// 2026-09-26: единый расчёт активного списка расовых черт (общие + выбранной подрасы с
+// учётом replaces / insertAfter / renderLast). Раньше жил только внутри renderTraitsBlock(),
+// из-за чего валидация «Далее» и запись в персонажа не знали, какие черты реально активны.
+function mecActiveRaceTraits(raceName, subraceName) {
+  const raceDesc = raceName ? _resolveRaceDesc(raceName) : null;
+  if (!raceDesc) return [];
+  let subTraits = [];
+  if (subraceName) {
+    const sInfo = (raceDesc.subraces || []).find(sd =>
+      sd.name === subraceName || sd.name.includes(subraceName) || subraceName.includes(sd.name.split(' ')[0]));
+    subTraits = sInfo?.traits || [];
+  }
+  const commonTraits = raceDesc.traits || [];
+  const allTraits = commonTraits.filter(t => !t.renderLast);
+  const deferred = commonTraits.filter(t => t.renderLast);
+  for (const tr of subTraits) {
+    if (tr.replaces) {
+      const ridx = allTraits.findIndex(x => x.title === tr.replaces);
+      if (ridx !== -1) { allTraits.splice(ridx, 1, tr); continue; }
+    }
+    const idx = tr.insertAfter ? allTraits.findIndex(x => x.title === tr.insertAfter) : -1;
+    if (idx !== -1) allTraits.splice(idx + 1, 0, tr);
+    else allTraits.push(tr);
+  }
+  allTraits.push(...deferred);
+  return allTraits;
+}
+
+// 2026-09-26: обязательные «выбери один из N» черты (devices + required: true — цвет дракона,
+// инструмент дварфа), по которым игрок ещё ничего не выбрал.
+function mecMissingRequiredDevices(st) {
+  if (!st.mecRace) return [];
+  const traits = mecActiveRaceTraits(st.mecRace.split('::')[1], st.mecSubrace);
+  const picks = st.mecDeviceChoices || {};
+  return traits.filter(t => t.required && t.devices?.length &&
+    !t.devices.some(d => d.name === picks[t.title]));
+}
+
+// 2026-09-26: всё, что игрок выбрал на шаге расы, в виде полей персонажа. Раньше в record
+// уходили только характеристики и навыки — язык, заговор, черта, инструмент и цвет дракона
+// оставались лишь в _wizardState. Читаем только АКТИВНЫЕ черты, чтобы устаревшие ключи
+// (например, от прошлой подрасы) не протекали в персонажа.
+function mecRaceRecordChoices(st) {
+  const out = { languages: [], cantrips: [], feats: [], tools: [], dragonAncestry: '' };
+  if (!st.mecRace) return out;
+  const raceName = st.mecRace.split('::')[1];
+  out.languages.push(...mecRaceBaseLanguages(_resolveRaceDesc(raceName)));
+  const choices = st.mecRaceChoices || {};
+  const devices = st.mecDeviceChoices || {};
+  for (const t of mecActiveRaceTraits(raceName, st.mecSubrace)) {
+    if (t.choice) {
+      const picks = choices[t.title] || [];
+      if (t.choice.type === 'language') out.languages.push(...picks);
+      else if (t.choice.type === 'spell') out.cantrips.push(...picks);
+      else if (t.choice.type === 'feat') out.feats.push(...picks);
+    }
+    if (t.recordAs && t.devices?.some(d => d.name === devices[t.title])) {
+      if (t.recordAs === 'tool') out.tools.push(devices[t.title]);
+      else if (t.recordAs === 'dragonAncestry') out.dragonAncestry = devices[t.title];
+    }
+  }
+  out.languages = [...new Set(out.languages)];
+  return out;
+}
+
+// 2026-09-26: навыки, которые раса даёт без выбора (`grantsSkills` у черты — Эльф
+// «Обострённые чувства» → Восприятие, Полуорк «Угрожающий вид» → Запугивание).
+function mecRaceGrantedSkills(st) {
+  if (!st.mecRace) return [];
+  return mecActiveRaceTraits(st.mecRace.split('::')[1], st.mecSubrace)
+    .flatMap(t => t.grantsSkills || []);
+}
+
+function mecRequiredRaceSkillCount(raceName, subraceName) {
+  const raceDesc = _resolveRaceDesc(raceName);
+  if (!raceDesc) return 0;
+  let subTraits = [];
+  if (subraceName) {
+    const sInfo = (raceDesc.subraces || []).find(sd =>
+      sd.name === subraceName || sd.name.includes(subraceName) || subraceName.includes(sd.name.split(' ')[0]));
+    subTraits = sInfo?.traits || [];
+  }
+  const allTraits = [...(raceDesc.traits || []), ...subTraits];
+  return allTraits.reduce((sum, t) => sum + (t.skillChoice?.count || 0), 0);
+}
+
+// ─── 2026-09-26: владения инструментами vs предметы предыстории ──────────────
+// См. схему `item` над BACKGROUND_DATA. Владение — mecBgChoiceData[ci] (['<type>::<знач.>']),
+// предмет — mecEquipChoices['bgch_<type>'] (+ mecBgItemCustom[type], если игрок поменял
+// предмет вручную; иначе предмет следует за владением).
+const BG_TOOL_TYPES = ['instrument', 'artisan', 'gaming'];
+
+function mecBgObjByName(name) {
+  return name ? Object.values(BACKGROUND_DATA).flat().find(b => b.name === name) : null;
+}
+function mecBgObj(st) {
+  if (!st.mecBackground) return null;
+  const [srcId, bgName] = st.mecBackground.split('::');
+  return (BACKGROUND_DATA[srcId] || []).find(b => b.name === bgName) || null;
+}
+
+// Выбранное владение инструментом для choices[ci] ('' — не выбрано). Черновики до 2026-09-26
+// хранили выбор только в mecEquipChoices['bgch_<type>'] (владение и предмет одним значением) —
+// для них, пока новый выбор не сделан (нет mecBgProfSplit), читаем оттуда.
+function mecBgToolProfValue(st, ci, ch) {
+  const data = st.mecBgChoiceData?.[ci];
+  if (Array.isArray(data) && data[0]) return data[0].split('::').slice(1).join('::');
+  if (!st.mecBgProfSplit) {
+    const legacy = st.mecEquipChoices?.[`bgch_${ch.type}`];
+    if (bgChoiceOptions(ch.type).includes(legacy)) return legacy;
+  }
+  return '';
+}
+
+function mecBgItemOptions(ch, profVal) {
+  if (ch.item?.same) return profVal ? [profVal] : bgChoiceOptions(ch.type);
+  if (ch.item?.list) return ch.item.list;
+  return [...bgChoiceOptions(ch.type), ...(ch.item?.extra || [])];
+}
+function mecBgItemValue(st, ch, profVal) {
+  const opts  = mecBgItemOptions(ch, profVal);
+  const saved = st.mecEquipChoices?.[`bgch_${ch.type}`];
+  if (!ch.item?.same && st.mecBgItemCustom?.[ch.type] && opts.includes(saved)) return saved;
+  if (profVal && opts.includes(profVal)) return profVal;
+  return opts[0] || '';
+}
+
+// Пары { ch, profVal } для предметов-инструментов текущей предыстории (для «Собственной» —
+// предметы выбранной на шаге снаряжения чужой предыстории, владения у них нет).
+function mecBgItemChoices(st) {
+  const bgObj = mecBgObj(st);
+  if (!bgObj) return [];
+  if (bgObj.name === 'Собственная предыстория') {
+    const src = mecBgObjByName(st.mecEquipChoices?.bgch_bg_equipment);
+    return (src?.choices || []).filter(ch => ch.item).map(ch => ({ ch, profVal: '' }));
+  }
+  const out = [];
+  (bgObj.choices || []).forEach((ch, ci) => {
+    if (!ch.item) return;
+    // предмет появляется только после выбора владения (оно обязательно на шаге «Предыстория»),
+    // иначе дефолтный предмет, записанный в bgch_<type>, приняли бы за старое владение.
+    const profVal = mecBgToolProfValue(st, ci, ch);
+    if (profVal) out.push({ ch, profVal });
+  });
+  return out;
+}
+
+// Записывает актуальные предметы в mecEquipChoices['bgch_<type>'] (их читают «Финал» и pdf.js)
+// и убирает ключи инструментов, которых эта предыстория в снаряжение не даёт.
+function mecSyncBgItems(st) {
+  if (!st.mecEquipChoices) st.mecEquipChoices = {};
+  const items = mecBgItemChoices(st);
+  const keep = new Set(items.map(({ ch }) => ch.type));
+  for (const t of BG_TOOL_TYPES) if (!keep.has(t)) delete st.mecEquipChoices[`bgch_${t}`];
+  for (const { ch, profVal } of items) {
+    const v = mecBgItemValue(st, ch, profVal);
+    if (v) st.mecEquipChoices[`bgch_${ch.type}`] = v;
+  }
+}
+
+// Селект предмета (или фиксированная строка для item.same / единственного варианта).
+function buildBgItemEl(st, ch, profVal, onChange) {
+  const opts = mecBgItemOptions(ch, profVal);
+  const key  = `bgch_${ch.type}`;
+  const val  = mecBgItemValue(st, ch, profVal);
+  if (ch.item?.same && profVal) return el('div', { class: 'equip-item' }, val);
+  const sel = el('select', { class: 'equip-choice-sel' }, ...opts.map(o => el('option', { value: o }, o)));
+  sel.value = val;
+  sel.addEventListener('change', () => {
+    if (!st.mecEquipChoices) st.mecEquipChoices = {};
+    st.mecEquipChoices[key] = sel.value;
+    if (!st.mecBgItemCustom) st.mecBgItemCustom = {};
+    st.mecBgItemCustom[ch.type] = true;
+    scheduleSave(st);
+    if (onChange) onChange();
+  });
+  return el('div', { class: 'equip-item is-choice' },
+    el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾')),
+  );
+}
+
+// Владения предыстории: { langs, tools } — фиксированные tools + все выборы (языки, инструменты,
+// «Собственная»: any_prof / pick2of3). Предметы снаряжения сюда НЕ входят.
+function mecBgProfs(st) {
+  const langs = [], tools = [];
+  const bgObj = mecBgObj(st);
+  if (!bgObj) return { langs, tools };
+  (bgObj.choices || []).forEach((ch, ci) => {
+    if (ch.type === 'bg_equipment') return;
+    if (BG_TOOL_TYPES.includes(ch.type)) {
+      const v = mecBgToolProfValue(st, ci, ch);
+      if (v) tools.push(v);
+      return;
+    }
+    const data = st.mecBgChoiceData?.[ci];
+    if (Array.isArray(data)) {
+      data.forEach(key => {
+        const [type, ...rest] = key.split('::');
+        const val = rest.join('::');
+        if (type === 'language') langs.push(val);
+        else if (type !== 'skill') tools.push(val);
+      });
+    } else if (typeof data === 'string' && data) {
+      if (ch.type === 'language') langs.push(data);
+      else if (ch.type !== 'skill') tools.push(data);
+    }
+  });
+  (bgObj.tools || []).forEach(t => tools.push(t));
+  return { langs, tools };
+}
+
+// Владения инструментами от класса: выбранные (Бард/Монах/Изобретатель) + фиксированные.
+// Описательный текст «три музыкальных инструмента на выбор» — не владение, пока нет выбора.
+function mecClassToolProfs(st) {
+  const picks = ((st.mecClassToolChoice || {})[st.mecClass] || []).map(k => k.split('::').slice(1).join('::'));
+  const fixedStr = CLASS_PROF_DATA[st.mecClass]?.tools;
+  const fixed = fixedStr && fixedStr !== 'нет' ? fixedStr.split(', ') : [];
+  if (CLASS_TOOL_CHOICE[st.mecClass]) return st.mecClass === 'artificer' ? [...fixed, ...picks] : picks;
+  return fixed;
+}
+
+// Без учёта регистра: Плут даёт «воровские инструменты», Преступник — «Воровские инструменты».
+function dedupeCI(list) {
+  const seen = new Set();
+  return list.filter(x => { const k = String(x).trim().toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
 function mecBgSkills(st) {
@@ -2503,6 +3162,7 @@ function buildStatsStep(st, goMech) {
   if (!st.mecRolls || !st.mecRolls.length) st.mecRolls = Array(6).fill(null);
   if (!st.mecRollAssign)      st.mecRollAssign      = {};
   if (!st.mecVariantHumanAsi) st.mecVariantHumanAsi = {};
+  if (!st.mecHalfElfAsi)      st.mecHalfElfAsi      = {};
 
   const STD_ARRAY = [15, 14, 13, 12, 10, 8];
   const bodyEl  = el('div', { class: 'mech-stats-scroll' });
@@ -2518,10 +3178,13 @@ function buildStatsStep(st, goMech) {
   const footEl  = el('div', { class: 'mech-foot' }, footBtn);
 
   const _isVariantHuman = () =>
-    !!st.mecRace && st.mecRace.split('::')[1] === 'Человек' && st.mecSubrace === 'Вариант';
+    !!st.mecRace && st.mecRace.split('::')[1] === 'Человек' && st.mecSubrace === 'Альтернативный';
+  const _isHalfElf = () =>
+    !!st.mecRace && st.mecRace.split('::')[1] === 'Полуэльф';
 
   function allAssigned() {
     if (_isVariantHuman() && Object.keys(st.mecVariantHumanAsi || {}).length < 2) return false;
+    if (_isHalfElf() && Object.keys(st.mecHalfElfAsi || {}).length < 2) return false;
     const m = st.mecStatMethod;
     if (m === 'pointbuy') return pbSpent(st.mecStats) === PB_POOL;
     if (m === 'standard') return Object.keys(st.mecStdAssign).length === ABILITIES.length;
@@ -2817,11 +3480,14 @@ const CLASS_EQUIP = {
 };
 
 const BG_EQUIP = {
-  'Аколит':           ['Символ веры', 'Молитвенник или 5 палочек благовоний', '5 свечей', 'Облачение'],
-  'Артист':           ['Сувенир', 'Дорожный костюм'],
+  'Прислужник':       ['Символ веры', 'Молитвенник или 5 палочек благовоний', '5 свечей', 'Облачение'],
+  'Артист':           ['Подарок от поклонника', 'Костюм'],
+  'Гладиатор':        ['Подарок от поклонника', 'Костюм'],
   'Беспризорник':     ['Небольшой нож', 'Карта города', 'Тёмный плащ'],
   'Благородный':      ['Тонкие одежды', 'Перстень с гербом', 'Рекомендательное письмо'],
-  'Гильдейский мастер': ['Письмо от гильдии', 'Опрятная одежда'],
+  'Рыцарь':           ['Тонкие одежды', 'Перстень с гербом', 'Рекомендательное письмо'],
+  'Гильдейский ремесленник': ['Рекомендательное письмо от гильдии', 'Дорожная одежда'],
+  'Купец гильдии': ['Письмо от гильдии', 'Опрятная одежда'],
   'Городская стража':    ['Форменная одежда', 'Рожок', 'Кандалы'],
   'Клановый мастер':     ['Памятный предмет клана', 'Обычная одежда'],
   'Монастырский учёный': ['Письмо о принятии', 'Записная книжка', 'Перо и чернила', 'Обычная одежда'],
@@ -2829,7 +3495,7 @@ const BG_EQUIP = {
   'Дальний странник':    ['Реликвия из дома', 'Записная книжка', 'Путевые вещи'],
   'Наследник':           ['Предмет наследства', 'Путевая одежда'],
   'Рыцарь ордена':       ['Символ ордена', 'Путевая одежда'],
-  'Ветеран наёмника':    ['Знак воинского звания', 'Значок отряда', 'Обычная одежда'],
+  'Ветеран наёмник':     ['Знак воинского звания', 'Значок отряда', 'Обычная одежда'],
   'Городской охотник':   ['Подходящая одежда'],
   'Член племени Угтардов': ['Охотничий трофей', 'Дорожная одежда'],
   'Дворянин Уотердипа':  ['Отличная одежда', 'Рекомендательное письмо'],
@@ -2839,26 +3505,28 @@ const BG_EQUIP = {
   'Преследуемый':        ['Амулет с именем любимого', 'Одежда с мирного дня'],
   'Следователь':         ['Записная книжка', 'Чернила и перо', 'Обычная одежда'],
   'Работник балагана':   ['Маскировочный костюм', 'Набор для грима', 'Путевая одежда'],
-  'Жулик':            ['Шулерские карты', 'Одежда разных сословий'],
-  'Матрос':           ['Дубина', '50 фут. канат', 'Дорожная одежда'],
+  'Шарлатан':         ['Шулерские карты', 'Одежда разных сословий'],
+  'Моряк':            ['Дубина', '50 фут. канат', 'Дорожная одежда'],
+  'Пират':            ['Дубина', '50 фут. канат', 'Дорожная одежда'],
   'Мудрец':           ['Чернила', 'Перо', 'Нож для бумаги', 'Письмо с вопросом'],
-  'Народный герой':   ['Лопата', 'Горшок', 'Дорожная одежда'],
+  'Народный герой':   ['Лопата', 'Железный горшок', 'Обычная одежда'],
   'Отшельник':        ['Свитки с заметками', 'Зимнее одеяло', 'Огниво'],
-  'Преступник':       ['Воровские инструменты', 'Тёмная одежда с капюшоном'],
-  'Скиталец':         ['Путевые дневники', 'Карты родной земли', 'Дорожные одежды'],
-  'Солдат':           ['Знак воинского звания', 'Трофей с врага', 'Дорожная одежда'],
+  'Преступник':       ['Ломик', 'Тёмная одежда с капюшоном'],
+  'Шпион':            ['Ломик', 'Тёмная одежда с капюшоном'],
+  'Чужеземец':        ['Путевые дневники', 'Карты родной земли', 'Дорожные одежды'],
+  'Солдат':           ['Знак отличия', 'Трофей с павшего врага', 'Обычная одежда'],
 };
 
 const BG_GOLD = {
   // PHB
-  'Аколит': 15, 'Артист': 15, 'Беспризорник': 10, 'Благородный': 25,
-  'Гильдейский мастер': 15, 'Жулик': 15, 'Матрос': 10, 'Мудрец': 10,
-  'Народный герой': 10, 'Отшельник': 5, 'Преступник': 15, 'Скиталец': 10,
+  'Прислужник': 15, 'Артист': 15, 'Гладиатор': 15, 'Беспризорник': 10, 'Благородный': 25, 'Рыцарь': 25,
+  'Гильдейский ремесленник': 15, 'Купец гильдии': 15, 'Шарлатан': 15, 'Моряк': 10, 'Пират': 10, 'Мудрец': 10,
+  'Народный герой': 10, 'Отшельник': 5, 'Преступник': 15, 'Шпион': 15, 'Чужеземец': 10,
   'Солдат': 10, 'Собственная предыстория': 0,
   // SCAG
   'Городская стража': 10, 'Клановый мастер': 5, 'Монастырский учёный': 10,
   'Придворный': 5, 'Дальний странник': 5, 'Наследник': 15,
-  'Рыцарь ордена': 10, 'Ветеран наёмника': 10, 'Городской охотник': 20,
+  'Рыцарь ордена': 10, 'Ветеран наёмник': 10, 'Городской охотник': 20,
   'Член племени Угтардов': 10, 'Дворянин Уотердипа': 20,
   // GGR
   'Агент Азория': 10, 'Культист Груула': 10, 'Дитя Диммира': 15,
@@ -2902,6 +3570,33 @@ function makeChoiceSel(opts, key, st, onChange) {
     ...opts.map(o => el('option', { value: o }, o)),
   );
   sel.value = st.mecEquipChoices[key] ?? opts[0];
+  sel.addEventListener('change', () => { st.mecEquipChoices[key] = sel.value; scheduleSave(st); if (onChange) onChange(); });
+  return el('div', { class: 'equip-item is-choice' },
+    el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾')),
+  );
+}
+
+/**
+ * Same as makeChoiceSel but for an "either/or" choice between two categories
+ * (e.g. Монах: artisan tool OR musical instrument) — renders as one <select>
+ * with an <optgroup> per category instead of one flat alphabetized list, so
+ * the two kinds of tool stay visually separated.
+ *
+ * ⚠️ 2026-09-12: no longer called — Монах's tool choice in CLASS_TOOL_CHOICE now goes
+ * through buildBgMultiSel instead (see the 2026-09-12 note above CLASS_TOOL_CHOICE).
+ * Left in place rather than deleted (not currently confident nothing else expects it —
+ * this project has been burned once already this session by removing a function on the
+ * assumption it was unused without grepping thoroughly enough first).
+ */
+function makeGroupedChoiceSel(groups, key, st, onChange) {
+  if (!st.mecEquipChoices) st.mecEquipChoices = {};
+  const sel = el('select', { class: 'equip-choice-sel' },
+    ...groups.map(g => el('optgroup', { label: g.label },
+      ...g.items.map(o => el('option', { value: o }, o)),
+    )),
+  );
+  const firstVal = groups[0]?.items[0];
+  sel.value = st.mecEquipChoices[key] ?? firstVal;
   sel.addEventListener('change', () => { st.mecEquipChoices[key] = sel.value; scheduleSave(st); if (onChange) onChange(); });
   return el('div', { class: 'equip-item is-choice' },
     el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾')),
@@ -3437,9 +4132,14 @@ function buildEquipStep(st, goMech) {
           activeBgMatChoices = [...bgMatChoices, ...srcMatChoices];
         }
       }
-      const bgChoiceEls = activeBgMatChoices.map(ch =>
-        makeChoiceSel(bgChoiceOptions(ch.type), `bgch_${ch.type}`, st, ch.type === 'bg_equipment' ? renderBody : null),
-      );
+      // 2026-09-26: здесь только ПРЕДМЕТЫ. Владение инструментом выбрано на шаге «Предыстория»
+      // и отсюда не меняется; предмет по умолчанию равен ему, но может отличаться.
+      mecSyncBgItems(st);
+      const bgChoiceEls = [
+        ...activeBgMatChoices.filter(ch => ch.type === 'bg_equipment')
+          .map(ch => makeChoiceSel(bgChoiceOptions(ch.type), `bgch_${ch.type}`, st, renderBody)),
+        ...mecBgItemChoices(st).map(({ ch, profVal }) => buildBgItemEl(st, ch, profVal)),
+      ];
       const bgAllEls = [...bgChoiceEls, ...equipItemEls(bgItems, st, 'bg')];
       const bgSec = el('div', { class: 'equip-section' },
         el('div', { class: 'equip-section-hd' },

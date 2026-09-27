@@ -81,6 +81,34 @@
   --col-race:  #3AAB72;
   --col-bg-s:  #C9A23C;
 
+  /* ── Ability-score colours (skill chip grouping) ──
+     Muted/dusty tones matching the rest of the dark palette — see
+     docs/reviews/2026-09-10_class-screen-feedback.md (skill colouring) and the
+     designer pass that picked "Палитра 2". */
+  --ab-str: #C77B62;
+  --ab-dex: #5FA79C;
+  --ab-int: #6E93C9;
+  --ab-wis: #93A466;
+  --ab-cha: #B96FA0;
+
+  /* ── Select control (выпадающий список / триггер мультиселекта) ──
+     Единая система контролов выбора, см. блок «Контрол выбора» в конце css/create-new.css
+     и qa/reports/controls_design_pass.md (мини-гайд). */
+  --sel-h:            28px;            /* компактный размер: строки «подпись | контрол», инлайн */
+  --sel-pad-x:        10px;
+  --sel-pad-r:        28px;            /* справа — место под стрелку */
+  --sel-fs:           12px;
+  --sel-radius:       var(--r-sm);
+  --sel-min-w:        160px;
+  --sel-bg:           var(--surface-2);
+  --sel-bg-inset:     var(--surface-3); /* внутри карточек с фоном surface-2 */
+  --sel-border:       var(--border-2);
+  --sel-border-hover: var(--border-3);
+  --sel-ring:         0 0 0 2px var(--accent-glow);
+  --sel-arrow:    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0h8L4 5z' fill='%23B0AECB'/%3E%3C/svg%3E");
+  --sel-arrow-up: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 5h8L4 0z' fill='%239C96FF'/%3E%3C/svg%3E");
+  --sel-arrow-size:   8px 5px;
+
   /* ── Transitions ── */
   --t-fast: 0.15s ease;
   --t-mid:  0.25s ease;

@@ -446,47 +446,6 @@ select.cnew-input option { background: var(--surface-3); }
   letter-spacing: .02em;
 }
 
-/* Edition cards */
-.mech-ed-cards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
-.mech-ed-card {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 18px 20px;
-  background: var(--surface-2);
-  border: 1.5px solid var(--border-2);
-  border-radius: var(--r-xl);
-  cursor: pointer;
-  transition: background var(--t-fast), border-color var(--t-fast);
-  text-align: left;
-}
-.mech-ed-card:hover { background: var(--surface-3); border-color: var(--border-3); }
-.mech-ed-card.is-selected { border-color: var(--accent); background: var(--surface-3); }
-
-.mech-ed-year {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .1em;
-  color: var(--text-muted);
-}
-.mech-ed-name {
-  font-family: var(--font-display);
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.mech-ed-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
 /* Sourcebooks */
 .mech-sources {
   display: flex;
@@ -527,18 +486,6 @@ select.cnew-input option { background: var(--surface-3); }
   margin: 0;
 }
 
-/* Edition step scroll area */
-.mech-edition-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-.mech-edition-scroll::-webkit-scrollbar { display: none; }
-
 /* Footer with next button */
 .mech-foot {
   display: flex;
@@ -560,10 +507,6 @@ select.cnew-input option { background: var(--surface-3); }
 .mech-stats-scroll .cnew-save-btn {
   padding: 8px 32px;
   font-size: 14px;
-}
-.mech-foot-wip {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 /* Sourcebook content preview */
@@ -647,7 +590,7 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   text-transform: uppercase;
   letter-spacing: .09em;
   color: var(--text-muted);
-  margin: 14px 0 4px;
+  margin: 8px 0 4px;
 }
 .mech-pr-subs-grid {
   display: grid;
@@ -717,7 +660,6 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
 
 @media (max-width: 768px) {
   .mech-wrap      { padding: 12px 16px 16px; }
-  .mech-ed-cards  { grid-template-columns: 1fr; }
 }
 
 /* ── Class step ── */
@@ -808,6 +750,7 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
 }
 .mech-cls-desc {
   font-size: 13px;
+  font-style: italic;
   color: var(--text-secondary);
   line-height: 1.6;
   margin: 0;
@@ -930,6 +873,13 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   gap: 6px;
 }
 .cls-skill-chip {
+  /* --chip-c is set inline per chip (js/screens/create-new.js) from the skill's
+     ability-score colour token (--ab-str etc, see css/tokens.css) — falls back to
+     --text-secondary so the rule still works if a skill has no group. */
+  --chip-c: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 12px;
   font-size: 12px;
   font-weight: 500;
@@ -940,18 +890,38 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   cursor: pointer;
   transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
 }
-.cls-skill-chip:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
+.cls-skill-chip::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--chip-c);
+  flex-shrink: 0;
+}
+.cls-skill-chip:hover:not(:disabled):not(.is-picked) {
+  border-color: var(--chip-c);
+  color: var(--chip-c);
 }
 .cls-skill-chip.is-picked {
-  background: color-mix(in srgb, var(--accent) 15%, transparent);
-  border-color: var(--accent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--chip-c) 16%, transparent);
+  border-color: var(--chip-c);
+  color: var(--chip-c);
   font-weight: 600;
 }
 .cls-skill-chip.is-dim {
   opacity: 0.35;
+  cursor: default;
+}
+/* 2026-09-12: skill already granted by the character's class, shown (non-toggleable)
+   in a race skill-choice picker (e.g. Half-Elf's «Универсальность навыков») so the
+   player understands why it can't be picked again there. */
+.cls-skill-chip.is-from-class {
+  background: color-mix(in srgb, var(--chip-c) 22%, transparent);
+  border-color: var(--chip-c);
+  border-style: dashed;
+  color: var(--chip-c);
+  font-weight: 600;
+  opacity: 0.75;
   cursor: default;
 }
 .mech-cls-roles {
@@ -1110,6 +1080,115 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
 .mech-bg-select:focus { border-color: var(--accent); }
 .mech-bg-select:disabled { opacity: 0.35; cursor: not-allowed; }
 .mech-bg-select option { background: var(--surface-2); }
+/* ── Stats step: base ability-block / skill-row styles ──
+   2026-09-26: перенесено из css/create.css (удалён 2026-09-08 вместе со старым экраном
+   create.js). Шаг «Характеристики» в create-new.js использует эти классы, и после удаления
+   файла экран остался без стилей. Здесь только правила для классов, которые реально
+   использует create-new.js; переопределения под .mech-stats-grid — ниже, как и раньше
+   (на GitHub Pages create.css подключался ДО create-new.css — порядок сохранён). */
+.pb-counter { display: flex; align-items: baseline; gap: 4px; }
+.pb-remaining { font-family: var(--font-display); font-size: 18px; font-weight: 700; transition: color var(--t-fast); }
+.pb-remaining.ok { color: var(--accent-soft); }
+.pb-remaining.low { color: var(--gold-soft); }
+.pb-remaining.over { color: var(--hp-low); }
+.pb-of { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.pb-track { flex: 1; height: 4px; background: var(--surface-3); border-radius: var(--r-full); overflow: hidden; }
+.pb-fill { height: 100%; border-radius: var(--r-full); background: linear-gradient(90deg, var(--accent), var(--accent-soft)); transition: width .3s, background .3s; }
+.pb-fill.low { background: linear-gradient(90deg, var(--gold), var(--gold-soft)); }
+.pb-fill.over { background: linear-gradient(90deg, var(--hp-low), #f77); }
+.ab-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  overflow: hidden;
+}
+.ab-stat-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  gap: 5px;
+  flex-wrap: wrap;
+  min-height: 36px;
+}
+.ab-name {
+  font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .09em;
+  color: var(--text-muted);
+  width: 112px; flex-shrink: 0;
+}
+.ab-stepper { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.ab-btn {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 400;
+  background: var(--surface-3); border: 1px solid var(--border-2);
+  color: var(--text-secondary); cursor: pointer;
+  transition: all .13s; flex-shrink: 0; line-height: 1;
+}
+.ab-btn:hover:not(:disabled) { background: var(--border-2); color: var(--text-primary); }
+.ab-btn:disabled { opacity: .3; cursor: not-allowed; }
+.ab-base-val {
+  font-family: var(--font-display); font-size: 15px; font-weight: 700;
+  color: var(--text-primary); min-width: 20px; text-align: center; line-height: 1;
+}
+.ab-cost { font-size: 12px; color: var(--text-disabled); flex-shrink: 0; }
+.ab-vsep { width: 1px; height: 16px; background: var(--border-2); margin: 0 3px; flex-shrink: 0; }
+.ab-racial-badge { color: var(--col-race); font-weight: 700; font-size: 11px; flex-shrink: 0; }
+.ab-arrow { color: var(--text-disabled); font-size: 10px; flex-shrink: 0; margin: 0 1px; }
+.ab-total { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--accent-soft); flex-shrink: 0; min-width: 24px; text-align: center; line-height: 1; }
+.ab-derived { display: flex; align-items: center; gap: 5px; margin-left: auto; flex-shrink: 0; }
+.ab-deriv-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); flex-shrink: 0; }
+.ab-mod { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--text-primary); min-width: 26px; flex-shrink: 0; text-align: center; line-height: 1; }
+.ab-save { font-family: var(--font-display); font-size: 18px; font-weight: 700; color: var(--text-muted);   min-width: 26px; flex-shrink: 0; text-align: center; line-height: 1; }
+.ab-save.prof { color: var(--accent-soft); }
+.ms-pip { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--border-3); flex-shrink: 0; transition: all .15s; }
+.ms-pip.active { background: var(--accent); border-color: var(--accent); }
+.ab-skills-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+  padding: 3px 6px 6px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.skill-row { display: flex; align-items: center; gap: 4px; padding: 2px 4px; border-radius: var(--r-md); cursor: pointer; transition: background .12s; }
+.skill-row:hover { background: var(--surface-2); }
+.skill-row.locked { cursor: not-allowed; }
+.skill-row.locked:hover { background: transparent; }
+.sk-cb {
+  width: 12px; height: 12px; border-radius: 3px;
+  border: 1.5px solid var(--border-3); background: transparent;
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  transition: all .13s; position: relative;
+}
+.sk-cb.has-check::after {
+  content: ''; width: 5px; height: 3px;
+  border-left: 1.5px solid #fff; border-bottom: 1.5px solid #fff;
+  transform: rotate(-45deg) translate(0.5px,-0.5px);
+  display: block;
+}
+.sk-cb.src-class { background: var(--col-class); border-color: var(--col-class); }
+.sk-cb.src-bg { background: var(--col-bg-s);  border-color: var(--col-bg-s);  }
+.sk-cb.opt-class { border-color: var(--col-class); }
+.sk-cb-passive {
+  background: var(--border-3);
+  border-color: var(--border-3);
+}
+.sk-cb-passive::after {
+  content: '';
+  width: 5px; height: 3px;
+  border-left: 1.5px solid rgba(255,255,255,0.4);
+  border-bottom: 1.5px solid rgba(255,255,255,0.4);
+  transform: rotate(-45deg) translate(0.5px,-0.5px);
+  display: block;
+}
+.sk-name { flex: 1; font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sk-name.proficient { color: var(--text-primary); font-weight: 500; }
+.sk-bonus-wrap { flex-shrink: 0; display: flex; justify-content: flex-end; min-width: 28px; }
+.sk-bonus { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--text-primary); text-align: right; }
+.sk-bonus.col-class { color: var(--col-class); }
+.sk-bonus.col-bg { color: var(--col-bg-s); }
+
 /* ── Stats step ── */
 .mech-stats-scroll {
   flex: 1;
@@ -2670,8 +2749,40 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
 }
 .mech-race-asi-sub-note { font-size: 11px; color: var(--text-muted); margin-left: 2px; }
 
+/* 2026-09-12: Half-Elf's "+1 to two abilities of choice" — inline <select> pickers living
+   INSIDE the Бонусы row itself (styled like the Bard's instrument equip-choice-sel), next
+   to the fixed +2 Харизма badge, instead of a separate picker block underneath. */
+.mech-race-asi-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 2px 8px;
+  border: 1px dashed var(--border-2);
+  border-radius: 100px;
+  font-size: 12px;
+}
+.mech-race-asi-choice-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.mech-race-asi-choice-plus { font-weight: 700; color: var(--text-muted); }
+.mech-race-asi-choice .equip-choice-sel { font-size: 12px; font-weight: 700; color: var(--accent); }
+.mech-race-asi-choice .equip-choice-wrap { padding-right: 12px; }
+
+/* 2026-09-12: inline <select> picker(s) for simple "choose N from a fixed list" race
+   traits (Human's extra language, Alternate Human's feat) — sits right under the trait
+   text, reuses the Bard-instrument equip-choice-sel look. */
+.mech-race-choice-selects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+.mech-race-choice-selects .equip-choice-wrap { padding-right: 14px; }
+
 .mech-race-stats {
-  display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px;
+  display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px;
 }
 .mech-race-stat-chip {
   display: inline-flex; align-items: center; gap: 3px;
@@ -2685,14 +2796,91 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   color: var(--text-muted);
 }
 
-.mech-race-traits { margin-top: 14px; }
-.mech-race-trait-list { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.mech-race-traits { margin-top: 10px; }
+.mech-race-trait-list { list-style: none; padding: 0; margin: 6px 0 0; display: flex; flex-direction: column; gap: 11px; }
 .mech-race-trait-item { font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
 .mech-race-trait-title { font-weight: 700; color: var(--text-primary); }
 .mech-race-trait-text  { color: var(--text-secondary); }
+/* 2026-09-11: additional paragraphs of a multi-paragraph trait (e.g. Dragonborn's
+   "Оружие дыхания") — the first paragraph stays inline in .mech-race-trait-text. */
+.mech-race-trait-text-p { margin: 6px 0 0; color: var(--text-secondary); }
+/* 2026-09-11: monospaced formula/dice-notation fragments inside trait text
+   (e.g. `2к6`, `8 + модификатор Телосложения + бонус мастерства`). */
+.mech-trait-formula {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--text-primary);
+}
 
-.mech-subrace-desc { margin-top: 10px; }
-.mech-subrace-desc-text { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; margin: 0 0 6px; }
+.mech-subrace-desc { margin-top: 8px; }
+.mech-subrace-desc-text { font-size: 12.5px; font-style: italic; color: var(--text-secondary); line-height: 1.5; margin: 0 0 4px; }
+
+/* Device picker nested inside a trait item (e.g. Rock Gnome's Жестянщик) — needs its own
+   breathing room from the trait text above and the selected device's text below, since it
+   reuses .mech-subrace-btns/.mech-subrace-desc-text which have no top margin on their own.
+   2026-09-11 (заказчик): текст выбранного устройства должен визуально читаться как
+   "принадлежащий" переключателю над ним, а не как отдельный флоу-абзац — поэтому он не
+   курсивом (в отличие от обычных описаний подрас/рас) и оформлен как карточка с рамкой. */
+.mech-subrace-device-wrap { margin-top: 10px; }
+.mech-subrace-device-wrap .mech-subrace-btns { margin-bottom: 8px; }
+.mech-subrace-device-wrap .mech-subrace-desc-text {
+  font-style: normal;
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-md);
+}
+
+/* 2026-09-11: structured device card (components / summary / checks / DC list) —
+   used for device options ported from ttg.club item pages (e.g. Dwarf's tool
+   proficiencies), as opposed to a device's plain flavor-text option (Gnome's
+   Жестянщик), which still renders as the plain .mech-subrace-desc-text above. */
+.mech-device-card {
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-md);
+}
+.mech-device-components {
+  margin: 0 0 6px;
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+.mech-device-components-label { font-weight: 600; }
+.mech-device-summary {
+  margin: 0 0 8px;
+}
+.mech-device-checks {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mech-device-check-item { font-size: 0.92em; }
+.mech-device-check-label { font-weight: 600; }
+.mech-device-dc {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.mech-device-dc-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}
+.mech-device-dc-value { flex-shrink: 0; font-weight: 600; }
 
 /* ─── Equipment: buy mode stats bar ──────────────────────────────────────── */
 .equip-buy-statsbar {
@@ -2791,3 +2979,207 @@ details[open] .mech-src-chevron { transform: rotate(180deg); }
   opacity: 0.7;
 }
 .equip-reset-btn:hover { opacity: 1; }
+
+/* ══ Контрол выбора — единая система (2026-09-27, дизайн-проход @designer) ══════════════
+   Заменяет два блока, добавленных ранее сегодня («Единый вид выпадающих списков» и
+   «инлайновые выборы»). Этот блок — источник истины для ВСЕХ контролов выбора визарда;
+   старые правила выше (.mech-bg-select width:160px, .equip-choice-sel пунктир и т.п.)
+   перекрываются здесь. Токены — --sel-* в css/tokens.css.
+   Мини-гайд (подробно — qa/reports/controls_design_pass.md):
+   · один вид у <select> и у самописного триггера: фон, рамка, радиус, стрелка = --sel-arrow
+     фоновым SVG (символ ▾ не используем);
+   · два размера: компактный (--sel-h, 12px) — строки «подпись | контрол», инлайн в тексте,
+     карточки; полевой — в формах рядом с текстовыми полями (Финал, модалка предмета):
+     высота/паддинг/радиус как у соседних input, остальное — общее;
+   · пусто = плейсхолдер --text-secondary; выбрано = --text-primary (у триггера — .is-filled);
+   · ширина по содержимому, min --sel-min-w, max 100% колонки; длинное — многоточие + title;
+     на ≤600px строки «подпись | контрол» складываются в столбик, контрол — во всю ширину;
+   · состояния: hover — --sel-border-hover; focus/открыт — --accent (+кольцо на
+     :focus-visible); disabled — opacity .4; «не выбрано» красным НЕ подсвечиваем —
+     о незаполненных выборах говорит подсказка у кнопки «Далее». */
+
+/* 1. База — все контролы выбора */
+.mech-bg-select,
+.stat-method-sel,
+.stat-assign-sel,
+.equip-choice-sel,
+.shop-modal-coin,
+select.final-inp,
+select.cnew-input,
+.mech-bg-ms-trigger {
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: border-box;
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  background-color: var(--sel-bg);
+  background-image: var(--sel-arrow);
+  background-repeat: no-repeat;
+  background-position: right var(--sel-pad-x) center;
+  background-size: var(--sel-arrow-size);
+  border: 1px solid var(--sel-border);
+  padding-right: var(--sel-pad-r);
+  outline: none;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+
+/* 2. Компактный размер */
+.mech-bg-select,
+.stat-method-sel,
+.stat-assign-sel,
+.equip-choice-sel,
+.mech-bg-ms-trigger {
+  height: var(--sel-h);
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: var(--sel-pad-x);
+  border-radius: var(--sel-radius);
+  font-size: var(--sel-fs);
+  font-weight: 400;
+  line-height: calc(var(--sel-h) - 2px);
+  vertical-align: middle;
+}
+/* Характеристики: числа и режим — 13px/600, как остальные числа строки (осознанное исключение) */
+.stat-method-sel,
+.stat-assign-sel { font-size: 13px; font-weight: 600; }
+
+/* Полевой размер: высота/паддинг/радиус — от соседних полей формы */
+select.cnew-input { background-color: var(--surface-3); border-color: var(--border); }
+
+/* 3. Состояния */
+.mech-bg-select:hover,
+.stat-method-sel:hover,
+.stat-assign-sel:hover,
+.equip-choice-sel:hover,
+.shop-modal-coin:hover,
+select.final-inp:hover,
+select.cnew-input:hover,
+.mech-bg-ms-trigger:hover { border-color: var(--sel-border-hover); }
+
+.mech-bg-select:focus,
+.stat-method-sel:focus,
+.stat-assign-sel:focus,
+.equip-choice-sel:focus,
+.shop-modal-coin:focus,
+select.final-inp:focus,
+select.cnew-input:focus,
+.mech-bg-ms-trigger:focus-visible,
+.mech-bg-ms-wrap:has(> .mech-bg-ms-panel:not([hidden])) > .mech-bg-ms-trigger { border-color: var(--accent); }
+
+.mech-bg-select:focus-visible,
+.stat-method-sel:focus-visible,
+.stat-assign-sel:focus-visible,
+.equip-choice-sel:focus-visible,
+.shop-modal-coin:focus-visible,
+select.final-inp:focus-visible,
+select.cnew-input:focus-visible,
+.mech-bg-ms-trigger:focus-visible { box-shadow: var(--sel-ring); }
+
+.mech-bg-select:disabled,
+.stat-assign-sel:disabled,
+.equip-choice-sel:disabled,
+.mech-bg-ms-trigger:disabled { opacity: 0.4; cursor: not-allowed; border-color: var(--sel-border); }
+
+/* пусто = плейсхолдер */
+.mech-bg-select:has(> option[value=""]:checked),
+.stat-assign-sel:has(> option[value=""]:checked),
+.equip-choice-sel:has(> option[value=""]:checked),
+select.final-inp:has(> option[value=""]:checked),
+select.cnew-input:has(> option[value=""]:checked),
+.mech-bg-ms-trigger:not(.is-filled) { color: var(--text-secondary); }
+/* Характеристики: назначенное значение — зелёное (семантика «распределено»), см. .ab-control.is-assigned */
+
+/* список опций нативного select (само раскрытое меню рисует ОС) */
+.mech-bg-select option, .mech-bg-select optgroup,
+.stat-method-sel option,
+.stat-assign-sel option,
+.equip-choice-sel option, .equip-choice-sel optgroup,
+.shop-modal-coin option,
+select.final-inp option,
+select.cnew-input option { color: var(--text-primary); background: var(--surface-2); }
+
+/* 4. Внутри карточек с фоном surface-2 — фон контрола на ступень светлее */
+.equip-section .equip-choice-sel,
+.equip-section .mech-bg-ms-trigger,
+.cls-prof-block .mech-bg-ms-trigger { background-color: var(--sel-bg-inset); }
+
+/* 5. Триггер мультиселекта: стрелка — тот же SVG, что у select; открыт — стрелка вверх */
+.mech-bg-ms-trigger {
+  width: 100%;
+  display: block;
+  text-align: left;
+}
+.mech-bg-ms-trigger > span:first-child {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mech-bg-ms-arrow { display: none; }
+.mech-bg-ms-wrap:has(> .mech-bg-ms-panel:not([hidden])) > .mech-bg-ms-trigger { background-image: var(--sel-arrow-up); }
+
+.mech-bg-ms-wrap {
+  position: relative;
+  display: inline-block;
+  width: auto;
+  min-width: min(var(--sel-min-w), 100%);
+  max-width: 100%;
+  padding-top: 0;
+  vertical-align: middle;
+}
+.cls-tool-choices { display: flex; }
+
+/* выпадающая панель — радиус/рамка/тень как у всплывающих поверхностей */
+.mech-bg-ms-panel {
+  top: calc(100% + 4px);
+  left: 0;
+  right: auto;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 32px));
+  box-sizing: border-box;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  padding: 4px 0;
+  max-height: 240px;
+}
+.mech-bg-ms-item { padding: 6px 12px; font-size: var(--sel-fs); }
+
+/* 6. Ширина и сетка «ПОДПИСЬ | контрол» (шаг Предыстория) */
+.mech-bg-row { align-items: baseline; }
+.mech-bg-row-value { min-width: 0; }
+.mech-bg-select {
+  width: auto;
+  min-width: min(var(--sel-min-w), 100%);
+  max-width: 100%;
+  flex: 0 1 auto;
+}
+.mech-bg-row > .mech-bg-select,
+.mech-bg-row > .mech-bg-ms-wrap { flex: 0 1 auto; min-width: 0; }
+.mech-bg-row > .mech-bg-select { min-width: min(var(--sel-min-w), 100%); }
+.mech-bg-row > .mech-bg-ms-wrap { min-width: min(var(--sel-min-w), 100%); }
+.mech-bg-tool-profs { line-height: var(--sel-h); }
+
+@media (max-width: 600px) {
+  .mech-bg-row { flex-direction: column; align-items: stretch; gap: 4px; }
+  .mech-bg-row-label { width: auto; padding-top: 0; }
+  .mech-bg-row > .mech-bg-select,
+  .mech-bg-row > .mech-bg-ms-wrap,
+  .mech-bg-tool-profs .mech-bg-select { width: 100%; }
+}
+
+/* 7. Инлайн-выборы (снаряжение, раса): без пунктира/пилюль, выравнивание маркера списка */
+.equip-choice-sel { max-width: 100%; border-radius: var(--sel-radius); }
+.equip-choice-arrow { display: none; }
+.equip-choice-wrap,
+.mech-race-asi-choice .equip-choice-wrap,
+.mech-race-choice-selects .equip-choice-wrap { padding-right: 0; max-width: 100%; }
+.equip-item.is-choice::before { top: calc(var(--sel-h) / 2); transform: translateY(-50%); line-height: 1; }
+.mech-race-asi-choice { border: none; padding: 0; border-radius: 0; gap: 12px; }
+.mech-race-asi-choice .equip-choice-sel { font-size: var(--sel-fs); font-weight: 400; color: var(--text-primary); }

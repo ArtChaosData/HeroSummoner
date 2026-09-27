@@ -15,12 +15,6 @@ const TABS = [
   { key: 'archive', label: 'Архив',     icon: '📦' },
 ];
 
-const EDITION_OPTIONS = [
-  { key: 'all',  label: 'Все',      short: 'Все' },
-  { key: '2014', label: '5e · 2014', short: '5e'  },
-  { key: '2024', label: '5.5 · 2024', short: '5.5' },
-];
-
 const EMPTY_MESSAGES = {
   all:     { icon: '📜', title: 'Нет персонажей',  text: 'Создай своего первого героя — нажми «Создать».' },
   fav:     { icon: '⭐', title: 'Нет избранных',   text: 'Нажми звёздочку на карточке, чтобы добавить в избранные.' },
@@ -32,7 +26,6 @@ const EMPTY_MESSAGES = {
 // ─── State ────────────────────────────────────────────────────────────────────
 
 let _currentFilter  = 'all';
-let _editionFilter  = 'all';   // 'all' | '2014' | '2024'
 let _allChars       = [];
 let _grid           = null;    // DOM ref for in-place re-renders
 
@@ -40,11 +33,6 @@ let _grid           = null;    // DOM ref for in-place re-renders
 
 function applyFilters(chars) {
   let result = chars;
-
-  // Edition filter
-  if (_editionFilter !== 'all') {
-    result = result.filter(c => (c.edition || '2014') === _editionFilter);
-  }
 
   // Tab filter
   switch (_currentFilter) {
@@ -56,26 +44,14 @@ function applyFilters(chars) {
   }
 }
 
-/** Counts per tab, respecting current edition filter. */
+/** Counts per tab. */
 function tabCounts(chars) {
-  const base = _editionFilter === 'all'
-    ? chars
-    : chars.filter(c => (c.edition || '2014') === _editionFilter);
   return {
-    all:     base.filter(c => c.status !== 'archive' && c.status !== 'draft').length,
-    fav:     base.filter(c => c.favorite).length,
-    active:  base.filter(c => c.status === 'active').length,
-    dead:    base.filter(c => c.status === 'dead').length,
-    archive: base.filter(c => c.status === 'archive' || c.status === 'draft').length,
-  };
-}
-
-/** Counts per edition (for switcher badges). */
-function editionCounts(chars) {
-  return {
-    all:  chars.length,
-    2014: chars.filter(c => (c.edition || '2014') === '2014').length,
-    2024: chars.filter(c => c.edition === '2024').length,
+    all:     chars.filter(c => c.status !== 'archive' && c.status !== 'draft').length,
+    fav:     chars.filter(c => c.favorite).length,
+    active:  chars.filter(c => c.status === 'active').length,
+    dead:    chars.filter(c => c.status === 'dead').length,
+    archive: chars.filter(c => c.status === 'archive' || c.status === 'draft').length,
   };
 }
 
@@ -85,7 +61,6 @@ function buildCard(char, router) {
   const isDead  = char.status === 'dead';
   const isDraft = char.status === 'draft';
   const isFav   = char.favorite;
-  const edition = char.edition || '2014';
   const color   = classColor(char.class);
   const hpBadge = isDead ? 'hp-dead' : hpClass(char.hp ?? char.maxHp, char.maxHp);
   const hpLabel = isDead
@@ -114,13 +89,6 @@ function buildCard(char, router) {
   }
   portrait.append(el('span', { class: 'badge badge-level' }, `Ур. ${char.level || 1}`));
   portrait.append(el('span', { class: `badge badge-hp ${hpBadge}` }, hpLabel));
-
-  // Edition badge (top-center of portrait)
-  portrait.append(
-    el('span', {
-      class: `badge badge-edition badge-edition--${edition === '2024' ? '2024' : '2014'}`,
-    }, edition === '2024' ? '5.5' : '5e')
-  );
 
   // Favourite button
   const favBtn = el('button', {
@@ -187,7 +155,6 @@ function buildCard(char, router) {
             toast(`${char.name} удалён`, 'default');
             if (_grid) renderGrid(_grid, router);
             updateTabCounts();
-            updateEditionBadges();
           }
         },
       }, '🗑'),
@@ -207,7 +174,6 @@ function buildNewCard(router) {
   },
     el('div', { class: 'new-card-icon' }, '＋'),
     el('div', { class: 'new-card-label' }, 'Создать персонажа'),
-    el('div', { class: 'new-card-hint' }, 'D&D 5e · 2014 или 2024'),
   );
 }
 
@@ -280,44 +246,6 @@ function updateTabCounts() {
   if (pageBadge) pageBadge.textContent = counts.all;
 }
 
-function updateEditionBadges() {
-  const counts = editionCounts(_allChars);
-  document.querySelectorAll('.edition-btn[data-edition]').forEach(btn => {
-    const badge = btn.querySelector('.edition-count');
-    if (badge) badge.textContent = counts[btn.dataset.edition] ?? 0;
-  });
-}
-
-// ─── Edition Switcher UI ──────────────────────────────────────────────────────
-
-function buildEditionSwitcher(router) {
-  const counts = editionCounts(_allChars);
-
-  const switcher = el('div', { class: 'edition-switcher', 'aria-label': 'Фильтр по редакции' });
-
-  for (const { key, label } of EDITION_OPTIONS) {
-    const btn = el('button', {
-      class: `edition-btn${_editionFilter === key ? ' is-active' : ''}`,
-      'data-edition': key,
-      onClick: () => {
-        if (_editionFilter === key) return;
-        _editionFilter = key;
-        switcher.querySelectorAll('.edition-btn').forEach(b =>
-          b.classList.toggle('is-active', b.dataset.edition === key)
-        );
-        updateTabCounts();
-        if (_grid) renderGrid(_grid, router);
-      },
-    },
-      label,
-      el('span', { class: 'edition-count' }, String(counts[key] ?? 0)),
-    );
-    switcher.append(btn);
-  }
-
-  return switcher;
-}
-
 // ─── Main render ──────────────────────────────────────────────────────────────
 
 export async function renderCharacters(container, router) {
@@ -354,15 +282,12 @@ export async function renderCharacters(container, router) {
   const wrap = el('div', { class: 'page-wrap' });
 
   // ── Page header row ──
-  const editionSwitcher = buildEditionSwitcher(router);
-
   wrap.append(
     el('div', { class: 'page-header' },
       el('div', { class: 'page-title-group' },
         el('h1', { class: 'page-title' }, 'Персонажи'),
         el('span', { class: 'page-badge' }, String(counts.all)),
       ),
-      editionSwitcher,
     )
   );
 
@@ -399,7 +324,6 @@ export async function renderCharacters(container, router) {
         const n = await DB.importJSON(text);
         _allChars = await DB.getAll();
         updateTabCounts();
-        updateEditionBadges();
         if (_grid) renderGrid(_grid, router);
         toast(`Импортировано: ${n}`, 'success');
       } catch {
