@@ -2,13 +2,14 @@
  * HeroSummoner — IndexedDB wrapper
  *
  * Object stores:
- *   characters  character model v1 (schemaVersion 2) — see js/character.js and
- *               docs/SPECIFICATION.md §2.1. DB_VERSION 2 migrates stored v1 records once.
+ *   characters  character model v1 (schemaVersion 3) — see js/character.js and
+ *               docs/SPECIFICATION.md §2.1. DB_VERSION 2/3 migrate stored records once
+ *               (3: снаряжение в записи — Э3, ТЗ 4.4.7 v0.32).
  */
 import { migrateCharacter } from './character.js';
 
 const DB_NAME    = 'HeroSummonerDB';
-const DB_VERSION = 2;   // 2: character model v1 (E1) — records migrated in onupgradeneeded
+const DB_VERSION = 3;   // 2: character model v1 (E1); 3: equipment (E3) — records migrated in onupgradeneeded
 
 let _db = null;
 
@@ -30,8 +31,8 @@ function openDB() {
         store.createIndex('updatedAt','updatedAt', { unique: false });
       }
 
-      // v1 → v2: migrate every stored character in the upgrade transaction (one pass, never deletes).
-      if (e.oldVersion >= 1 && e.oldVersion < 2) {
+      // v1 → v2 → v3: migrate every stored character in the upgrade transaction (one pass, never deletes).
+      if (e.oldVersion >= 1 && e.oldVersion < 3) {
         const cursorReq = req.transaction.objectStore('characters').openCursor();
         cursorReq.onsuccess = () => {
           const cursor = cursorReq.result;

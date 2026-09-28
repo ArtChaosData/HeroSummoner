@@ -2,7 +2,7 @@
  * HeroSummoner — Service Worker
  * Strategy: cache-first for assets, always update in background.
  */
-const CACHE = 'herosummoner-v53';
+const CACHE = 'herosummoner-v56';
 // 2026-09-27 (ТЗ v0.29): js/pdf.js и js/data/background_descriptions.js (читает только pdf.js) убраны из
 // precache — экспорт PDF снят с хаба до перепроектирования; файлы остаются в репозитории.
 
@@ -55,6 +55,11 @@ const PRECACHE = [
   './js/character.js',
   './js/spell-groups.js',
   './js/data/feats.js',
+  // 2026-09-28 (ТЗ 4.4.7 v0.32, Э3): снаряжение — логика, общий вид и стартовое снаряжение классов
+  './js/equipment.js',
+  './js/equipment-view.js',
+  './js/pools.js',
+  './js/data/class_starting_equipment.js',
   './assets/icon_4.svg',
 ];
 

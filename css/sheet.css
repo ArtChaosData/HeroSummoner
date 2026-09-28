@@ -300,3 +300,8 @@
   .cs-col-left { grid-template-columns: 1fr; }
   .cs-abilities { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* Э3: снаряжение на листе */
+.cs-equip { margin-top: 12px; }
+.cs-empty { margin: 0; font-size: 13px; color: var(--text-muted); }
+.cs-card .eq-view { padding: 4px 12px 12px; }

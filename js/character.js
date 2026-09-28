@@ -1,5 +1,5 @@
 /**
- * HeroSummoner — Character model v1 (schemaVersion 2).
+ * HeroSummoner — Character model v1 (schemaVersion 3).
  * Spec: docs/SPECIFICATION.md §2.1 (v0.28, stage E1).
  *
  *   ids        classId / subclassId / raceId / subraceId / backgroundId — canonical keys;
@@ -8,15 +8,22 @@
  *              — the source of truth; flat lists (skills, languages, tools, feats, spells) are derived.
  *   levels[]   { level, classId, hp: { method, value }, choices, grants: [indexes into grants] }
  *
- * migrateCharacter() upgrades a v1 record (no schemaVersion) to v2. Pure: returns a new object.
+ *   equipment  { mode, encumbrance, classChoices, gold, items[{ id|null, qty, source, equipped?, name?, custom? }], coins }
+ *              — schemaVersion 3 (Э3, ТЗ 4.4.7 v0.32). КД, атаки и вес на листе считаются из items + equipped.
+ *
+ * migrateCharacter() upgrades v1 (no schemaVersion) → v2 → v3. Pure: returns a new object.
  */
 import { CLASS_DESCRIPTIONS } from './data/class_descriptions.js';
 import { LVL1_SUBCLASSES } from './data/class_lvl1_subclasses.js';
 import { FEATS } from './data/feats.js';
 import { spellIdByName, getSpellById } from './data/spells.js';
 import { migrateSpellState } from './spell-groups.js';
+import {
+  itemById, itemByName, autoEquip, equipProfs, gpToCoins,
+  TOOL_RENAMES, TOOL_REMOVED, RACE_EQUIP_GRANTS,
+} from './equipment.js';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 // ─── Entity ids ───────────────────────────────────────────────────────────────
 // Races/backgrounds: latin slug of the dnd.su page (/race/78-dwarf/ → dwarf, /backgrounds/766-acolyte/ → acolyte).
@@ -157,7 +164,71 @@ export function migrateWizardState(ws) {
   delete out.mecEdition;
   // Э2: выбор заклинаний по названиям (mecSpellsCantrips/…/заговор Высшего эльфа) → mecSpellPicks по id
   migrateSpellState(out);
+  // Э3: названия инструментов — по таблице dnd.su; снаряжение — в mecEquip
+  renameToolsInWizard(out);
+  migrateEquipWizard(out);
   return out;
+}
+
+const renameTool = v => TOOL_RENAMES[v] || v;
+const renameTypedKey = k => {
+  if (typeof k !== 'string' || !k.includes('::')) return k;
+  const [t, ...rest] = k.split('::');
+  return `${t}::${renameTool(rest.join('::'))}`;
+};
+
+function renameToolsInWizard(ws) {
+  if (ws.mecBgChoiceData && typeof ws.mecBgChoiceData === 'object') {
+    const d = {};
+    for (const [k, v] of Object.entries(ws.mecBgChoiceData)) {
+      d[k] = Array.isArray(v) ? v.map(renameTypedKey) : (typeof v === 'string' ? renameTool(v) : v);
+    }
+    ws.mecBgChoiceData = d;
+  }
+  if (ws.mecClassToolChoice && typeof ws.mecClassToolChoice === 'object') {
+    const d = {};
+    for (const [k, v] of Object.entries(ws.mecClassToolChoice)) d[k] = Array.isArray(v) ? v.map(renameTypedKey) : v;
+    ws.mecClassToolChoice = d;
+  }
+  if (ws.mecEquipChoices && typeof ws.mecEquipChoices === 'object') {
+    const d = { ...ws.mecEquipChoices };
+    for (const k of Object.keys(d)) if (k.startsWith('bgch_') && typeof d[k] === 'string') d[k] = renameTool(d[k]);
+    ws.mecEquipChoices = d;
+  }
+}
+
+/** Старый предмет корзины (до Э3: { id: 'weapons::Длинный меч', name, costGp, weightLb, qty }) → запись инвентаря. */
+function legacyCartEntry(c) {
+  const name = String(c?.name || '').trim();
+  const qty = Math.max(1, parseInt(c?.qty, 10) || 1);
+  if (String(c?.id || '').startsWith('homebrew::')) {
+    return { id: null, name, qty, custom: { costGp: Math.max(0, +c.costGp || 0), weightLb: Math.max(0, +c.weightLb || 0) } };
+  }
+  const it = itemByName(name) || itemByName(name.replace(/\(50 фт\)/, '(50 футов)'));
+  if (it) return { id: it.id, qty };
+  return { id: null, name, qty, custom: { costGp: Math.max(0, +c.costGp || 0), weightLb: Math.max(0, +c.weightLb || 0) }, legacy: true };
+}
+
+/** До Э3 снаряжение жило в mecEquipMode / mecEquipGold / mecCart / mecHomebrew / mecEquipChoices['cls_*']. */
+function migrateEquipWizard(ws) {
+  if (ws.mecEquip && typeof ws.mecEquip === 'object') return;
+  const hasOld = 'mecEquipMode' in ws || 'mecCart' in ws || 'mecEquipGold' in ws;
+  if (!hasOld) return;
+  const cart = Array.isArray(ws.mecCart) ? ws.mecCart.map(legacyCartEntry) : [];
+  ws.mecEquip = {
+    mode: ws.mecEquipMode === 'buy' ? 'purchase' : 'standard',
+    encumbrance: false,
+    classChoices: {},
+    gold: typeof ws.mecEquipGold === 'number' ? { formula: null, rolls: [], mult: 1, total: ws.mecEquipGold } : null,
+    goldClass: typeof ws.mecEquipGold === 'number' ? (ws.mecClass || null) : null,
+    cart,
+    equippedManual: {},
+    legacyNote: 'Выбор снаряжения класса сделан до обновления «Снаряжения» (PHB а/б/в) — выберите заново.',
+  };
+  delete ws.mecEquipMode; delete ws.mecEquipGold; delete ws.mecCart; delete ws.mecHomebrew;
+  if (ws.mecEquipChoices) {
+    for (const k of Object.keys(ws.mecEquipChoices)) if (/^(cls|bg)_\d+$/.test(k)) delete ws.mecEquipChoices[k];
+  }
 }
 
 /**
@@ -168,8 +239,13 @@ export function migrateWizardState(ws) {
  */
 export function migrateCharacter(rec) {
   if (!rec || typeof rec !== 'object') return rec;
-  if ((rec.schemaVersion || 1) >= SCHEMA_VERSION) return rec;
+  let out = rec;
+  if ((out.schemaVersion || 1) < 2) out = migrateV1toV2(out);
+  if (out.schemaVersion < 3) out = migrateV2toV3(out);
+  return out;
+}
 
+function migrateV1toV2(rec) {
   const ws = rec._wizardState || {};
   const warnings = [];
   const nameOf = key => (typeof ws[key] === 'string' && ws[key].includes('::')) ? ws[key].split('::').slice(1).join('::') : null;
@@ -212,7 +288,7 @@ export function migrateCharacter(rec) {
 
   return {
     ...rest,
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: 2,
     classId, classVariant: classVariant || ws.mecClassVariant || 'phb', subclassId,
     raceId, subraceId, backgroundId,
     labels: { class: rec.class || null, subclass: rec.subclass || null, race: raceName || null,
@@ -229,4 +305,59 @@ export function migrateCharacter(rec) {
     _legacy: legacyCopy,
     _wizardState: rec._wizardState ? migrateWizardState(rec._wizardState) : rec._wizardState,
   };
+}
+
+// ─── Migration v2 → v3 (Э3, ТЗ 4.4.7 v0.32) ───────────────────────────────────
+
+/**
+ * v2 → v3: снаряжение в записи (`equipment`), названия инструментов по dnd.su, владения оружием/доспехами расы.
+ * Инвентарь собирается из `_wizardState` (старые mecCart / mecEquipMode). Стандартный набор класса до Э3 был
+ * неверным (CLASS_EQUIP) и в выборы а)/б)/в) не переводится — предупреждение в migrationWarnings.
+ */
+function migrateV2toV3(rec) {
+  const warnings = [...(rec.migrationWarnings || [])];
+  const removed = new Set();
+  const grants = (rec.grants || []).map(g => {
+    if (g.pool !== 'tool') return g;
+    if (TOOL_REMOVED.includes(g.value)) removed.add(g.value);
+    return TOOL_RENAMES[g.value] ? { ...g, value: TOOL_RENAMES[g.value] } : g;
+  });
+  for (const v of removed) warnings.push(`инструмента «${v}» нет в таблице PHB (dnd.su) — выберите владение заново в мастере`);
+  const addRace = (id, type) => {
+    const extra = RACE_EQUIP_GRANTS[id];
+    if (!extra) return;
+    for (const [pool, vals] of Object.entries(extra)) {
+      for (const value of vals) {
+        if (!grants.some(g => g.pool === pool && g.value === value && g.source?.id === id)) {
+          grants.push({ pool, value, source: { type, id }, level: 1, kind: 'fixed', slot: null, replaces: null });
+        }
+      }
+    }
+  };
+  addRace(rec.raceId, 'race');
+  addRace(rec.subraceId, 'subrace');
+
+  const ws = rec._wizardState ? migrateWizardState(rec._wizardState) : rec._wizardState;
+  let equipment = rec.equipment || null;
+  if (!equipment) {
+    const eq = ws?.mecEquip;
+    const items = [];
+    if (eq?.mode === 'purchase') items.push(...(eq.cart || []).map(e => ({ ...e, source: 'purchase' })));
+    const unknown = items.filter(e => e.legacy).map(e => e.name);
+    if (unknown.length) warnings.push(`предметы не найдены в каталоге PHB (оставлены как «свой предмет»): ${unknown.join(', ')}`);
+    if (eq && eq.mode !== 'purchase') warnings.push('стартовое снаряжение класса нужно выбрать заново (варианты а/б/в по PHB) — откройте шаг «Снаряжение»');
+    const spent = items.reduce((a, e) => a + (e.custom ? +e.custom.costGp || 0 : itemById(e.id)?.costGp || 0) * e.qty, 0);
+    const gold = eq?.gold ? { ...eq.gold, spent: Math.round(spent * 100) / 100 } : null;
+    const clean = items.map(({ legacy: _l, ...e }) => e);
+    autoEquip(clean, equipProfs(grants), rec.stats);
+    equipment = {
+      mode: eq?.mode || 'standard',
+      encumbrance: false,
+      classChoices: {},
+      gold,
+      items: clean,
+      coins: gold ? gpToCoins(Math.max(0, gold.total - gold.spent)) : { gp: 0, sp: 0, cp: 0 },
+    };
+  }
+  return { ...rec, schemaVersion: 3, grants, equipment, migrationWarnings: warnings, _wizardState: ws };
 }

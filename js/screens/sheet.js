@@ -3,8 +3,9 @@
  */
 import { DB } from '../db.js';
 import { el } from '../utils.js';
-import { ARMOUR } from '../data/equipment.js';
 import { legacyView } from '../character.js';
+import { armorClass, equipProfs, itemById } from '../equipment.js';
+import { buildInventoryView, makeRulePanel } from '../equipment-view.js';
 
 // ─── Data tables ──────────────────────────────────────────────────────────────
 
@@ -43,24 +44,13 @@ function hpClass(hp, maxHp) {
   return 'cs-hp-val';
 }
 
-function computeAC(char) {
-  const ws = char._wizardState || {};
-  const dexMod = mod(char.stats?.dex);
-  if (ws.mecEquipMode === 'buy' && ws.mecCart?.length) {
-    const cartArmor = ws.mecCart.find(i => i.category === 'Доспехи' && i.name !== 'Щит');
-    if (cartArmor) {
-      const a = ARMOUR.find(x => x.name === cartArmor.name);
-      if (a) {
-        let ac = a.acBase;
-        if (a.acDex === 'full')       ac += dexMod;
-        else if (a.acDex === 'max2')  ac += Math.min(dexMod, 2);
-        if (ws.mecCart.some(i => i.name === 'Щит')) ac += 2;
-        return ac;
-      }
-    }
-  }
-  return 10 + dexMod;
+/** КД из надетого (ТЗ 4.4.7 «Надето и КД», Э3). Защита без доспехов Варвара/Монаха — этап «Лист». */
+function computeAC(record) {
+  const items = record?.equipment?.items || [];
+  return armorClass(items, record?.stats, equipProfs(record?.grants)).ac;
 }
+
+const armorCat = e => (e.custom ? null : itemById(e.id)?.category);
 
 // ─── Section builders ─────────────────────────────────────────────────────────
 
@@ -210,7 +200,7 @@ export async function renderSheet(container, router, { id } = {}) {
   }
 
   const pb    = profBonus(char.level || 1);
-  const ac    = computeAC(char);
+  let ac      = computeAC(record);
   const saves = CLASS_SAVES[char.class] || [];
   const stats = char.stats || {};
 
@@ -260,6 +250,35 @@ export async function renderSheet(container, router, { id } = {}) {
         // Right: skills
         el('div', { class: 'cs-col cs-col-right' },
           buildSkills(stats, char.skills, pb),
+        ),
+      ),
+
+      // ── Снаряжение (Э3): по категориям, доспех/щит — надет/снят, КД пересчитывается ──
+      el('div', { class: 'cs-equip' },
+        el('div', { class: 'cs-card' },
+          el('div', { class: 'cs-card-title' }, 'Снаряжение'),
+          record.equipment
+            ? buildInventoryView({
+                entries: record.equipment.items || [], coins: record.equipment.coins, stats: record.stats,
+                profs: equipProfs(record.grants), rules: makeRulePanel(),
+                onToggle: async entries => {
+                  record.equipment.items = entries;
+                  // мастер при редактировании строит «надето» из своего состояния — держим его в курсе
+                  const ws = record._wizardState;
+                  if (ws?.mecEquip) {
+                    ws.mecEquip.equippedManual = {};
+                    for (const cat of ['armor', 'shield']) {
+                      const on = entries.find(e => e.equipped && !e.custom && armorCat(e) === cat);
+                      ws.mecEquip.equippedManual[cat] = on ? on.id : null;
+                    }
+                  }
+                  ac = computeAC(record);
+                  const acEl = container.querySelector('.cs-combat-cell .cs-combat-val');
+                  if (acEl) acEl.textContent = String(ac);
+                  await DB.put(record);
+                },
+              })
+            : el('p', { class: 'cs-empty' }, 'Снаряжение не выбрано'),
         ),
       ),
     ),

@@ -8,7 +8,9 @@ import {
   SCHEMA_VERSION, grant, raceIdByName, subraceIdByName, backgroundIdByName, featIdByName, migrateWizardState,
 } from '../character.js';
 import { FEATS } from '../data/feats.js';
-import { ARMOUR, WEAPONS, EQUIPMENT, TOOLS } from '../data/equipment.js';
+import * as EQ from '../equipment.js';
+import * as PL from '../pools.js';
+import { makeRulePanel, itemRuleNodes, groupRuleNodes, buildInventoryView, acBlock } from '../equipment-view.js';
 import { getSpellById } from '../data/spells.js';
 import {
   buildSpellSections, prunePicks, takenMap, missingPicks, groupOptions, groupNeed, spellGrantSpecs,
@@ -72,11 +74,9 @@ function freshState() {
     // ТЗ 4.4.6 (Э2): выбор заклинаний по группам источников — { [ключ группы]: [id dnd.su] }; класс списка для черт
     mecSpellPicks:      {},
     mecSpellFeatClass:  {},
-    mecEquipMode:    'standard',
-    mecEquipGold:    null,
+    // Э3 (ТЗ 4.4.7 v0.32): снаряжение — см. eqState(); mecEquipChoices — предметы предыстории (bgch_*)
+    mecEquip:        { mode: 'standard', encumbrance: false, classChoices: {}, gold: null, goldClass: null, cart: [], equippedManual: {} },
     mecEquipChoices: {},
-    mecCart:         [],
-    mecHomebrew:     [],
   };
 }
 
@@ -106,9 +106,20 @@ function loadDraft() {
   } catch { return null; }
 }
 
+let _progressRefresh = null; // перерисовка прогресс-бара механики (ставит buildMechanics)
+let _progressRaf = 0;
+let _progressBusy = false;
 function scheduleSave(st) {
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(() => saveDraft(st), 800);
+  // прогресс-бар зависит от заполненности шагов («Озёра», правило 2) — обновляем после любого изменения
+  if (_progressRefresh && !_progressRaf && !_progressBusy) {
+    _progressRaf = requestAnimationFrame(() => {
+      _progressRaf = 0;
+      _progressBusy = true; // перерисовка сама может звать scheduleSave (чистка выборов) — без зацикливания
+      try { _progressRefresh?.(); } finally { _progressBusy = false; }
+    });
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -409,6 +420,12 @@ function buildCharacterGrants(st) {
       if (v) g.push(grant('asi', `${k}+${v}`, subId ? 'subrace' : 'race', subId || raceId));
     }
     if (raceDesc?.speed) g.push(grant('speed', raceDesc.speed, 'race', raceId));
+    // Э3: владения оружием/доспехами от расы (нужны для «владеете» и КД на шаге «Снаряжение»)
+    for (const [srcType, srcId] of [['race', raceId], ['subrace', subId]]) {
+      for (const [pool, vals] of Object.entries(EQ.RACE_EQUIP_GRANTS[srcId] || {})) {
+        for (const v of vals) g.push(grant(pool, v, srcType, srcId));
+      }
+    }
     for (const v of mecRaceGrantedSkills(st)) g.push(grant('skill', v, 'race', raceId));
     for (const v of st.mecRaceSkills || [])   g.push(grant('skill', v, subId ? 'subrace' : 'race', subId || raceId, { kind: 'choice', slot: 'race_skills' }));
     const choices = st.mecRaceChoices || {}, devices = st.mecDeviceChoices || {};
@@ -416,7 +433,7 @@ function buildCharacterGrants(st) {
     for (const t of mecActiveRaceTraits(raceName, st.mecSubrace)) {
       const [srcType, srcId] = subTraitTitles.has(t.title) && subId ? ['subrace', subId] : ['race', raceId];
       if (t.choice) {
-        for (const v of choices[t.title] || []) {
+        for (const v of (choices[t.title] || []).filter(Boolean)) {
           if (t.choice.type === 'language') g.push(grant('language', v, srcType, srcId, { kind: 'choice', slot: t.title }));
           else if (t.choice.type === 'feat')  g.push(grant('feat', featIdByName(v) || v, srcType, srcId, { kind: 'choice', slot: t.title }));
         }
@@ -435,10 +452,25 @@ function buildCharacterGrants(st) {
     const fixedTools = bg.tools || [];
     for (const v of fixedTools) g.push(grant('tool', v, 'background', bgId));
     const { langs, tools } = mecBgProfs(st);
+    // «Собственная предыстория»: выбранные навыки (раньше в реестр не попадали)
+    (bg.choices || []).forEach((ch, ci) => {
+      const data = st.mecBgChoiceData?.[ci];
+      if (!Array.isArray(data)) return;
+      for (const key of data) if (key.startsWith('skill::')) g.push(grant('skill', key.slice(7), 'background', bgId, { kind: 'choice', slot: 'background_skills' }));
+    });
     for (const v of langs) g.push(grant('language', v, 'background', bgId, { kind: 'choice', slot: 'background_languages' }));
     for (const v of tools.filter(t => !fixedTools.includes(t))) {
       g.push(grant('tool', v, 'background', bgId, { kind: 'choice', slot: 'background_tools' }));
     }
+  }
+  // ── «Озёра», правило 3: замена владения, выданного двумя источниками (st.mecPoolReplace)
+  for (const [key, r] of Object.entries(st.mecPoolReplace || {})) {
+    if (!r?.value) continue;
+    const pool = key.split(':')[0];
+    const src = r.step === 'class' ? ['class', cls] : r.step === 'race'
+      ? ['race', st.mecRace ? raceIdByName(st.mecRace.split('::')[1]) : null]
+      : ['background', bg ? backgroundIdByName(bg.name) : null];
+    g.push(grant(pool, r.value, src[0], src[1], { kind: 'replacement', slot: 'pool_replace:' + key, replaces: key.slice(pool.length + 1) }));
   }
   // ── Заклинания (шаг 4.4.6, Э2): класс, подкласс, раса, черта — id dnd.su, с источником и слотом
   const { res: spellRes, picks: spellPicks } = spellState(st);
@@ -499,6 +531,7 @@ async function saveCharToDB(st, status) {
       },
       grants: grants.map((_, i) => i),
     }],
+    equipment:  eqRecord(st),
     migrationWarnings: [],
     portrait:   st.portrait || null,
     status,
@@ -771,6 +804,11 @@ function buildMechProgress(st, goMech, magic) {
   const statsIdx  = steps.findIndex(s => s.id === 'stats');
   const spellsIdx = magic ? steps.findIndex(s => s.id === 'spells') : -1;
   const spellsOk  = spellsIdx < 0 || spellStepDone(st);
+  // «Озёра», правило 2: дальше незаполненного шага (Класс → Раса → Предыстория) не пускаем
+  const pc = PL.conflicts(buildCharacterGrants(st));
+  const gate = [['class', mecClassDone(st, pc)], ['race', mecRaceDone(st, pc)], ['background', mecBgDone(st, pc)]];
+  const firstOpen = gate.findIndex(([, ok]) => !ok);
+  const openIdx = firstOpen < 0 ? Infinity : steps.findIndex(s => s.id === gate[firstOpen][0]);
   return el('nav', { class: 'mech-progress' },
     ...steps.flatMap((s, i) => {
       const afterStats = statsIdx >= 0 && i > statsIdx;
@@ -779,215 +817,18 @@ function buildMechProgress(st, goMech, magic) {
         return i < steps.length - 1 ? [b, el('span', { class: 'mech-sep' }, '›')] : [b];
       }
       const reachable  = i <= maxIdx
+        && i <= openIdx
         && (s.id !== 'stats' || st.mecBgOk !== false)
         && (!afterStats || st.mecStatsOk)
         && (spellsIdx < 0 || i <= spellsIdx || spellsOk);
       const cls = 'mech-step' + (i === cur ? ' is-current' : reachable ? ' is-past' : ' is-future');
       const attrs = { class: cls };
-      if (!reachable) attrs.disabled = 'true';
+      if (!reachable && i !== cur) attrs.disabled = 'true';
       if (reachable && i !== cur) attrs.onClick = () => goMech(s.id);
       const btn = el('button', attrs, s.label);
       return i < steps.length - 1 ? [btn, el('span', { class: 'mech-sep' }, '›')] : [btn];
     }),
   );
-}
-
-// ─── Buy mode: shop + inventory panel ────────────────────────────────────────
-
-function buildBuyMode(st, footBtn, onCartChange, ref = {}) {
-  if (!Array.isArray(st.mecCart))     st.mecCart     = [];
-  if (!Array.isArray(st.mecHomebrew)) st.mecHomebrew = [];
-  let _q = '';
-
-  const goldEl    = el('span', {});
-  const weightEl  = el('span', {});
-  const invListEl = el('div',  { class: 'shop-inv-list' });
-  const catalogEl = el('div',  { class: 'shop-cat-body' });
-
-  const gl  = () => st.mecEquipGold !== null ? cartGoldLeft(st) : -Infinity;
-  const tw  = () => cartTotalLb(st);
-  const cap = () => charCarryCap(st);
-
-  function refreshInv() {
-    const g = gl(), t = tw(), c = cap();
-    goldEl.textContent = isFinite(g) ? `${fmtGp(g)} зм` : '— зм';
-    goldEl.className   = `shop-stat-v${isFinite(g) && g < 0 ? ' is-danger' : ''}`;
-    weightEl.textContent = `${t} / ${c} фнт.`;
-    weightEl.className   = `shop-stat-v${t > c ? ' is-danger' : ''}`;
-    invListEl.innerHTML  = '';
-    if (!st.mecCart.length) {
-      invListEl.append(el('p', { class: 'shop-inv-empty' }, 'Инвентарь пуст'));
-    } else {
-      st.mecCart.forEach(item => invListEl.append(
-        el('div', { class: 'shop-inv-item' },
-          el('div', { class: 'shop-inv-name' }, item.name),
-          el('div', { class: 'shop-inv-info' },
-            el('span', {}, `${fmtGp(item.costGp * item.qty)} зм`),
-            el('span', {}, `${Math.round(item.weightLb * item.qty * 10) / 10} фнт.`),
-          ),
-          el('div', { class: 'shop-inv-ctrl' },
-            el('button', { class: 'shop-qty-btn', onClick: () => changeQty(item.id, -1) }, '−'),
-            el('span',   { class: 'shop-qty-n' },  `×${item.qty}`),
-            el('button', { class: 'shop-qty-btn', onClick: () => changeQty(item.id, +1) }, '+'),
-            el('button', { class: 'shop-rm-btn',  onClick: () => removeItem(item.id)    }, '×'),
-          ),
-        ),
-      ));
-    }
-    footBtn.disabled = t > c;
-    footBtn.title    = t > c ? `Перегрузка: ${t} / ${c} фнт. Продайте часть снаряжения.` : '';
-    if (onCartChange) onCartChange();
-  }
-
-  function refreshBuyBtns() {
-    const g = gl();
-    catalogEl.querySelectorAll('[data-cost]').forEach(btn => {
-      const cant = parseFloat(btn.dataset.cost) > g;
-      btn.disabled = cant;
-      btn.classList.toggle('is-broke', cant);
-      btn.style.cursor = cant ? 'not-allowed' : '';
-      btn.title = cant ? 'Недостаточно монет' : '';
-    });
-  }
-
-  function changeQty(id, delta) {
-    const item = st.mecCart.find(i => i.id === id);
-    if (!item) return;
-    if (delta > 0 && item.costGp > gl()) return;
-    item.qty += delta;
-    if (item.qty <= 0) st.mecCart = st.mecCart.filter(i => i.id !== id);
-    scheduleSave(st); refreshInv(); refreshBuyBtns();
-  }
-
-  function removeItem(id) {
-    st.mecCart = st.mecCart.filter(i => i.id !== id);
-    scheduleSave(st); refreshInv(); refreshBuyBtns();
-  }
-
-  function addItem(item) {
-    if (item.costGp > gl()) return;
-    const ex = st.mecCart.find(i => i.id === item.id);
-    if (ex) ex.qty++;
-    else st.mecCart.push({ ...item, qty: 1 });
-    scheduleSave(st); refreshInv(); refreshBuyBtns();
-  }
-  ref.addItem = addItem;
-
-  function buildCatalog() {
-    catalogEl.innerHTML = '';
-    const q = _q.toLowerCase();
-    const g = gl();
-
-    const allCats = [...SHOP_CATS];
-    if (st.mecHomebrew.length) {
-      allCats.push({ id: 'homebrew', label: 'Homebrew', items: st.mecHomebrew.map(it => ({
-        ...it, type: 'Homebrew',
-        weight: it.weightLb > 0 ? `${it.weightLb} фнт.` : '—',
-        cost: it.costStr || `${fmtGp(it.costGp)} зм`,
-      })) });
-    }
-
-    allCats.forEach(cat => {
-      let items = cat.items.filter(it => it.costGp !== null);
-      if (q) items = items.filter(it =>
-        it.name.toLowerCase().includes(q) || (it.type || '').toLowerCase().includes(q),
-      );
-      if (!items.length) return;
-
-      const byType = {};
-      items.forEach(it => { (byType[it.type] = byType[it.type] || []).push(it); });
-
-      const catDet = el('details', { class: 'shop-cat-det' });
-      catDet.open = true;
-      catDet.append(el('summary', { class: 'shop-cat-sum' },
-        el('span', {}, cat.label),
-        el('span', { class: 'shop-count' }, `${items.length}`),
-      ));
-
-      Object.entries(byType).forEach(([type, tItems]) => {
-        const subDet = el('details', { class: 'shop-sub-det' });
-        subDet.open = true;
-        subDet.append(el('summary', { class: 'shop-sub-sum' }, type));
-        tItems.forEach(it => {
-          const id   = `${cat.id}::${it.name}`;
-          const cant = it.costGp > g;
-          const btn  = el('button', {
-            class: `shop-buy-btn${cant ? ' is-broke' : ''}`,
-            onClick: () => addItem({ id, name: it.name, costGp: it.costGp, weightLb: parseWeightLb(it.weight), category: cat.label }),
-          }, '+');
-          btn.dataset.cost = it.costGp;
-          if (cant) { btn.disabled = true; btn.style.cursor = 'not-allowed'; btn.title = 'Недостаточно монет'; }
-          subDet.append(el('div', { class: 'shop-row' },
-            el('span', { class: 'shop-row-name' }, it.name),
-            el('span', { class: 'shop-row-cost' }, it.cost),
-            el('span', { class: 'shop-row-wt'   }, it.weight),
-            btn,
-          ));
-        });
-        catDet.append(subDet);
-      });
-      catalogEl.append(catDet);
-    });
-  }
-
-  const searchInp = el('input', { class: 'shop-search', type: 'search', placeholder: 'Поиск предмета...' });
-  searchInp.addEventListener('input', e => { _q = e.target.value; buildCatalog(); });
-  const addBtn = el('button', { class: 'shop-add-btn', onClick: () => openHomebrewModal(st, buildCatalog) }, '+ Свой предмет');
-
-  refreshInv();
-  buildCatalog();
-
-  return el('div', { class: 'shop-wrap' },
-    el('div', { class: 'shop-inv' },
-      el('div', { class: 'shop-inv-hd' },
-        el('div', { class: 'shop-stat-row' }, el('span', { class: 'shop-stat-l' }, 'Осталось'), goldEl),
-        el('div', { class: 'shop-stat-row' }, el('span', { class: 'shop-stat-l' }, 'Вес'),      weightEl),
-      ),
-      invListEl,
-    ),
-    el('div', { class: 'shop-panel' },
-      el('div', { class: 'shop-bar' }, searchInp, addBtn),
-      catalogEl,
-    ),
-  );
-}
-
-const COIN_TO_GP = { зм: 1, см: 0.1, мм: 0.01 };
-
-function openHomebrewModal(st, onAdded) {
-  const nameInp = el('input', { class: 'shop-modal-inp', type: 'text',   placeholder: 'Название'    });
-  const costInp = el('input', { class: 'shop-modal-cost-inp', type: 'number', placeholder: 'Цена', min: '0', step: '1' });
-  const coinSel = el('select', { class: 'shop-modal-coin' },
-    el('option', { value: 'зм' }, 'зм'),
-    el('option', { value: 'см' }, 'см'),
-    el('option', { value: 'мм' }, 'мм'),
-  );
-  const wtInp = el('input', { class: 'shop-modal-inp', type: 'number', placeholder: 'Вес (фнт.)', min: '0', step: '0.1' });
-  const overlay = el('div', { class: 'shop-modal-bg' },
-    el('div', { class: 'shop-modal' },
-      el('h3', { class: 'shop-modal-title' }, 'Свой предмет'),
-      nameInp,
-      el('div', { class: 'shop-modal-cost-row' }, costInp, coinSel),
-      wtInp,
-      el('div', { class: 'shop-modal-btns' },
-        el('button', { class: 'shop-modal-cancel', onClick: () => overlay.remove() }, 'Отмена'),
-        el('button', { class: 'shop-modal-save', onClick: () => {
-          const name = nameInp.value.trim();
-          if (!name) { nameInp.focus(); return; }
-          const amount = parseFloat(costInp.value) || 0;
-          const coin   = coinSel.value;
-          const costGp = Math.round(amount * COIN_TO_GP[coin] * 100) / 100;
-          const costStr = amount > 0 ? `${amount} ${coin}.` : '—';
-          st.mecHomebrew.push({ name, costGp, costStr, weightLb: parseFloat(wtInp.value) || 0 });
-          scheduleSave(st);
-          overlay.remove();
-          onAdded();
-        }}, 'Добавить'),
-      ),
-    ),
-  );
-  document.body.append(overlay);
-  nameInp.focus();
 }
 
 // ─── Final step ───────────────────────────────────────────────────────────────
@@ -1135,52 +976,29 @@ function buildFinalStep(st, goMech, go) {
     el('div', { class: 'mech-stats-grid' }, ...ABILITIES.map(buildFinalAbBlock)),
   );
 
-  // ── Equipment ────────────────────────────────────────────────────────────
-  const classItems = clsName ? (CLASS_EQUIP[clsName] || []) : [];
-  const srcBgName  = bgName === 'Собственная предыстория'
-    ? ((st.mecEquipChoices || {})['bgch_bg_equipment'] ?? null)
-    : bgName;
-  const bgItems    = srcBgName ? (BG_EQUIP[srcBgName] || []) : [];
-
-  // Material choice items (instrument/artisan/gaming) selected on equip step
-  // 2026-09-26: только предметы-инструменты (см. схему `item`), не владения.
-  function matChoiceEls(resolvedBgName) {
-    if (!resolvedBgName) return [];
-    mecSyncBgItems(st);
-    return mecBgItemChoices(st).map(({ ch, profVal }) => buildBgItemEl(st, ch, profVal));
-  }
-
-  function equipCol(sourceLabel, sourceClass, items, prefix, extraEls) {
-    const itemEls = items.flatMap((item, idx) => {
-      const kit = EQUIP_KITS[item];
-      if (kit) return [el('div', { class: 'final-equip-item is-kit' },
-        el('span', { class: 'final-equip-kit-hd' }, item),
-        el('span', { class: 'final-equip-kit-items' }, kit.join(', ')),
-      )];
-      const opts = resolveEquipOpts(item);
-      if (opts) return [makeChoiceSel(opts, `${prefix}_${idx}`, st)];
-      return [el('div', { class: 'final-equip-item' }, item)];
-    });
-    return el('div', { class: 'final-equip-col' },
-      el('div', { class: `final-equip-source ${sourceClass}` }, sourceLabel),
-      ...[...itemEls, ...(extraEls || [])],
-    );
-  }
-
-  const goldLine = st.mecEquipMode === 'standard'
-    ? `${BG_GOLD[bgName] ?? 0} зм — стартовые монеты`
-    : (st.mecEquipGold != null ? `${st.mecEquipGold} зм — стартовый капитал` : '— зм (не брошено)');
-
+  // ── Снаряжение (ТЗ 4.4.8 «Блок Снаряжение» + 4.4.7 «Надето и КД»): по категориям, доспех/щит — надет/снят ──
+  const eqQ = eqState(st);
+  const eqProfsF = eqProfs(st), eqStatsF = eqStats(st);
+  const eqInv = eqInventory(st, eqProfsF, eqStatsF);
+  const eqStatus = eqStepStatus(st, eqInv, eqProfsF, eqStatsF);
+  const eqRules = makeRulePanel();
   const equipSec = el('div', { class: 'final-section' },
     el('div', { class: 'final-section-hd' },
       el('span', { class: 'final-section-title' }, 'Снаряжение'),
+      el('span', { class: 'final-equip-mode' }, eqQ.mode === 'purchase' ? 'Закуп' : 'Стандарт'),
       editBtn('equipment'),
     ),
-    el('div', { class: 'final-equip-cols' },
-      clsName   ? equipCol(clsName,              'is-class', classItems, 'cls', []) : null,
-      srcBgName ? equipCol(srcBgName ?? bgName,  'is-bg',   bgItems,    'bg',  matChoiceEls(srcBgName)) : null,
-    ),
-    el('div', { class: 'final-gold-line' }, goldLine),
+    eqStatus.ok ? null : el('p', { class: 'eq-ac-warn' }, `⚠️ ${eqStatus.reason} — шаг «Снаряжение».`),
+    buildInventoryView({
+      entries: eqInv, coins: eqCoins(st), stats: eqStatsF, profs: eqProfsF, rules: eqRules,
+      onToggle: entries => {
+        for (const cat of ['armor', 'shield']) {
+          const on = entries.find(e => e.equipped && !e.custom && EQ.itemById(e.id)?.category === cat);
+          eqQ.equippedManual[cat] = on ? on.id : null;
+        }
+        scheduleSave(st);
+      },
+    }),
   );
 
   // ── Proficiencies (languages / tools from bg choices) ────────────────────
@@ -1311,6 +1129,7 @@ function buildMechanics(st, go, container) {
 
   // Шаг «Заклинания» — у любого персонажа с источником заклинаний на 1 ур. (ТЗ v0.29)
   const magic = hasSpellStep(st);
+  mecPoolSync(st); // «Озёра», правила 2–3 — до прогресс-бара и шага
 
   function goMech(step) {
     st.mecStep = step;
@@ -1321,12 +1140,20 @@ function buildMechanics(st, go, container) {
     container.append(buildMechanics(st, go, container));
   }
 
+  let progressEl = buildMechProgress(st, goMech, magic);
+  _progressRefresh = () => {
+    if (!progressEl.isConnected) { _progressRefresh = null; return; }
+    const next = buildMechProgress(st, goMech, hasSpellStep(st));
+    progressEl.replaceWith(next);
+    progressEl = next;
+  };
+
   return el('div', { class: 'mech-wrap' },
     el('div', { class: 'mech-header' },
       el('span', { class: 'cnew-concept-hd-title' }, 'Механика'),
       el('button', { class: 'cnew-back-btn', onClick: () => go('landing') }, '← Назад'),
     ),
-    buildMechProgress(st, goMech, magic),
+    progressEl,
     el('div', { class: 'mech-content' },
       st.mecStep === 'class'      ? buildClassStep(st, goMech)
         : st.mecStep === 'race'       ? buildRaceStep(st, goMech)
@@ -1389,7 +1216,7 @@ const CLASS_PROF_DATA = {
   sorcerer:  { hitDie:'к6',  armor:'нет',                          weapons:'кинжалы, дротики, посохи, пращи, лёгкие арбалеты',           tools:'нет',                                          saves:['Телосложение','Харизма'] },
   warlock:   { hitDie:'к8',  armor:'лёгкие',                       weapons:'простое',                                                    tools:'нет',                                          saves:['Мудрость','Харизма'] },
   wizard:    { hitDie:'к6',  armor:'нет',                          weapons:'кинжалы, дротики, пращи, боевые посохи, лёгкие арбалеты',    tools:'нет',                                          saves:['Интеллект','Мудрость'] },
-  artificer: { hitDie:'к8',  armor:'лёгкие, средние, щиты',        weapons:'простое',                                                    tools:'воровские инструменты, инструменты умельца', saves:['Телосложение','Интеллект'] },
+  artificer: { hitDie:'к8',  armor:'лёгкие, средние, щиты',        weapons:'простое',                                                    tools:'воровские инструменты, инструменты ремонтника', saves:['Телосложение','Интеллект'] },
 };
 
 // ─── Class step: builder ──────────────────────────────────────────────────────
@@ -1410,8 +1237,8 @@ function clsVariant(st) {
 function clsSkillProgress(st) {
   const clsData = mecClsData(st);
   if (!clsData) return { have: 0, need: 0 };
-  const opts = clsData.list ?? Object.values(SKILLS_BY_AB).flat();
-  const have = (st.mecChosen || []).filter(s => opts.includes(s)).length;
+  // «Озёра», правило 4: список может открыться до любого навыка — считаем все выборы слота
+  const have = (st.mecChosen || []).length;
   return { have: Math.min(have, clsData.count), need: clsData.count };
 }
 
@@ -1490,6 +1317,10 @@ function classChecklist(st) {
       items.push({ key: 'favored_enemy_language', label: 'Язык врага', done: !!cc.favored_enemy_language });
     items.push({ key: 'favored_terrain', label: 'Избранная местность', done: !!cc.favored_terrain });
   }
+
+  // «Озёра», правило 3: обязательная замена владения, выданного двумя источниками на шаге Класс
+  const reps = PL.conflicts(buildCharacterGrants(st)).replacements.filter(r => r.step === 'class');
+  for (const r of reps) items.push({ key: 'pool_replace', label: `Другой ${PL.POOL_NOUN[r.pool]} вместо «${r.value}»`, done: !!st.mecPoolReplace?.[r.key]?.value });
 
   const subs = clsSubclassList(st);
   if (subs) {
@@ -1679,7 +1510,7 @@ function clsGrantLines(g) {
 
 /** Одноручное оружие для «Проклятого воителя» (Ведьмовской клинок): без свойства «двуручное». */
 function clsHexWeaponOptions() {
-  return WEAPONS.filter(w => !(w.props || []).some(p => /двуручн/i.test(p))).map(w => w.name);
+  return EQ.ITEMS.filter(w => w.category === 'weapon' && !(w.properties || []).some(p => p.id === 'two-handed')).map(w => w.name);
 }
 
 function buildClassStep(st, goMech) {
@@ -1907,9 +1738,10 @@ function buildClassStep(st, goMech) {
       const isPicked = set.has(o);
       const why = blocked.get(o);
       const dim = !isPicked && ((n > 1 && atLimit) || !!why); // n = 1 — как радио: можно сразу переключить
-      const c = chip(o + (why && !isPicked ? ` (${why})` : ''), {
+      const c = chip((why && !isPicked ? '🔒 ' : '') + o + (why && !isPicked ? ` — уже есть: ${why}` : ''), {
         picked: isPicked, dim, title: why ? `Уже есть: ${why}` : undefined,
         onClick: () => {
+          if (why && !isPicked) return; // «Озёра», правило 1
           if (isPicked) set.delete(o);
           else if (n === 1) { set.clear(); set.add(o); }
           else if (!atLimit) set.add(o);
@@ -1923,9 +1755,15 @@ function buildClassStep(st, goMech) {
     }));
   }
   function langSelect(value, onChange, placeholder = '— выберите язык —') {
+    const locks = mecLocks(st, 'language', ['class:favored_enemy_language']); // «Озёра», правило 1
     const sel = el('select', { class: 'mech-bg-select' },
       el('option', { value: '' }, placeholder),
-      ...LANGUAGES.map(l => el('option', { value: l }, l)),
+      ...LANGUAGES.map(l => {
+        const why = locks.get(PL.norm(l));
+        const o = el('option', { value: l }, why ? `🔒 ${l} — уже есть: ${why}` : l);
+        if (why && l !== value) o.disabled = true;
+        return o;
+      }),
     );
     sel.value = value || '';
     sel.addEventListener('change', () => onChange(sel.value || null));
@@ -1954,6 +1792,7 @@ function buildClassStep(st, goMech) {
         max,
         groups,
         initialSelected: st.mecClassToolChoice[cls.id] || [],
+        blocked: mecLocks(st, 'tool', ['class:class_tools']), // «Озёра», правило 1
         onChange: (_n, keys) => {
           st.mecClassToolChoice[cls.id] = keys;
           save();
@@ -1990,16 +1829,19 @@ function buildClassStep(st, goMech) {
   // ── Навыки ──
   function buildSkillBlock() {
     const clsData  = mecClsData(st);
-    const opts     = clsData ? (clsData.list ?? ALL_SKILLS) : [];
     const count    = clsData?.count ?? 0;
     const chosen   = new Set(st.mecChosen || []);
-    const clsPicks = [...chosen].filter(s => opts.includes(s));
+    // «Озёра»: правило 1 — навыки с других шагов/слотов видны заблокированными; правило 4 — если свободных не хватает, любой навык
+    const locks    = mecLocks(st, 'skill', ['class:class_skills']);
+    const wide     = PL.widenIfExhausted(clsData ? (clsData.list ?? ALL_SKILLS) : [], ALL_SKILLS, locks, count, [...chosen]);
+    const opts     = wide.options;
+    const clsPicks = [...chosen];
     const atLimit  = clsPicks.length >= count;
-    const fromSub  = new Set(clsSubclassSkillPicks(st));
 
     const skillChips = [...opts].sort((a, b) => ALL_SKILLS.indexOf(a) - ALL_SKILLS.indexOf(b)).map(name => {
       const isPicked   = chosen.has(name);
-      const isFromSub  = !isPicked && fromSub.has(name);
+      const lockWhy    = !isPicked ? locks.get(PL.norm(name)) : null;
+      const isFromSub  = !!lockWhy;
       const isDisabled = !isPicked && (atLimit || isFromSub);
       const c = el('button', {
         class: 'cls-skill-chip' + (isPicked ? ' is-picked' : '') + (isDisabled ? ' is-dim' : ''),
@@ -2012,7 +1854,7 @@ function buildClassStep(st, goMech) {
           save();
           rerender();
         },
-      }, (isPicked ? '✓ ' : '') + name + (isFromSub ? ' (от подкласса)' : ''));
+      }, (isPicked ? '✓ ' : isFromSub ? '🔒 ' : '') + name + (isFromSub ? ` — уже есть: ${lockWhy}` : ''));
       c.disabled = isDisabled;
       const colorVar = skillColorVar(name);
       if (colorVar) c.style.setProperty('--chip-c', colorVar);
@@ -2023,6 +1865,8 @@ function buildClassStep(st, goMech) {
         el('span', { class: 'cls-skill-block-title' }, 'Навыки владения'),
         el('span', { class: 'cls-skill-counter' + (atLimit ? ' is-done' : '') }, `Выбрано навыков: ${clsPicks.length} / ${count}`),
       ),
+      wide.widened ? el('p', { class: 'pool-info' },
+        `Все навыки списка класса уже есть (${wide.exhausted.join(', ')}) — по правилу PHB можно выбрать любой навык.`) : null,
       el('div', { class: 'cls-skill-chips' }, ...skillChips),
     );
   }
@@ -2253,13 +2097,14 @@ function buildClassStep(st, goMech) {
   function buildSubclassNested(sub) {
     const out = [];
     const sc = st.mecSubclassChoices;
-    const classSkills = new Set(st.mecChosen || []);
+    const poolGrants = buildCharacterGrants(st);
+    const toBlocked = (opts, locks) => new Map(opts.filter(o => locks.has(PL.norm(o))).map(o => [o, locks.get(PL.norm(o))]));
     sub.choices.forEach(c => {
       const cur = clsSubChoice(st, c.id);
       const set = arr => { sc[c.id] = arr; save(); rerender(); };
       let body;
       if (c.from === '@language') {
-        body = multiChips(LANGUAGES, cur, c.n, set);
+        body = multiChips(LANGUAGES, cur, c.n, set, toBlocked(LANGUAGES, mecLocks(st, 'language', ['subclass:subclass_languages'], poolGrants)));
       } else if (c.from === '@weapon') {
         const sel = el('select', { class: 'mech-bg-select' },
           el('option', { value: '' }, '— не выбрано —'),
@@ -2268,9 +2113,17 @@ function buildClassStep(st, goMech) {
         sel.addEventListener('change', () => { sc[c.id] = sel.value ? [sel.value] : []; save(); });
         body = sel;
       } else {
-        const blocked = new Map();
-        if (c.id === 'skills') c.from.forEach(o => { if (classSkills.has(o)) blocked.set(o, 'навык класса'); });
-        body = multiChips(c.from, cur, c.n, set, blocked);
+        let from = c.from, widened = null;
+        let blocked = new Map();
+        if (c.id === 'skills') {
+          const locks = mecLocks(st, 'skill', ['subclass:subclass_skills'], poolGrants);
+          const w = PL.widenIfExhausted(c.from, ALL_SKILLS, locks, c.n, cur); // правило 4
+          from = w.options; widened = w.widened ? w.exhausted : null;
+          blocked = toBlocked(from, locks);
+        }
+        body = multiChips(from, cur, c.n, set, blocked);
+        if (widened) body = el('div', {}, el('p', { class: 'pool-info' },
+          `Все варианты уже есть (${widened.join(', ')}) — по правилу PHB можно выбрать любой навык.`), body);
       }
       const hint = c.optional
         ? 'Необязательно при создании: оружие можно сменить после продолжительного отдыха.'
@@ -2378,6 +2231,7 @@ function buildClassStep(st, goMech) {
 
   function updateDetail() {
     detailEl.innerHTML = '';
+    mecPoolSync(st);
     const cls = CLASS_DATA.find(c => c.id === st.mecClass);
     if (!cls) {
       checklistEl = null;
@@ -2401,6 +2255,7 @@ function buildClassStep(st, goMech) {
       ),
       buildVariantNote(cls),
       checklistEl,
+      buildPoolPanel(st, 'class', rerender),
       el('p', { class: `mech-cls-rp rp-${cls.rp}` }, rpLabel(cls)),
       el('p', { class: 'mech-cls-rp rp-1' }, 'Ключевые характеристики: ' + cls.stats),
       el('p', { class: 'mech-cls-desc' }, cls.desc),
@@ -2439,8 +2294,22 @@ function buildClassStep(st, goMech) {
       const btn = el('button', {
         class: `mech-cls-item${st.mecClass === cls.id ? ' is-selected' : ''}`,
         onClick: () => {
+          // ТЗ 4.4.7 «Смена класса»: снаряжение класса, бросок и корзина «Закупа» сбрасываются после подтверждения
+          const eqLoss = st.mecClass && st.mecClass !== cls.id ? eqClassLosses(st) : [];
+          if (eqLoss.length) {
+            openConfirmModal({ title: `Сменить класс на «${cls.name}»?`, text: 'Сбросится снаряжение:', lines: eqLoss,
+              okText: 'Да, сменить', onOk: () => { eqResetForClass(st); pick(); } });
+            return;
+          }
+          pick();
+        },
+      },
+        cls.name,
+        tagEl,
+      );
+      function pick() {
           // ТЗ 4.4.2 «Смена класса»: сбрасываются все зависимые выборы
-          if (st.mecClass !== cls.id) { clsResetForNewClass(st); pinnedRule = null; progAll = false; selLvl = null; }
+          if (st.mecClass !== cls.id) { clsResetForNewClass(st); eqResetForClass(st); pinnedRule = null; progAll = false; selLvl = null; }
           st.mecClass = cls.id;
           scheduleSave(st);
           listEl.querySelectorAll('.mech-cls-item').forEach(b =>
@@ -2451,11 +2320,7 @@ function buildClassStep(st, goMech) {
           updateFoot();
           placeDetail();
           if (mq.matches) btn.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        },
-      },
-        cls.name,
-        tagEl,
-      );
+      }
       btn.dataset.id = cls.id;
       listEl.append(btn);
     });
@@ -2518,10 +2383,10 @@ const RACE_DATA = {
 const LANGUAGES     = ['Бездны','Великанский','Гномский','Гоблинский','Глубокая речь','Дварфский','Драконий','Инфернальный','Небесный','Орочий','Первозданный','Полуросликов','Сильван','Общий Подземья','Эльфийский'];
 // PHB (2014) feats, for the race-trait "choose one feat" selector (Alternate/Variant Human).
 const PHB_FEATS = FEATS.map(f => f.name);   // 42 черты PHB — js/data/feats.js (dnd.su, генератор tools/gen_dndsu_extras.py)
-const INSTRUMENTS   = ['Барабан','Виола','Волынка','Лира','Лютня','Рог','Скрипка','Флейта','Цимбалы','Шалмей'];
-const SIMPLE_WEAPONS = ['Булава','Дубина','Дротик','Жезл','Копьё','Кинжал','Кулак друида','Лёгкий арбалет','Посох','Праща','Ручной арбалет','Серп','Топор дровосека'];
-const GAMING_SETS = ['Игральные кости','Карты','Три Дракона Анти','Шахматы Дракона'];
-const ARTISAN_TOOLS = ['Инструменты алхимика','Инструменты бондаря','Инструменты гончара','Инструменты кожевника','Инструменты кузнеца','Инструменты каллиграфа','Инструменты каменщика','Инструменты плотника','Инструменты повара','Инструменты пивовара','Инструменты резчика','Инструменты сапожника','Инструменты стеклодува','Инструменты ткача','Инструменты ювелира'];
+// Э3 (решение заказчика 2026-09-28): списки инструментов — из таблицы dnd.su (100-tools) через js/data/equipment.js.
+const INSTRUMENTS   = EQ.TOOL_NAMES.instrument;
+const GAMING_SETS   = EQ.TOOL_NAMES.gaming;
+const ARTISAN_TOOLS = EQ.TOOL_NAMES.artisan;
 
 // Class-level "pick a tool" proficiency choices (distinct from CLASS_PROF_DATA.tools,
 // which only displays the fixed/descriptive proficiency text). See docs/reviews/
@@ -2724,7 +2589,7 @@ const BACKGROUND_DATA = {
       skills: 'Атлетика, Запугивание',
       equipment: 'Знак отличия, трофей с убитого врага (кинжал, сломанный клинок или кусок знамени), набор игровых костей или колода карт, комплект обычной одежды, поясной кошель с 10 зм', // dnd.su 2026-09-27
       tools: ['Транспорт (наземный)'],
-      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1, item: { list: ['Игральные кости', 'Карты'] } }],
+      choices: [{ label: 'Игровой набор', type: 'gaming', count: 1, item: { list: ['Кости', 'Карты'] } }],
       desc: 'Вы долгие годы служили в армии — регулярных войсках, городской страже или наёмном отряде. Война научила вас дисциплине, тактике и тому, как выжить в хаосе битвы. У вас есть звание и послужной список: солдаты и ветераны признают в вас своего, офицеры уважают ваш опыт, а военные лагеря и гарнизоны готовы принять вас.',
     },
     {
@@ -2752,8 +2617,10 @@ function buildRaceStep(st, goMech) {
   const footEl   = el('div', { class: 'mech-foot' });
   const ALL_SKILLS = Object.values(SKILLS_BY_AB).flat();
 
+  const poolHost = el('div', { class: 'pool-host' }); // «Озёра»: пометки и слоты замены шага Раса
   function updateDetail() {
     detailEl.innerHTML = '';
+    mecPoolSync(st);
     if (!st.mecRace) {
       detailEl.append(el('p', { class: 'mech-cls-ph' }, 'Выберите расу'));
       return;
@@ -2936,19 +2803,26 @@ function buildRaceStep(st, goMech) {
           // иначе игрок видит подсвеченный «Белый», хотя ничего не выбирал.
           const current = t.devices.find(d => d.name === st.mecDeviceChoices[t.title])
             || (t.required ? null : t.devices[0]);
+          // ТЗ «Озёра», правило 1: инструмент, которым персонаж уже владеет (класс/предыстория), — заблокирован
+          const locks = t.recordAs === 'tool' ? mecLocks(st, 'tool', [`race:${t.title}`, `subrace:${t.title}`]) : new Map();
           devWrap.append(
             el('div', { class: 'mech-subrace-btns' },
-              ...t.devices.map(d =>
-                el('button', {
-                  class: `mech-subrace-btn${current?.name === d.name ? ' is-selected' : ''}`,
+              ...t.devices.map(d => {
+                const why = current?.name !== d.name ? locks.get(PL.norm(d.name)) : null;
+                const b = el('button', {
+                  class: `mech-subrace-btn${current?.name === d.name ? ' is-selected' : ''}${why ? ' is-locked' : ''}`,
+                  title: why ? `Уже есть: ${why}` : '',
                   onClick: () => {
+                    if (why) return;
                     st.mecDeviceChoices[t.title] = d.name;
                     scheduleSave(st);
                     renderDevices();
                     updateRaceFoot();
                   },
-                }, d.name)
-              ),
+                }, (why ? '🔒 ' : '') + d.name + (why ? ` — уже есть: ${why}` : ''));
+                if (why) b.disabled = true;
+                return b;
+              }),
             ),
             current ? buildDeviceCard(current)
               : el('p', { class: 'mech-subrace-desc-text' }, 'Выберите вариант, чтобы продолжить.'),
@@ -2969,24 +2843,17 @@ function buildRaceStep(st, goMech) {
         const skillWrap = el('div', { class: 'cls-skill-block' });
         function renderSkillPicker() {
           skillWrap.innerHTML = '';
-          // 2026-09-12 (заказчик): нужно показать (некликабельно) какие навыки уже даёт
-          // класс — игрок иначе не поймёт, почему навык недоступен для выбора у расы.
-          // Заодно подчищаем st.mecRaceSkills от навыков, которые СТАЛИ классовыми уже
-          // после того, как игрок выбрал их у расы (например, вернулся на шаг класса и
-          // поменял выбор) — иначе счётчик застрянет на «выбрано», хотя выбор больше не
-          // валиден, и игрок не поймёт, почему кнопка «Далее» снова заблокирована.
-          const classChosen = new Set(st.mecChosen || []);
-          const cleaned = (st.mecRaceSkills || []).filter(s => !classChosen.has(s));
-          if (cleaned.length !== (st.mecRaceSkills || []).length) {
-            st.mecRaceSkills = cleaned;
-            scheduleSave(st);
-          }
+          // ТЗ «Озёра»: правило 1 — навыки класса/подкласса/предыстории/других черт расы видны заблокированными
+          // (раньше только навыки класса); правило 4 — если свободных не хватает, открывается любой навык.
+          const locks   = mecLocks(st, 'skill', ['race:race_skills', 'subrace:race_skills']);
           const chosen  = new Set(st.mecRaceSkills || []);
-          const picks   = [...chosen].filter(s => pool.includes(s));
+          const wide    = PL.widenIfExhausted(pool, ALL_SKILLS, locks, count, [...chosen]);
+          const picks   = [...chosen];
           const atLimit = picks.length >= count;
-          const chips = [...pool].sort((a, b) => ALL_SKILLS.indexOf(a) - ALL_SKILLS.indexOf(b)).map(name => {
-            const isFromClass = classChosen.has(name);
+          const chips = [...wide.options].sort((a, b) => ALL_SKILLS.indexOf(a) - ALL_SKILLS.indexOf(b)).map(name => {
             const isPicked    = chosen.has(name);
+            const why         = !isPicked ? locks.get(PL.norm(name)) : null;
+            const isFromClass = !!why;
             const isDisabled  = isFromClass || (!isPicked && atLimit);
             const chip = el('button', {
               class: 'cls-skill-chip'
@@ -3004,7 +2871,7 @@ function buildRaceStep(st, goMech) {
                 renderSkillPicker();
                 updateRaceFoot();
               },
-            }, (isFromClass ? '🔒 ' : isPicked ? '✓ ' : '') + name + (isFromClass ? ' (класс)' : ''));
+            }, (isFromClass ? '🔒 ' : isPicked ? '✓ ' : '') + name + (isFromClass ? ` — уже есть: ${why}` : ''));
             chip.disabled = isDisabled;
             const colorVar = skillColorVar(name);
             if (colorVar) chip.style.setProperty('--chip-c', colorVar);
@@ -3037,6 +2904,10 @@ function buildRaceStep(st, goMech) {
         const count = t.choice.count || 1;
         // 2026-09-26: для языка исключаем языки, которые раса уже знает (Полуэльфу не
         // предлагаем Эльфийский, Высшему эльфу — Эльфийский и т.д.).
+        // ТЗ «Озёра», правило 1: языки класса/подкласса/предыстории видны в списке, но заблокированы.
+        // Вопрос 16 ТЗ: язык не подставляется по умолчанию — слот пустой, пока игрок не выберет.
+        const isLang = t.choice.type === 'language';
+        const locks = isLang ? mecLocks(st, 'language', [`race:${t.title}`, `subrace:${t.title}`]) : new Map();
         const pool  = t.choice.list || (t.choice.type === 'feat' ? PHB_FEATS
           : LANGUAGES.filter(l => !mecRaceBaseLanguages(raceDesc).includes(l)));
         const key   = t.title;
@@ -3044,16 +2915,32 @@ function buildRaceStep(st, goMech) {
         function renderChoiceSelects() {
           choiceWrap.innerHTML = '';
           const saved = st.mecRaceChoices[key] || [];
-          let picks = saved.filter(v => pool.includes(v));
-          if (picks.length !== count || picks.length !== saved.length) {
-            picks = pool.slice(0, count);
-            st.mecRaceChoices[key] = picks;
-            scheduleSave(st);
+          let picks;
+          if (isLang) {
+            picks = Array.from({ length: count }, (_, i) => {
+              const v = saved[i];
+              return v && pool.includes(v) && !locks.has(PL.norm(v)) ? v : '';
+            });
+            if (picks.join('|') !== saved.join('|')) { st.mecRaceChoices[key] = picks; scheduleSave(st); }
+          } else {
+            picks = saved.filter(v => pool.includes(v));
+            if (picks.length !== count || picks.length !== saved.length) {
+              picks = pool.slice(0, count);
+              st.mecRaceChoices[key] = picks;
+              scheduleSave(st);
+            }
           }
           const selects = picks.map((val, idx) => {
             const otherPicks = picks.filter((_, i) => i !== idx);
             const opts = pool.filter(o => !otherPicks.includes(o));
-            const sel = el('select', { class: 'equip-choice-sel' }, ...opts.map(o => el('option', { value: o }, o)));
+            const sel = el('select', { class: `equip-choice-sel${isLang && !val ? ' is-empty' : ''}` },
+              isLang ? el('option', { value: '' }, '— выберите язык —') : null,
+              ...opts.map(o => {
+                const why = locks.get(PL.norm(o));
+                const opt = el('option', { value: o }, why ? `🔒 ${o} — уже есть: ${why}` : o);
+                if (why) opt.disabled = true;
+                return opt;
+              }));
             sel.value = val;
             sel.addEventListener('change', () => {
               const next = [...picks];
@@ -3061,6 +2948,7 @@ function buildRaceStep(st, goMech) {
               st.mecRaceChoices[key] = next;
               scheduleSave(st);
               renderChoiceSelects();
+              updateRaceFoot();
             });
             return el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾'));
           });
@@ -3101,6 +2989,7 @@ function buildRaceStep(st, goMech) {
       ),
       el('p', { class: 'mech-cls-desc' }, raceObj.desc),
       statsChipsEl,
+      poolHost,
     );
 
     // 2026-09-11 (заказчик, UX-правка): выбор подрасы — сразу под чипами скорости/размера/
@@ -3217,6 +3106,11 @@ function buildRaceStep(st, goMech) {
   function updateRaceFoot() {
     footEl.innerHTML = '';
     if (!st.mecRace) return;
+    const poolPanel = buildPoolPanel(st, 'race', () => { updateDetail(); updateRaceFoot(); });
+    poolHost.replaceChildren(...(poolPanel ? [poolPanel] : []));
+    const langMissing = mecActiveRaceTraits(st.mecRace.split('::')[1], st.mecSubrace)
+      .some(t => t.choice?.type === 'language' && ((st.mecRaceChoices || {})[t.title] || []).filter(Boolean).length < (t.choice.count || 1));
+    const repMissing = !mecReplaceDone(st, 'race');
     const [srcId, raceName] = st.mecRace.split('::');
     const raceObj = (RACE_DATA[srcId] || []).find(r => r.name === raceName);
     const needsSub = raceObj?.sub?.length > 0;
@@ -3226,11 +3120,13 @@ function buildRaceStep(st, goMech) {
     const skillsIncomplete = requiredSkills > 0 && (st.mecRaceSkills || []).length < requiredSkills;
     const missingDevices = mecMissingRequiredDevices(st);
     const blocked = (needsSub && !st.mecSubrace) || vhIncomplete || heIncomplete || skillsIncomplete
-      || missingDevices.length > 0;
+      || missingDevices.length > 0 || langMissing || repMissing;
     const tipText = !st.mecSubrace && needsSub ? 'Выберите подрасу, чтобы продолжить'
       : (vhIncomplete || heIncomplete) ? 'Выберите +1 к двум характеристикам'
       : skillsIncomplete ? 'Выберите навыки, чтобы продолжить'
       : missingDevices.length ? `Сделайте выбор: ${missingDevices.map(t => t.title).join(', ')}`
+      : langMissing ? 'Выберите язык, чтобы продолжить'
+      : repMissing ? 'Выберите замену владения (правило PHB)'
       : '';
     const btn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('background') }, 'Далее → Предыстория');
     btn.disabled = blocked;
@@ -3304,7 +3200,7 @@ function buildRaceStep(st, goMech) {
 
 // ─── Background multiselect helper ───────────────────────────────────────────
 
-function buildBgMultiSel({ label, max, maxPerGroup, groups, onChange, initialSelected = [] }) {
+function buildBgMultiSel({ label, max, maxPerGroup, groups, onChange, initialSelected = [], blocked = new Map() }) {
   const mpg = maxPerGroup !== undefined ? maxPerGroup : (groups.length > 1 ? 1 : max);
   const sel = new Map(groups.map((_, i) => [i, new Set()]));
   const allItems = []; // { el, groupIdx, key }
@@ -3343,6 +3239,13 @@ function buildBgMultiSel({ label, max, maxPerGroup, groups, onChange, initialSel
     panel.append(el('div', { class: 'mech-bg-ms-group' }, grp.label));
     opts.forEach(o => {
       const key     = `${grp.type}::${o}`;
+      // «Озёра», правило 1: blocked — Map<norm(значение), подпись> (языки, инструменты, навыки)
+      const why     = grp.type !== 'fixed' && !initialSelected.includes(key) ? blocked.get(PL.norm(o)) : null;
+      if (why) { // ТЗ «Озёра», правило 1: уже есть — виден, но заблокирован и подписан
+        panel.append(el('div', { class: 'mech-bg-ms-item is-disabled is-locked', title: `Уже есть: ${why}` },
+          el('span', { class: 'mech-bg-ms-check' }, '🔒'), el('span', {}, `${o} — уже есть: ${why}`)));
+        return;
+      }
       const checkEl = el('span', { class: 'mech-bg-ms-check' });
       const itemEl  = el('div', { class: 'mech-bg-ms-item' }, checkEl, el('span', {}, o));
       itemEl.addEventListener('click', () => {
@@ -3439,6 +3342,10 @@ function buildBackgroundStep(st, goMech) {
     };
 
     if (!st.mecBgChoiceData) st.mecBgChoiceData = {};
+    // ТЗ «Озёра»: правила 2/3 (снятие дублей, замены) — mecPoolSync; правило 1 — замки в списках ниже
+    mecPoolSync(st);
+    const bgOwn = ['background:background_languages', 'background:background_tools', 'background:background_skills'];
+    const bgLocks = mecLocksAll(st, bgOwn);
     const toolProfSelects = [];
     let choiceIdx = 0;
     const EQUIP_CHOICE_TYPES = new Set(['instrument', 'artisan', 'gaming', 'bg_equipment']); // shown on equipment screen
@@ -3459,9 +3366,16 @@ function buildBackgroundStep(st, goMech) {
           scheduleSave(st);
         }
         checkers.push(() => !!current);
+        // «Озёра»: правило 1 — замки; правило 4 — все варианты уже есть → любой инструмент
+        const wideT = PL.widenIfExhausted(opts, ALL_TOOL_NAMES(), bgLocks, 1, current ? [current] : []);
         const selEl = el('select', { class: 'mech-bg-select' },
           el('option', { value: '' }, ch.label.charAt(0).toUpperCase() + ch.label.slice(1)),
-          ...opts.map(o => el('option', { value: o }, o)),
+          ...wideT.options.map(o => {
+            const why = o !== current ? bgLocks.get(PL.norm(o)) : null;
+            const opt = el('option', { value: o }, why ? `🔒 ${o} — уже есть: ${why}` : o);
+            if (why) opt.disabled = true;
+            return opt;
+          }),
         );
         selEl.value = current;
         selEl.addEventListener('change', () => {
@@ -3498,6 +3412,7 @@ function buildBackgroundStep(st, goMech) {
             maxPerGroup: ch.maxPerGroup,
             groups: ch.groups || [{ label: ch.label, type: ch.type }],
             initialSelected: saved,
+            blocked: bgLocks,
             onChange: (n, keys) => { cnt = n; st.mecBgChoiceData[ci] = keys; recheckFoot(); },
           }))];
       }
@@ -3506,7 +3421,12 @@ function buildBackgroundStep(st, goMech) {
       checkers.push(() => chosen);
       const selEl = el('select', { class: 'mech-bg-select' },
         el('option', { value: '' }, 'Выберите'),
-        ...bgChoiceOptions(ch.type).map(o => el('option', { value: o }, o)),
+        ...bgChoiceOptions(ch.type).map(o => {
+          const why = bgLocks.get(PL.norm(o));
+          const opt = el('option', { value: o }, why ? `🔒 ${o} — уже есть: ${why}` : o);
+          if (why) opt.disabled = true;
+          return opt;
+        }),
       );
       selEl.value = savedVal;
       selEl.addEventListener('change', () => {
@@ -3520,6 +3440,7 @@ function buildBackgroundStep(st, goMech) {
       )];
     });
 
+    checkers.push(() => mecReplaceDone(st, 'background')); // «Озёра», правило 3
     recheckFoot();
     footEl.innerHTML = '';
     footEl.append(nextBtn);
@@ -3530,6 +3451,7 @@ function buildBackgroundStep(st, goMech) {
         badge,
       ),
       el('p', { class: 'mech-cls-desc' }, bgObj.desc),
+      buildPoolPanel(st, 'background', updateDetail),
       el('div', { class: 'mech-bg-section' },
         eqLabel,
         el('p', { class: 'mech-bg-eq-text' }, bgObj.equipment),
@@ -3706,6 +3628,178 @@ function mecRaceBaseLanguages(raceDesc) {
     .map(s => LANG_ALIASES[s] || s);
 }
 
+// ─── «Озёра выборов» (ТЗ: правила 1–4; логика — js/pools.js) ─────────────────────────────
+// Навыки, инструменты, языки с шагов Класс · Раса · Предыстория. Замены по правилу 3 — st.mecPoolReplace
+// ({ [ключ пула]: { step, value } }), пометки правила 2 — st.mecPoolNotes ({ [шаг]: [текст] }).
+const ALL_SKILL_NAMES = () => Object.values(SKILLS_BY_AB).flat();
+const ALL_TOOL_NAMES = () => [...EQ.ITEMS.filter(i => i.category === 'tool').map(i => i.name), 'Транспорт (наземный)', 'Транспорт (водный)'];
+
+/** Подпись источника для «🔒 … — уже есть: Раса (Дварф)». */
+function mecWho(st, g) {
+  const t = g?.source?.type;
+  if (t === 'class') return `Класс (${CLASS_DATA.find(c => c.id === st.mecClass)?.name || '—'})`;
+  if (t === 'subclass') return `Класс (${clsSubclassObj(st)?.name || 'подкласс'})`;
+  if (t === 'race') return `Раса (${st.mecRace?.split('::')[1] || '—'})`;
+  if (t === 'subrace') return `Раса (${[st.mecSubrace, st.mecRace?.split('::')[1]].filter(Boolean).join(' ')})`;
+  if (t === 'background') return `Предыстория (${mecBgObj(st)?.name || '—'})`;
+  return 'другой шаг';
+}
+
+/** Правило 1: Map<norm(значение), подпись> для пула; ownSlots — ключи слотов «тип:slot», которые не блокируют себя. */
+function mecLocks(st, pool, ownSlots, grants = buildCharacterGrants(st)) {
+  return PL.lockMap(grants, pool, ownSlots, g => mecWho(st, g));
+}
+/** Замок для списка значений (все пулы сразу) — для мультиселекта предыстории. */
+function mecLocksAll(st, ownSlots, grants = buildCharacterGrants(st)) {
+  const out = new Map();
+  for (const pool of PL.POOLS) for (const [k, v] of mecLocks(st, pool, ownSlots, grants)) if (!out.has(k)) out.set(k, v);
+  return out;
+}
+
+const cap1 = v => { const t = String(v || ''); return t.charAt(0).toUpperCase() + t.slice(1); };
+const bgTypePool = t => (t === 'language' ? 'language' : t === 'skill' ? 'skill' : 'tool');
+
+/** Снять выбор (правило 2) из состояния мастера по слоту grant'а. */
+function mecPoolRemove(st, g) {
+  const k = PL.norm(g.value);
+  const drop = arr => (arr || []).filter(v => PL.norm(String(v).includes('::') ? v.split('::').slice(1).join('::') : v) !== k);
+  const slot = g.slot || '';
+  if (slot === 'class_skills') st.mecChosen = drop(st.mecChosen);
+  else if (slot === 'class_tools') { const c = st.mecClassToolChoice || {}; c[st.mecClass] = drop(c[st.mecClass]); }
+  else if (slot === 'favored_enemy_language') delete (st.mecClassChoices || {}).favored_enemy_language;
+  else if (slot === 'subclass_skills' || slot === 'subclass_languages') {
+    const id = slot === 'subclass_skills' ? 'skills' : 'languages';
+    if (st.mecSubclassChoices) st.mecSubclassChoices[id] = drop(st.mecSubclassChoices[id]);
+  } else if (slot === 'race_skills') st.mecRaceSkills = drop(st.mecRaceSkills);
+  else if (slot.startsWith('pool_replace:')) delete (st.mecPoolReplace || {})[slot.slice(13)];
+  else if (slot.startsWith('background_')) {
+    const d = st.mecBgChoiceData || {};
+    for (const ci of Object.keys(d)) {
+      if (Array.isArray(d[ci])) d[ci] = d[ci].filter(key => !(bgTypePool(key.split('::')[0]) === g.pool && PL.norm(key.split('::').slice(1).join('::')) === k));
+      else if (typeof d[ci] === 'string' && PL.norm(d[ci]) === k) delete d[ci];
+    }
+  } else if (g.source.type === 'race' || g.source.type === 'subrace') {
+    if (g.pool === 'language' && st.mecRaceChoices?.[slot]) st.mecRaceChoices[slot] = drop(st.mecRaceChoices[slot]);
+    if (g.pool === 'tool' && st.mecDeviceChoices?.[slot] && PL.norm(st.mecDeviceChoices[slot]) === k) delete st.mecDeviceChoices[slot];
+  }
+}
+
+/**
+ * Правила 2 и 3: снимает выборы, совпавшие с фиксированными владениями (и дубли выборов), пишет пометки,
+ * чистит устаревшие замены. Возвращает conflicts() для отрисовки слотов замены.
+ */
+function mecPoolSync(st) {
+  if (!st.mecPoolNotes || typeof st.mecPoolNotes !== 'object') st.mecPoolNotes = {};
+  if (!st.mecPoolReplace || typeof st.mecPoolReplace !== 'object') st.mecPoolReplace = {};
+  let c;
+  for (let pass = 0; pass < 5; pass++) {
+    const grants = buildCharacterGrants(st);
+    c = PL.conflicts(grants);
+    let changed = false;
+    const need = new Map(c.replacements.map(r => [r.key, r]));
+    for (const key of Object.keys(st.mecPoolReplace)) {
+      const r = need.get(key);
+      if (!r || st.mecPoolReplace[key]?.step !== r.step) { delete st.mecPoolReplace[key]; changed = true; }
+    }
+    for (const g of c.removals) {
+      const holder = grants.find(h => h !== g && h.pool === g.pool && PL.norm(h.value) === PL.norm(g.value)
+        && (h.kind === 'fixed' || !c.removals.includes(h)));
+      mecPoolRemove(st, g);
+      const step = PL.STEP_OF[g.source.type];
+      const msg = `«${cap1(g.value)}» теперь даёт ${holder ? mecWho(st, holder) : 'другой шаг'} — выберите другой ${PL.POOL_NOUN[g.pool]}.`;
+      const list = st.mecPoolNotes[step] || (st.mecPoolNotes[step] = []);
+      if (!list.includes(msg)) list.push(msg);
+      changed = true;
+    }
+    if (!changed) break;
+    scheduleSave(st);
+  }
+  return c;
+}
+
+function mecReplaceDone(st, step, c = PL.conflicts(buildCharacterGrants(st))) {
+  return c.replacements.filter(r => r.step === step).every(r => !!st.mecPoolReplace?.[r.key]?.value);
+}
+
+/** Заполнен ли шаг (для прогресс-бара: дальше незаполненного шага не пускаем — правило 2). */
+function mecClassDone(st, c) {
+  return !!st.mecClass && classChecklist(st).every(i => i.done) && mecReplaceDone(st, 'class', c);
+}
+function mecRaceDone(st, c) {
+  if (!st.mecRace) return false;
+  const [srcId, raceName] = st.mecRace.split('::');
+  const raceObj = (RACE_DATA[srcId] || []).find(r => r.name === raceName);
+  if (raceObj?.sub?.length && !st.mecSubrace) return false;
+  if (raceName === 'Человек' && st.mecSubrace === 'Альтернативный' && Object.keys(st.mecVariantHumanAsi || {}).length < 2) return false;
+  if (raceName === 'Полуэльф' && Object.keys(st.mecHalfElfAsi || {}).length < 2) return false;
+  const req = mecRequiredRaceSkillCount(raceName, st.mecSubrace);
+  if (req > 0 && (st.mecRaceSkills || []).length < req) return false;
+  if (mecMissingRequiredDevices(st).length) return false;
+  for (const t of mecActiveRaceTraits(raceName, st.mecSubrace)) {
+    if (t.choice?.type === 'language' && ((st.mecRaceChoices || {})[t.title] || []).filter(Boolean).length < (t.choice.count || 1)) return false;
+  }
+  return mecReplaceDone(st, 'race', c);
+}
+function mecBgDone(st, c) {
+  const bg = mecBgObj(st);
+  if (!bg) return false;
+  const d = st.mecBgChoiceData || {};
+  const ok = (bg.choices || []).every((ch, ci) => {
+    if (ch.type === 'bg_equipment') return true;
+    if (BG_TOOL_TYPES.includes(ch.type)) return !!mecBgToolProfValue(st, ci, ch);
+    if (ch.type === 'pick2of3') return (d[ci] || []).length >= 2;
+    if (ch.count >= 2 || ch.groups) return (Array.isArray(d[ci]) ? d[ci] : []).length >= ch.count;
+    return !!d[ci];
+  });
+  return ok && mecReplaceDone(st, 'background', c);
+}
+
+/**
+ * Блок «Озёр» на шаге: пометки правила 2, обязательные слоты замены (правило 3), пометки о дубле языка.
+ * onChange — перерисовка шага.
+ */
+function buildPoolPanel(st, step, onChange) {
+  const c = mecPoolSync(st);
+  const done = step === 'class' ? mecClassDone(st, c) : step === 'race' ? mecRaceDone(st, c) : mecBgDone(st, c);
+  if (done && st.mecPoolNotes?.[step]) { delete st.mecPoolNotes[step]; scheduleSave(st); }
+  const notes = st.mecPoolNotes?.[step] || [];
+  const reps = c.replacements.filter(r => r.step === step);
+  const langs = c.langDups.filter(r => r.step === step);
+  if (!notes.length && !reps.length && !langs.length) return null;
+  const box = el('div', { class: 'pool-panel', 'data-ck': 'pool_replace' });
+  for (const n of notes) box.append(el('p', { class: 'pool-note' }, '⚠️ ' + n));
+  const grants = buildCharacterGrants(st);
+  for (const r of reps) {
+    const own = `${step}:pool_replace:${r.key}`; // тип источника замены = шаг (см. buildCharacterGrants)
+    const locks = mecLocks(st, r.pool, [own], grants);
+    const opts = r.pool === 'skill' ? ALL_SKILL_NAMES() : ALL_TOOL_NAMES();
+    const cur = st.mecPoolReplace?.[r.key]?.value || '';
+    const sel = el('select', { class: 'mech-bg-select' },
+      el('option', { value: '' }, `— выберите другой ${PL.POOL_NOUN[r.pool]} —`),
+      ...[...opts].sort((a, b) => a.localeCompare(b, 'ru')).map(o => {
+        const why = locks.get(PL.norm(o));
+        const opt = el('option', { value: o }, why ? `🔒 ${o} — уже есть: ${why}` : o);
+        if (why) opt.disabled = true;
+        return opt;
+      }));
+    sel.value = cur;
+    sel.addEventListener('change', () => {
+      if (sel.value) st.mecPoolReplace[r.key] = { step, value: sel.value };
+      else delete st.mecPoolReplace[r.key];
+      scheduleSave(st);
+      onChange?.();
+    });
+    box.append(el('div', { class: `pool-replace${cur ? '' : ' is-empty'}` },
+      el('p', { class: 'pool-replace-text' },
+        `«${cap1(r.value)}» даёт и ${r.holders.map(h => mecWho(st, h)).join(', и ')}. `,
+        el('strong', {}, `Выберите другой ${PL.POOL_NOUN[r.pool]}`),
+        ' — правило PHB: одно владение из двух источников.'),
+      sel));
+  }
+  for (const r of langs) box.append(el('p', { class: 'pool-info' }, `«${cap1(r.value)}» — уже есть: ${mecWho(st, r.holders[0])}.`));
+  return box;
+}
+
 function _resolveRaceDesc(raceName) {
   return RACE_DESCRIPTIONS[raceName]
     || RACE_DESCRIPTIONS[RACE_DESC_ALIASES[raceName]]
@@ -3790,7 +3884,7 @@ function mecRaceRecordChoices(st) {
   const devices = st.mecDeviceChoices || {};
   for (const t of mecActiveRaceTraits(raceName, st.mecSubrace)) {
     if (t.choice) {
-      const picks = choices[t.title] || [];
+      const picks = (choices[t.title] || []).filter(Boolean);
       if (t.choice.type === 'language') out.languages.push(...picks);
       else if (t.choice.type === 'spell') out.cantrips.push(...picks);
       else if (t.choice.type === 'feat') out.feats.push(...picks);
@@ -4297,23 +4391,13 @@ function buildStatsStep(st, goMech) {
   );
 }
 
-// ─── Equipment step: data ─────────────────────────────────────────────────────
-
-const CLASS_EQUIP = {
-  'Бард':         ['Рапира или длинный меч', 'Набор дипломата', 'Музыкальный инструмент', 'Кожаный доспех + кинжал'],
-  'Варвар':       ['Боевой топор или 2 простых оружия', 'Набор путешественника', '4 метательных топора'],
-  'Воин':         ['Кольчуга или кожаный доспех + лук', 'Щит или боевое оружие', 'Арбалет + 20 болтов', 'Набор путешественника'],
-  'Волшебник':    ['Посох или кинжал', 'Книга заклинаний', 'Компонентный мешочек', 'Набор учёного'],
-  'Друид':        ['Щит или простое оружие', 'Кожаный доспех', 'Деревянный щит', 'Набор путешественника'],
-  'Жрец':         ['Боевой молот или простое оружие', 'Кольчуга', 'Символ веры', 'Набор священника'],
-  'Изобретатель': ['2 кинжала', 'Любое простое оружие', 'Воровские инструменты', 'Кожаный доспех', 'Набор подземелья'],
-  'Колдун':       ['Лёгкий арбалет + 20 болтов', 'Компонентный мешочек', 'Набор учёного', 'Кожаный доспех + 2 кинжала'],
-  'Монах':        ['Короткий меч или простое оружие', 'Набор путешественника', '10 дротиков'],
-  'Паладин':      ['Боевое оружие + щит', 'Метательные копья ×5', 'Кольчуга', 'Набор священника'],
-  'Плут':         ['Рапира или короткий меч', 'Короткий меч или лук + 20 стрел', 'Набор взломщика', 'Кожаный доспех + 2 кинжала'],
-  'Следопыт':     ['Кольчужная рубаха', '2 коротких меча', 'Набор путешественника', 'Лук + 20 стрел'],
-  'Чародей':      ['Лёгкий арбалет + 20 болтов', 'Компонентный мешочек', 'Набор мага', '2 кинжала'],
-};
+// ─── Equipment step: data (Э3, ТЗ 4.4.7 v0.32) ────────────────────────────────
+// Только PHB. Каталог — js/data/equipment.js (генератор tools/gen_equipment.py, dnd.su).
+// Стартовое снаряжение классов — js/data/class_starting_equipment.js (dnd.su), разбор вариантов а)/б)/в)
+// и вложенных выборов — js/equipment.js. Снаряжение предысторий — BG_EQUIP (строки dnd.su),
+// ссылки на каталог — EQ.BG_ITEM_REFS, монеты кошеля — BG_GOLD.
+// Состояние мастера: st.mecEquip = { mode, encumbrance, classChoices, gold, goldClass, cart, equippedManual }.
+// В запись персонажа уходит character.equipment (schemaVersion 3) — см. eqRecord().
 
 const BG_EQUIP = {
   // 2026-09-27: предметы — по строке «Снаряжение» страниц dnd.su (tools/raw_dndsu/2014/pages). Без монет (BG_GOLD)
@@ -4350,33 +4434,6 @@ const BG_GOLD = {
   // WBW
 };
 
-const CLASS_GOLD = {
-  'Бард':         { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
-  'Варвар':       { formula: '2к4×10', rolls: 2, die: 4, mult: 10 },
-  'Воин':         { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
-  'Волшебник':    { formula: '4к4×10', rolls: 4, die: 4, mult: 10 },
-  'Друид':        { formula: '2к4×10', rolls: 2, die: 4, mult: 10 },
-  'Жрец':         { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
-  'Изобретатель': { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
-  'Колдун':       { formula: '4к4×10', rolls: 4, die: 4, mult: 10 },
-  'Монах':        { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
-  'Паладин':      { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
-  'Плут':         { formula: '4к4×10', rolls: 4, die: 4, mult: 10 },
-  'Следопыт':     { formula: '5к4×10', rolls: 5, die: 4, mult: 10 },
-  'Чародей':      { formula: '3к4×10', rolls: 3, die: 4, mult: 10 },
-};
-
-// ─── Equipment step: kit contents ─────────────────────────────────────────────
-
-const EQUIP_KITS = {
-  'Набор дипломата':       ['Сундук', 'Чернила ×2', 'Перо', 'Бумага ×5', 'Духи', 'Воск для печатей', 'Придворная одежда'],
-  'Набор путешественника': ['Ранец', 'Спальный мешок', 'Кружка', 'Дорожная одежда ×2', 'Огниво', 'Факелы ×10', 'Паёк ×10', 'Фляга воды', 'Верёвка 15 м'],
-  'Набор учёного':         ['Книга', 'Чернила', 'Перо', 'Нож для бумаги', 'Мешочек с песком', 'Небольшой нож'],
-  'Набор взломщика':       ['Ломик', 'Молоток', 'Стальные колья ×10', 'Фонарь с заслонкой', 'Масло ×2', 'Паёк ×5', 'Верёвка 15 м'],
-  'Набор священника':      ['Одеяло', 'Свечи ×10', 'Огниво', 'Кадильница', 'Ладан', 'Стихарь', 'Паёк ×2'],
-  'Набор мага':            ['Записная книжка', 'Чернила', 'Перо', 'Нож для бумаги', 'Мешочек с песком', 'Небольшой нож'],
-  'Набор подземелья':      ['Ломик', 'Молоток', 'Стальные колья ×10', 'Свечи ×10', 'Огниво', 'Масло ×1', 'Паёк ×5', 'Верёвка 15 м'],
-};
 
 function makeChoiceSel(opts, key, st, onChange) {
   if (!st.mecEquipChoices) st.mecEquipChoices = {};
@@ -4417,61 +4474,583 @@ function makeGroupedChoiceSel(groups, key, st, onChange) {
   );
 }
 
-const EQUIP_FREE_CHOICES = {
-  'Любое простое оружие':   SIMPLE_WEAPONS,
-  'Музыкальный инструмент': INSTRUMENTS,
-};
 
-function resolveEquipOpts(item) {
-  if (EQUIP_FREE_CHOICES[item]) return EQUIP_FREE_CHOICES[item];
-  // 2026-09-27: «или» внутри скобок — это пояснение из dnd.su («трофей (кинжал … или кусок знамени)»), а не выбор
-  if (item.replace(/\([^)]*\)/g, '').includes(' или ')) return item.split(' или ');
-  return null;
+function eqState(st) {
+  if (!st.mecEquip || typeof st.mecEquip !== 'object') st.mecEquip = {};
+  const q = st.mecEquip;
+  if (q.mode !== 'purchase') q.mode = 'standard';
+  q.encumbrance = !!q.encumbrance;
+  if (!q.classChoices || typeof q.classChoices !== 'object') q.classChoices = {};
+  if (!Array.isArray(q.cart)) q.cart = [];
+  if (!q.equippedManual || typeof q.equippedManual !== 'object') q.equippedManual = {};
+  if (q.gold === undefined) q.gold = null;
+  // бросок другого класса (черновик до сброса) — недействителен
+  if (q.gold && q.goldClass && st.mecClass && q.goldClass !== st.mecClass) { q.gold = null; q.goldClass = null; q.cart = []; }
+  return q;
 }
 
-function equipItemEls(items, st, prefix) {
-  return items.map((item, idx) => {
-    const kitItems = EQUIP_KITS[item];
-    if (kitItems) {
-      return el('div', { class: 'equip-kit' },
-        el('span', { class: 'equip-kit-label' }, item),
-        el('ul', { class: 'equip-kit-list' }, ...kitItems.map(ki => el('li', {}, ki))),
-      );
-    }
-    const opts = resolveEquipOpts(item);
-    if (opts) return makeChoiceSel(opts, `${prefix}_${idx}`, st);
-    return el('div', { class: 'equip-item' }, item);
+function eqStats(st) {
+  const asi = mecRacialAsi(st);
+  const out = {};
+  for (const k of ['str', 'dex', 'con', 'int', 'wis', 'cha']) out[k] = (effectiveBase(st, k) ?? 8) + (asi[k] || 0);
+  return out;
+}
+const eqProfs = st => EQ.equipProfs(buildCharacterGrants(st));
+
+/** Чьё снаряжение даёт предыстория: она сама или (для «Собственной») выбранная на шаге «Снаряжение». */
+function eqBgSource(st) {
+  const bg = mecBgObj(st);
+  if (!bg) return null;
+  if (bg.name === 'Собственная предыстория') return mecBgObjByName(st.mecEquipChoices?.bgch_bg_equipment) || null;
+  return bg;
+}
+
+/** Предметы предыстории: строки dnd.su (со ссылкой на каталог, где dnd.su называет предмет таблицы PHB) + инструменты-предметы. */
+function eqBackgroundItems(st) {
+  const src = eqBgSource(st);
+  if (!src) return [];
+  const out = (BG_EQUIP[src.name] || []).map(text => {
+    const id = EQ.BG_ITEM_REFS[text];
+    return id ? { id, qty: 1, source: 'background', text } : { id: null, name: text, qty: 1, source: 'background', text };
   });
+  mecSyncBgItems(st);
+  for (const { ch, profVal } of mecBgItemChoices(st)) {
+    const v = mecBgItemValue(st, ch, profVal);
+    if (!v) continue;
+    const it = EQ.itemByName(v);
+    out.push(it ? { id: it.id, qty: 1, source: 'background', text: v, fromChoice: ch.type }
+                : { id: null, name: v, qty: 1, source: 'background', text: v, fromChoice: ch.type });
+  }
+  return out;
+}
+const eqBgGold = st => { const src = eqBgSource(st); return src ? (BG_GOLD[src.name] ?? 0) : 0; };
+
+function eqSpent(st) {
+  return Math.round(eqState(st).cart.reduce((a, e) => a + EQ.entryUnitCost(e) * (e.qty || 1), 0) * 100) / 100;
+}
+function eqGoldLeft(st) {
+  const q = eqState(st);
+  return q.gold ? Math.round((q.gold.total - eqSpent(st)) * 100) / 100 : 0;
 }
 
-function renderEquipItems(items, st, prefix) {
-  return el('div', { class: 'equip-items' }, ...equipItemEls(items, st, prefix));
+/** Инвентарь текущего режима с «надето»: авто (лучший доспех с владением + щит), затем ручные правки. */
+function eqInventory(st, profs = eqProfs(st), stats = eqStats(st)) {
+  const q = eqState(st);
+  const items = q.mode === 'purchase'
+    ? q.cart.map(({ legacy: _l, ...e }) => ({ ...e, source: 'purchase' }))
+    : [...EQ.classItems(st.mecClass, q.classChoices).map(e => ({ ...e, source: 'class' })),
+       ...eqBackgroundItems(st).map(({ text: _t, fromChoice: _f, ...e }) => e)];
+  EQ.autoEquip(items, profs, stats);
+  for (const cat of ['armor', 'shield']) {
+    if (!(cat in q.equippedManual)) continue;
+    const want = q.equippedManual[cat];
+    let done = false;
+    for (const e of items) {
+      if (e.custom || EQ.itemById(e.id)?.category !== cat) continue;
+      e.equipped = !done && want != null && e.id === want;
+      if (e.equipped) done = true;
+    }
+  }
+  return items;
 }
 
-// ─── Equipment shop helpers ───────────────────────────────────────────────────
+function eqCoins(st) {
+  const q = eqState(st);
+  if (q.mode === 'purchase') return EQ.gpToCoins(Math.max(0, eqGoldLeft(st)));
+  return { gp: eqBgGold(st), sp: 0, cp: 0 };
+}
 
-function parseWeightLb(w) {
-  if (!w || w === '—') return 0;
-  const m = w.match(/([\d,.]+)\s*фнт/);
-  if (!m) return 0;
-  const s = m[1].replace(',', '.');
-  if (s.includes('/')) { const [a, b] = s.split('/'); return +a / +b; }
-  return parseFloat(s) || 0;
+/** Можно ли идти дальше: { ok, reason }. */
+function eqStepStatus(st, inv, profs, stats) {
+  const q = eqState(st);
+  if (!st.mecClass) return { ok: false, reason: 'Выберите класс' };
+  if (q.mode === 'standard') {
+    if (!EQ.classChoicesComplete(st.mecClass, q.classChoices, profs)) return { ok: false, reason: 'Выберите все варианты снаряжения класса' };
+    if (mecBgObj(st)?.name === 'Собственная предыстория' && !eqBgSource(st)) return { ok: false, reason: 'Выберите снаряжение предыстории' };
+  } else if (!q.gold) return { ok: false, reason: 'Бросьте кости стартового золота' };
+  if (q.encumbrance) {
+    const w = EQ.totalWeight(inv), cap = EQ.carryCapacity(stats.str);
+    if (w > cap) return { ok: false, reason: `Перегруз: ${EQ.fmtWeight(w)} из ${cap} фнт. (Сила × 15)` };
+  }
+  return { ok: true, reason: '' };
 }
-function cartGoldLeft(st) {
-  return Math.round(((st.mecEquipGold || 0) - (st.mecCart || []).reduce((a, i) => a + i.costGp * i.qty, 0)) * 100) / 100;
+
+/** character.equipment (ТЗ 4.4.7 «Данные», schemaVersion 3). */
+function eqRecord(st) {
+  const q = eqState(st);
+  const items = eqInventory(st).map(e => {
+    const o = { id: e.id || null, qty: e.qty || 1, source: e.source };
+    if (!e.id || e.custom) o.name = EQ.entryName(e);
+    if (e.custom) o.custom = { costGp: +e.custom.costGp || 0, weightLb: +e.custom.weightLb || 0, ...(e.custom.costText ? { costText: e.custom.costText } : {}) };
+    const cat = EQ.itemById(e.id)?.category;
+    if (!e.custom && (cat === 'armor' || cat === 'shield')) o.equipped = !!e.equipped;
+    return o;
+  });
+  return {
+    mode: q.mode,
+    encumbrance: q.encumbrance,
+    classChoices: q.mode === 'standard' ? JSON.parse(JSON.stringify(q.classChoices)) : {},
+    gold: q.gold ? { ...q.gold, spent: eqSpent(st) } : null,
+    items,
+    coins: eqCoins(st),
+  };
 }
-function cartTotalLb(st) {
-  return Math.round((st.mecCart || []).reduce((a, i) => a + i.weightLb * i.qty, 0) * 10) / 10;
+
+/** Что потеряется при смене класса (ТЗ 4.4.7 «Смена класса / предыстории»). */
+function eqClassLosses(st) {
+  const q = st.mecEquip;
+  if (!q) return [];
+  const out = [];
+  if (Object.keys(q.classChoices || {}).length) out.push('выбор стартового снаряжения класса');
+  if (q.gold) out.push(`бросок стартового золота (${q.gold.total} зм)`);
+  if ((q.cart || []).length) out.push(`покупки «Закупа» (${q.cart.length})`);
+  return out;
 }
-function charCarryCap(st) {
-  const s = (effectiveBase(st, 'str') ?? 10) + (mecRacialAsi(st).str || 0);
-  return s * 15;
+function eqResetForClass(st) {
+  const q = eqState(st);
+  q.classChoices = {}; q.gold = null; q.goldClass = null; q.cart = []; q.equippedManual = {};
+  delete q.legacyNote;
 }
-function fmtGp(n) {
-  const r = Math.round(n * 100) / 100;
-  return r % 1 === 0 ? String(r) : r.toFixed(2);
+
+// ─── Equipment step: UI ───────────────────────────────────────────────────────
+
+const EQ_LETTERS = ['а', 'б', 'в', 'г', 'д'];
+const COIN_TO_GP = { зм: 1, см: 0.1, мм: 0.01 };
+// Каталог «Закупа»: категории по порядку ТЗ, подгруппы — группы таблиц dnd.su.
+const SHOP_CATS = [
+  { id: 'weapon', label: 'Оружие',      test: it => it.category === 'weapon' },
+  { id: 'armor',  label: 'Доспехи',     test: it => it.category === 'armor' || it.category === 'shield' },
+  { id: 'gear',   label: 'Снаряжение',  test: it => ['gear', 'ammo', 'focus'].includes(it.category) },
+  { id: 'kit',    label: 'Наборы',      test: it => it.category === 'kit' },
+  { id: 'tool',   label: 'Инструменты', test: it => it.category === 'tool' },
+];
+// «Совет новичку»: подписи и подсказки — прежние (утверждённые), предметы — id каталога dnd.su.
+const STARTER_ITEMS = [
+  { label: 'Рюкзак',          id: 'backpack',            hint: 'для переноски всего',      qty: 1 },
+  { label: 'Спальник',        id: 'bedroll',             hint: 'отдых в дороге',           qty: 1 },
+  { label: 'Бурдюк',          id: 'waterskin',           hint: 'вода в пути',              qty: 1 },
+  { label: 'Пайки (5 дней)',  id: 'rations-1-day',       hint: 'еда в дороге',             qty: 5 },
+  { label: 'Верёвка (50 фт)', id: 'rope-hempen-50-feet', hint: 'универсальный инструмент', qty: 1 },
+  { label: 'Трутница',        id: 'tinderbox',           hint: 'разжечь костёр',           qty: 1 },
+  { label: 'Факелы (10 шт.)', id: 'torch',               hint: 'свет в темноте',           qty: 10 },
+  { label: 'Зелье лечения',   id: 'potion-of-healing',   hint: 'спасёт жизнь',             qty: 1 },
+];
+
+function buildEquipStep(st, goMech) {
+  const q = eqState(st);
+  const clsName = CLASS_DATA.find(c => c.id === st.mecClass)?.name ?? null;
+  const profs = eqProfs(st);
+  const stats = eqStats(st);
+  const cap = EQ.carryCapacity(stats.str);
+  const rules = makeRulePanel();
+  const save = () => scheduleSave(st);
+
+  let shopQuery = '';
+  let invOpen = false;          // мобиле: раскрыт ли список «В сумке»
+  const openCats = new Set();   // раскрытые категории каталога
+
+  const bodyEl = el('div', { class: 'eq-body' });
+  const footSum = el('span', { class: 'eq-foot-sum' });
+  const footReason = el('span', { class: 'eq-foot-reason' });
+  const nextBtn = el('button', { class: 'cnew-save-btn', onClick: () => { if (!nextBtn.disabled) goMech('final'); } }, 'Далее → Финал');
+  const foot = el('div', { class: 'mech-foot eq-foot' }, footSum, footReason, nextBtn);
+
+  function refreshFoot() {
+    const inv = eqInventory(st, profs, stats);
+    const w = EQ.totalWeight(inv);
+    const ac = EQ.armorClass(inv, stats, profs);
+    footSum.textContent = `КД ${ac.ac} · Вес ${EQ.fmtWeight(w)}${q.encumbrance ? ` из ${cap}` : ''}`;
+    footSum.classList.toggle('is-danger', q.encumbrance && w > cap);
+    const s = eqStepStatus(st, inv, profs, stats);
+    nextBtn.disabled = !s.ok;
+    footReason.textContent = s.reason;
+  }
+
+  // ── Строка предмета (оружие — урон и свойства, доспех — КД, Сила, Скрытность) ──
+  function itemRow(it, { qty = 1, showProf = false, label = null, extra = [] } = {}) {
+    const prof = EQ.isProficient(it, profs);
+    return el('div', { class: `eq-item${prof === false ? ' is-noprof' : ''}` },
+      el('div', { class: 'eq-item-main' },
+        el('span', { class: 'eq-item-name' }, label || it.name, qty > 1 ? el('span', { class: 'eq-qty' }, ` ×${qty}`) : null),
+        showProf && prof === true ? el('span', { class: 'eq-badge is-prof' }, '✓ владеете') : null,
+        prof === false ? el('span', { class: 'eq-badge is-noprof' }, 'нет владения') : null,
+        rules.infoBtn(() => itemRuleNodes(it, { profs })),
+      ),
+      EQ.itemStats(it) ? el('div', { class: 'eq-item-stat' }, EQ.itemStats(it)) : null,
+      it.category === 'kit' ? el('details', { class: 'eq-kit' }, el('summary', {}, 'Состав набора'), el('p', {}, it.contentsText)) : null,
+      ...extra,
+    );
+  }
+  const textRow = text => el('div', { class: 'eq-item is-text' }, el('div', { class: 'eq-item-main' }, el('span', { class: 'eq-item-name' }, text)));
+
+  // ── Вложенный выбор: второй список конкретных предметов группы ──
+  function pickSelect(pk, value, onPick) {
+    const ids = EQ.PICK_GROUPS[pk.group].ids.filter(id => !pk.except.includes(id));
+    const byGroup = {};
+    for (const id of ids) { const it = EQ.itemById(id); (byGroup[it.group] = byGroup[it.group] || []).push(it); }
+    const optEl = it => {
+      const prof = EQ.isProficient(it, profs);
+      const stat = it.category === 'weapon' ? ` — ${it.damageText}` : '';
+      return el('option', { value: it.id }, `${it.name}${stat}${prof === false ? ' (нет владения)' : ''}`);
+    };
+    const groups = Object.entries(byGroup);
+    const sel = el('select', { class: 'equip-choice-sel eq-pick-sel', 'aria-label': pk.label },
+      el('option', { value: '' }, `— ${pk.label}: выберите —`),
+      ...(groups.length > 1
+        ? groups.map(([g, list]) => el('optgroup', { label: EQ.ITEM_GROUPS[g]?.name || g }, ...list.map(optEl)))
+        : ids.map(id => optEl(EQ.itemById(id)))),
+    );
+    sel.value = value || '';
+    sel.addEventListener('change', () => onPick(sel.value || null));
+    return el('div', { class: `eq-pick${value ? '' : ' is-empty'}` },
+      el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾')),
+      rules.infoBtn(() => groupRuleNodes(pk.group), pk.label));
+  }
+
+  function optionBody(opt, si) {
+    const wrap = el('div', { class: 'eq-opt-body' });
+    const ch = q.classChoices[si] || { option: 0, picks: [] };
+    let pi = 0;
+    for (const part of opt.parts) {
+      if (part.id) { wrap.append(itemRow(EQ.itemById(part.id), { qty: part.qty })); continue; }
+      for (let k = 0; k < (part.n || 1); k++) {
+        const idx = pi++;
+        const pk = { group: part.pick, except: part.except || [], label: EQ.PICK_GROUPS[part.pick].label };
+        const val = ch.picks?.[idx] || null;
+        wrap.append(pickSelect(pk, val, id => {
+          const c = q.classChoices[si] || (q.classChoices[si] = { option: 0, picks: [] });
+          c.picks = [...(c.picks || [])]; c.picks[idx] = id;
+          delete q.legacyNote; save(); renderBody();
+        }));
+        if (val) wrap.append(itemRow(EQ.itemById(val)));
+      }
+    }
+    return wrap;
+  }
+
+  function slotEl(slot, si) {
+    const box = el('div', { class: 'eq-slot' });
+    if (!slot.choice) {
+      box.append(el('div', { class: 'eq-slot-text' }, slot.text), optionBody(slot.options[0], si));
+      return box;
+    }
+    const cur = q.classChoices[si]?.option;
+    slot.options.forEach((opt, oi) => {
+      const allowed = EQ.optionAllowed(opt, profs);
+      const sel = cur === oi;
+      const radio = el('input', { type: 'radio', name: `eq-slot-${si}` });
+      radio.checked = sel;
+      radio.disabled = !allowed;
+      radio.addEventListener('change', () => { q.classChoices[si] = { option: oi, picks: [] }; delete q.legacyNote; save(); renderBody(); });
+      box.append(el('label', { class: `eq-opt${sel ? ' is-sel' : ''}${allowed ? '' : ' is-locked'}` },
+        radio,
+        el('span', { class: 'eq-opt-letter' }, `${EQ_LETTERS[oi]})`),
+        el('span', { class: 'eq-opt-text' }, opt.text),
+        allowed ? null : el('span', { class: 'eq-badge is-noprof' }, '🔒 нет владения'),
+      ));
+      if (sel && allowed) box.append(optionBody(opt, si));
+    });
+    return box;
+  }
+
+  // ── Стандарт ──
+  function renderStandard() {
+    const clsSec = el('section', { class: 'equip-section' },
+      el('div', { class: 'equip-section-hd' },
+        el('span', { class: 'equip-section-source is-class' }, 'Класс'),
+        el('span', { class: 'equip-section-name' }, clsName ?? 'не выбран')),
+    );
+    if (q.legacyNote && !Object.keys(q.classChoices).length) clsSec.append(el('p', { class: 'eq-legacy-note' }, '⚠️ ' + q.legacyNote));
+    const slots = EQ.classSlots(st.mecClass);
+    if (!slots.length) clsSec.append(el('p', { class: 'equip-empty' }, 'Выберите класс'));
+    slots.forEach((slot, si) => clsSec.append(slotEl(slot, si)));
+
+    const bg = mecBgObj(st);
+    const bgSec = el('section', { class: 'equip-section' },
+      el('div', { class: 'equip-section-hd' },
+        el('span', { class: 'equip-section-source is-bg' }, 'Предыстория'),
+        el('span', { class: 'equip-section-name' }, bg?.name ?? 'не выбрана')),
+    );
+    if (!bg) bgSec.append(el('p', { class: 'equip-empty' }, 'Выберите предысторию'));
+    else {
+      if (bg.name === 'Собственная предыстория') {
+        const opts = bgChoiceOptions('bg_equipment');
+        const sel = el('select', { class: 'equip-choice-sel', 'aria-label': 'Снаряжение предыстории' },
+          el('option', { value: '' }, '— выберите предысторию —'), ...opts.map(o => el('option', { value: o }, o)));
+        sel.value = st.mecEquipChoices?.bgch_bg_equipment || '';
+        sel.addEventListener('change', () => {
+          if (!st.mecEquipChoices) st.mecEquipChoices = {};
+          if (sel.value) st.mecEquipChoices.bgch_bg_equipment = sel.value; else delete st.mecEquipChoices.bgch_bg_equipment;
+          save(); renderBody();
+        });
+        bgSec.append(el('label', { class: 'eq-donor' }, el('span', { class: 'eq-donor-lbl' }, 'Снаряжение какой предыстории взять:'),
+          el('span', { class: 'equip-choice-wrap' }, sel, el('span', { class: 'equip-choice-arrow' }, '▾'))));
+      }
+      const src = eqBgSource(st);
+      if (src) {
+        mecSyncBgItems(st);
+        const choiceEls = new Map(mecBgItemChoices(st).map(({ ch, profVal }) => [ch.type, buildBgItemEl(st, ch, profVal, renderBody)]));
+        for (const e of eqBackgroundItems(st)) {
+          if (e.fromChoice && choiceEls.has(e.fromChoice)) { bgSec.append(choiceEls.get(e.fromChoice)); choiceEls.delete(e.fromChoice); }
+          const it = EQ.itemById(e.id);
+          bgSec.append(it ? itemRow(it, { label: e.fromChoice ? null : e.text }) : textRow(e.text));
+        }
+        for (const node of choiceEls.values()) bgSec.append(node);
+        bgSec.append(el('div', { class: 'eq-coins' }, el('span', { class: 'eq-coins-lbl' }, 'Монеты'), el('span', { class: 'eq-coins-val' }, `${eqBgGold(st)} зм`)));
+      }
+    }
+    const inv = eqInventory(st, profs, stats);
+    const acSec = el('section', { class: 'equip-section eq-ac-sec' },
+      el('div', { class: 'equip-section-hd' }, el('span', { class: 'equip-section-name' }, 'Надето')),
+      acBlock(EQ.armorClass(inv, stats, profs)),
+      el('p', { class: 'eq-hint' }, 'Доспех и щит надеваются автоматически; снять или надеть другой можно на «Финале».'),
+    );
+    return [clsSec, bgSec, acSec];
+  }
+
+  // ── Закуп ──
+  function autoRoll() {
+    const f = EQ.goldFormula(st.mecClass);
+    if (!f) return;
+    q.gold = EQ.rollGold(f);
+    q.goldClass = st.mecClass;
+    save();
+  }
+
+  function addToCart(entry, times = 1) {
+    const cost = EQ.entryUnitCost(entry) * times;
+    if (cost > eqGoldLeft(st) + 1e-9) return false;
+    const ex = entry.id && !entry.custom && q.cart.find(c => c.id === entry.id && !c.custom);
+    if (ex) ex.qty += times; else q.cart.push({ ...entry, qty: times });
+    save();
+    return true;
+  }
+
+  function renderPurchase() {
+    if (!q.gold && st.mecClass) autoRoll();
+    const g = q.gold;
+    const left = eqGoldLeft(st);
+    const cart = q.cart;
+    const w = EQ.totalWeight(cart);
+    const nItems = cart.reduce((a, e) => a + (e.qty || 1), 0);
+
+    const rollLine = g ? el('div', { class: 'eq-roll' },
+      el('span', { class: 'eq-roll-f' }, `🎲 ${g.formula || 'золото'}`),
+      g.rolls?.length ? el('span', { class: 'eq-roll-dice' }, ...g.rolls.map(r => el('span', { class: 'eq-die' }, String(r)))) : null,
+      g.rolls?.length && g.mult > 1 ? el('span', { class: 'eq-roll-x' }, `× ${g.mult}`) : null,
+      el('span', { class: 'eq-roll-total' }, `= ${g.total} зм`),
+    ) : el('p', { class: 'equip-empty' }, 'Выберите класс — от него зависит стартовое золото');
+    const goldNote = el('p', { class: 'eq-hint' }, EQ.classGoldText(st.mecClass), ' Бросок делается один раз.');
+
+    // Плашка «Золото · Вес · Предметов N» (на мобиле липкая, с раскрытием списка)
+    const bar = el('div', { class: 'eq-bar' },
+      el('span', { class: `eq-bar-v${left < 0 ? ' is-danger' : ''}` }, `${EQ.fmtGp(left)} зм`, el('span', { class: 'eq-bar-l' }, ` из ${g?.total ?? 0}`)),
+      el('span', { class: `eq-bar-v${q.encumbrance && w > cap ? ' is-danger' : ''}` }, EQ.fmtWeight(w), q.encumbrance ? el('span', { class: 'eq-bar-l' }, ` из ${cap}`) : null),
+      el('span', { class: 'eq-bar-v' }, `Предметов ${nItems}`),
+      el('button', { class: `eq-bar-toggle${invOpen ? ' is-open' : ''}`, type: 'button', onClick: () => {
+        invOpen = !invOpen; renderBody();
+        if (invOpen) bodyEl.querySelector('.eq-inv')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      } },
+        invOpen ? 'Скрыть сумку ▴' : 'В сумке ▾'),
+    );
+
+    const invList = el('div', { class: `eq-inv${invOpen ? ' is-open' : ''}` });
+    if (!cart.length) invList.append(el('p', { class: 'shop-inv-empty' }, 'Сумка пуста'));
+    const cats = [...SHOP_CATS, { id: 'custom', label: 'Свои предметы', test: () => false }];
+    for (const cat of cats) {
+      const rows = cart.filter(e => cat.id === 'custom' ? !!e.custom : (!e.custom && cat.test(EQ.itemById(e.id) || {})));
+      if (!rows.length) continue;
+      invList.append(el('div', { class: 'eq-inv-cat' }, cat.label));
+      for (const e of rows) {
+        const unit = EQ.entryUnitCost(e);
+        invList.append(el('div', { class: 'eq-inv-row' },
+          el('span', { class: 'eq-inv-name' }, EQ.entryName(e),
+            e.custom ? el('span', { class: 'eq-badge is-custom' }, 'Свой предмет') : null),
+          el('span', { class: 'eq-inv-cost' }, `${EQ.fmtGp(unit * e.qty)} зм`),
+          el('span', { class: 'eq-inv-ctrl' },
+            el('button', { class: 'shop-qty-btn', type: 'button', 'aria-label': 'Меньше', onClick: () => {
+              e.qty -= 1; if (e.qty <= 0) q.cart = q.cart.filter(x => x !== e); save(); renderBody();
+            } }, '−'),
+            el('span', { class: 'shop-qty-n' }, `×${e.qty}`),
+            (() => {
+              const b = el('button', { class: 'shop-qty-btn', type: 'button', 'aria-label': 'Больше', onClick: () => {
+                if (unit <= eqGoldLeft(st) + 1e-9) { e.qty += 1; save(); renderBody(); }
+              } }, '+');
+              b.disabled = unit > left + 1e-9;
+              return b;
+            })(),
+            el('button', { class: 'shop-rm-btn', type: 'button', title: 'Убрать (цена вернётся)', 'aria-label': 'Убрать', onClick: () => {
+              q.cart = q.cart.filter(x => x !== e); save(); renderBody();
+            } }, '×'),
+          ),
+        ));
+      }
+    }
+
+    // Каталог
+    const search = el('input', { class: 'shop-search', type: 'search', placeholder: 'Поиск предмета…', 'aria-label': 'Поиск предмета' });
+    search.value = shopQuery;
+    search.addEventListener('input', () => { shopQuery = search.value; renderCatalog(); });
+    const addCustom = el('button', { class: 'shop-add-btn', type: 'button', onClick: () => openCustomItemModal() }, '+ Свой предмет');
+    const catalog = el('div', { class: 'eq-catalog' });
+    function renderCatalog() {
+      catalog.innerHTML = '';
+      const qn = shopQuery.trim().toLowerCase().replace(/ё/g, 'е');
+      for (const cat of SHOP_CATS) {
+        let items = EQ.ITEMS.filter(it => cat.test(it) && it.costGp != null);
+        if (qn) items = items.filter(it => it.name.toLowerCase().replace(/ё/g, 'е').includes(qn));
+        if (!items.length) continue;
+        const det = el('details', { class: 'shop-cat-det' });
+        det.open = !!qn || openCats.has(cat.id);
+        det.addEventListener('toggle', () => { if (!qn) { if (det.open) openCats.add(cat.id); else openCats.delete(cat.id); } });
+        det.append(el('summary', { class: 'shop-cat-sum' }, el('span', {}, cat.label), el('span', { class: 'shop-count' }, String(items.length))));
+        let lastGroup;
+        for (const it of items) {
+          const grp = it.group && EQ.ITEM_GROUPS[it.group] && it.category !== 'kit' ? EQ.ITEM_GROUPS[it.group].name : null;
+          if (grp !== lastGroup && (grp || lastGroup)) det.append(el('div', { class: 'shop-sub-sum' }, grp || 'Прочее'));
+          lastGroup = grp;
+          const prof = EQ.isProficient(it, profs);
+          const cant = it.costGp > left + 1e-9;
+          const buy = el('button', { class: `shop-buy-btn${cant ? ' is-broke' : ''}`, type: 'button', title: cant ? 'Недостаточно золота' : 'Купить', 'aria-label': `Купить: ${it.name}`,
+            onClick: () => { if (addToCart({ id: it.id })) renderBody(); } }, '+');
+          buy.disabled = cant;
+          det.append(el('div', { class: `eq-shop-row${prof === true ? ' is-prof' : ''}${prof === false ? ' is-noprof' : ''}` },
+            el('div', { class: 'eq-shop-main' },
+              el('span', { class: 'eq-shop-name' }, it.name),
+              prof === true ? el('span', { class: 'eq-badge is-prof' }, '✓ владеете') : null,
+              prof === false ? el('span', { class: 'eq-badge is-noprof' }, 'нет владения') : null,
+              rules.infoBtn(() => itemRuleNodes(it, { profs }))),
+            EQ.itemStats(it) ? el('div', { class: 'eq-item-stat' }, EQ.itemStats(it)) : null,
+            el('span', { class: 'eq-shop-cost' }, it.cost),
+            el('span', { class: 'eq-shop-wt' }, it.category === 'kit' ? `≈ ${EQ.fmtWeight(it.weightLb)}` : (it.weightLb ? it.weight : '—')),
+            buy,
+          ));
+        }
+        catalog.append(det);
+      }
+      if (!catalog.children.length) catalog.append(el('p', { class: 'shop-inv-empty' }, 'Ничего не найдено'));
+    }
+    renderCatalog();
+
+    // «Совет новичку» — всё или ничего (раньше докупалось частично и молча)
+    let tipsOpen = false;
+    const tipsBody = el('div', { class: 'equip-tips-body', style: 'display:none' },
+      el('p', { class: 'equip-tips-intro' }, 'Опытные авантюристы всегда берут с собой базовый набор — даже если золото кончается:'),
+      el('ul', { class: 'equip-tips-list' }, ...STARTER_ITEMS.map(t => {
+        const it = EQ.itemById(t.id);
+        const cost = (it?.costGp || 0) * t.qty;
+        const b = el('button', { class: 'equip-tips-add-btn', type: 'button', onClick: () => { if (addToCart({ id: t.id }, t.qty)) renderBody(); } }, `+ В корзину (${EQ.fmtGp(cost)} зм)`);
+        b.disabled = !it || cost > left + 1e-9;
+        if (b.disabled) b.title = 'Недостаточно золота';
+        return el('li', { class: 'equip-tips-item' }, el('span', { class: 'equip-tips-name' }, t.label),
+          el('span', { class: 'equip-tips-hint' }, ` — ${t.hint}`), b);
+      })),
+    );
+    const tipsToggle = el('button', { class: 'equip-tips-toggle', type: 'button', onClick: () => {
+      tipsOpen = !tipsOpen; tipsBody.style.display = tipsOpen ? '' : 'none';
+      tipsToggle.querySelector('.equip-tips-arrow').textContent = tipsOpen ? '▲' : '▼';
+    } }, el('span', { class: 'equip-tips-icon' }, '💡'), el('span', {}, 'Совет новичку — что купить в первую очередь?'),
+    el('span', { class: 'equip-tips-arrow' }, '▼'));
+
+    return [
+      el('div', { class: 'eq-roll-wrap' }, rollLine, goldNote),
+      el('div', { class: 'eq-shop' },
+        el('div', { class: 'eq-shop-inv' }, bar, invList),
+        el('div', { class: 'eq-shop-cat' }, el('div', { class: 'shop-bar' }, search, addCustom), catalog,
+          el('div', { class: 'equip-tips-card' }, tipsToggle, tipsBody)),
+      ),
+    ];
+  }
+
+  // «Свой предмет» (хоумбрю Мастера): цена и вес ≥ 0, на КД/атаки/владения не влияет
+  function openCustomItemModal() {
+    const nameInp = el('input', { class: 'shop-modal-inp', type: 'text', placeholder: 'Название', maxlength: '80' });
+    const costInp = el('input', { class: 'shop-modal-cost-inp', type: 'number', placeholder: 'Цена', min: '0', step: '1', inputmode: 'decimal' });
+    const coinSel = el('select', { class: 'shop-modal-coin' }, ...Object.keys(COIN_TO_GP).map(c => el('option', { value: c }, c)));
+    const wtInp = el('input', { class: 'shop-modal-inp', type: 'number', placeholder: 'Вес (фнт.)', min: '0', step: '0.1', inputmode: 'decimal' });
+    const err = el('p', { class: 'eq-modal-err' });
+    const close = () => overlay.remove();
+    const overlay = el('div', { class: 'shop-modal-bg' },
+      el('div', { class: 'shop-modal' },
+        el('h3', { class: 'shop-modal-title' }, 'Свой предмет'),
+        el('p', { class: 'eq-hint' }, 'Для предметов Мастера. На КД, атаки и владения не влияет.'),
+        nameInp, el('div', { class: 'shop-modal-cost-row' }, costInp, coinSel), wtInp, err,
+        el('div', { class: 'shop-modal-btns' },
+          el('button', { class: 'shop-modal-cancel', type: 'button', onClick: close }, 'Отмена'),
+          el('button', { class: 'shop-modal-save', type: 'button', onClick: () => {
+            const name = nameInp.value.trim();
+            const amount = costInp.value === '' ? 0 : Number(costInp.value);
+            const wt = wtInp.value === '' ? 0 : Number(wtInp.value);
+            if (!name) { err.textContent = 'Введите название'; nameInp.focus(); return; }
+            if (!Number.isFinite(amount) || amount < 0) { err.textContent = 'Цена не может быть отрицательной'; costInp.focus(); return; }
+            if (!Number.isFinite(wt) || wt < 0) { err.textContent = 'Вес не может быть отрицательным'; wtInp.focus(); return; }
+            const costGp = Math.round(amount * COIN_TO_GP[coinSel.value] * 100) / 100;
+            if (costGp > eqGoldLeft(st) + 1e-9) { err.textContent = 'Не хватает золота'; return; }
+            q.cart.push({ id: null, name, qty: 1, custom: { costGp, weightLb: Math.round(wt * 100) / 100, costText: amount ? `${amount} ${coinSel.value}` : '' } });
+            save(); close(); renderBody();
+          } }, 'Добавить'),
+        ),
+      ),
+    );
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.body.append(overlay);
+    nameInp.focus();
+  }
+
+  function renderBody() {
+    bodyEl.innerHTML = '';
+    bodyEl.className = `eq-body is-${q.mode}`;
+    bodyEl.append(...(q.mode === 'purchase' ? renderPurchase() : renderStandard()));
+    refreshFoot();
+  }
+
+  // ── Шапка: грузоподъёмность + режим ──
+  const encCb = el('input', { type: 'checkbox' });
+  encCb.checked = q.encumbrance;
+  encCb.addEventListener('change', () => { q.encumbrance = encCb.checked; save(); renderBody(); encHint.textContent = encText(); });
+  const encText = () => q.encumbrance ? `Сила ${stats.str} × 15 = ${cap} фнт.` : 'вес показывается справочно';
+  const encHint = el('span', { class: 'eq-enc-hint' }, encText());
+
+  function switchMode(m) {
+    if (q.mode === m) return;
+    const losses = m === 'purchase'
+      ? (Object.keys(q.classChoices).length ? ['выбор стартового снаряжения класса (а/б/в и вложенные списки)'] : [])
+      : (q.cart.length ? [`покупки «Закупа» (${q.cart.length})`] : []);
+    const apply = () => {
+      if (m === 'purchase') q.classChoices = {}; else q.cart = [];
+      q.mode = m; q.equippedManual = {};
+      save();
+      modeBar.querySelectorAll('.equip-mode-btn').forEach(b => b.classList.toggle('is-active', b.dataset.mode === m));
+      renderBody();
+    };
+    if (!losses.length) { apply(); return; }
+    openConfirmModal({
+      title: m === 'purchase' ? 'Перейти к «Закупу»?' : 'Вернуться к «Стандарту»?',
+      text: m === 'purchase'
+        ? 'По PHB «Закуп» — это отказ от снаряжения класса и предыстории (включая монеты). Сбросится:'
+        : 'Сбросится:',
+      lines: losses, okText: 'Да, переключить', onOk: apply,
+    });
+  }
+  const modeBar = el('div', { class: 'equip-mode-bar' },
+    ...[['standard', 'Стандарт'], ['purchase', 'Закуп']].map(([m, label]) => {
+      const b = el('button', { class: `equip-mode-btn${q.mode === m ? ' is-active' : ''}`, type: 'button', onClick: () => switchMode(m) }, label);
+      b.dataset.mode = m;
+      return b;
+    }),
+    el('label', { class: 'eq-enc' }, encCb, el('span', {}, 'Мастер учитывает грузоподъёмность'), encHint),
+  );
+
+  renderBody();
+
+  return el('div', { class: 'mech-step-body is-equip' },
+    el('h2', { class: 'mech-step-title' }, 'Снаряжение'),
+    modeBar,
+    el('div', { class: 'eq-layout' }, el('div', { class: 'eq-main' }, bodyEl), rules.aside),
+    foot,
+  );
 }
+
 
 // ─── Spells step (ТЗ 4.4.6: v0.23 + v0.24 + v0.29, этап Э2) ──────────────────
 // Все выборы заклинаний персонажа — класс, подкласс, раса, черта — на одном шаге, по группам источников.
@@ -4815,265 +5394,6 @@ function buildSpellsStep(st, goMech) {
     el('div', { class: 'mech-step-footer' },
       left.length ? el('p', { class: 'spl-left' }, 'Осталось выбрать: ' + left.join(' · ')) : null,
       nextBtn),
-  );
-}
-
-// ─── Equipment step ───────────────────────────────────────────────────────────
-
-const SHOP_CATS = [
-  { id: 'weapons', label: 'Оружие',       items: WEAPONS   },
-  { id: 'armour',  label: 'Доспехи',      items: ARMOUR    },
-  { id: 'equip',   label: 'Снаряжение',   items: EQUIPMENT },
-  { id: 'tools',   label: 'Инструменты',  items: TOOLS     },
-];
-
-// ─── Equipment step ───────────────────────────────────────────────────────────
-
-function buildEquipStep(st, goMech) {
-  if (!st.mecEquipMode) st.mecEquipMode = 'standard';
-
-  const clsData  = CLASS_DATA.find(c => c.id === st.mecClass);
-  const clsName  = clsData?.name ?? null;
-  const bgName   = st.mecBackground ? st.mecBackground.split('::')[1] : null;
-
-  const classItems   = clsName ? (CLASS_EQUIP[clsName] || []) : [];
-  const bgObj        = bgName  ? Object.values(BACKGROUND_DATA).flat().find(b => b.name === bgName) : null;
-  const EQUIP_STEP_CHOICE_TYPES = ['instrument', 'artisan', 'gaming', 'bg_equipment'];
-  const bgMatChoices = (bgObj?.choices || []).filter(ch => EQUIP_STEP_CHOICE_TYPES.includes(ch.type));
-
-  const bgGold     = bgName  ? (BG_GOLD[bgName]      ?? null) : null;
-  const goldInfo   = clsName ? (CLASS_GOLD[clsName]  ?? null) : null;
-
-  const bodyEl  = el('div', {});
-  const footBtn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('final') }, 'Далее → Финал');
-  const footEl  = el('div', { class: 'mech-foot equip-foot' }, footBtn);
-
-  function renderBody() {
-    bodyEl.innerHTML = '';
-    bodyEl.className = st.mecEquipMode === 'standard' ? 'equip-scroll' : 'equip-buy-body';
-    footBtn.disabled = false;
-    footBtn.title    = '';
-
-    if (st.mecEquipMode === 'standard') {
-      const moneyEl = el('div', { class: 'equip-money' },
-        bgGold !== null
-          ? el('span', { class: 'equip-money-val' }, `${bgGold} зм`)
-          : el('span', { class: 'equip-money-empty' }, bgName ? 'нет данных' : 'выберите предысторию'),
-        el('span', { class: 'equip-money-label' }, 'стартовые монеты'),
-      );
-
-      const clsSec = el('div', { class: 'equip-section' },
-        el('div', { class: 'equip-section-hd' },
-          el('span', { class: 'equip-section-source is-class' }, 'Класс'),
-          el('span', { class: 'equip-section-name' }, clsName ?? 'не выбран'),
-        ),
-        classItems.length
-          ? renderEquipItems(classItems, st, 'cls')
-          : el('p', { class: 'equip-empty' }, 'Выберите класс'),
-      );
-
-      let bgItems = bgName ? (BG_EQUIP[bgName] || []) : [];
-      let activeBgMatChoices = bgMatChoices;
-      if (bgName === 'Собственная предыстория') {
-        const srcBg = (st.mecEquipChoices || {})['bgch_bg_equipment'] ?? null;
-        bgItems = srcBg ? (BG_EQUIP[srcBg] || []) : [];
-        if (srcBg) {
-          const srcBgObj = Object.values(BACKGROUND_DATA).flat().find(b => b.name === srcBg);
-          const srcMatChoices = (srcBgObj?.choices || []).filter(ch =>
-            EQUIP_STEP_CHOICE_TYPES.includes(ch.type) && ch.type !== 'bg_equipment',
-          );
-          activeBgMatChoices = [...bgMatChoices, ...srcMatChoices];
-        }
-      }
-      // 2026-09-26: здесь только ПРЕДМЕТЫ. Владение инструментом выбрано на шаге «Предыстория»
-      // и отсюда не меняется; предмет по умолчанию равен ему, но может отличаться.
-      mecSyncBgItems(st);
-      const bgChoiceEls = [
-        ...activeBgMatChoices.filter(ch => ch.type === 'bg_equipment')
-          .map(ch => makeChoiceSel(bgChoiceOptions(ch.type), `bgch_${ch.type}`, st, renderBody)),
-        ...mecBgItemChoices(st).map(({ ch, profVal }) => buildBgItemEl(st, ch, profVal)),
-      ];
-      const bgAllEls = [...bgChoiceEls, ...equipItemEls(bgItems, st, 'bg')];
-      const bgSec = el('div', { class: 'equip-section' },
-        el('div', { class: 'equip-section-hd' },
-          el('span', { class: 'equip-section-source is-bg' }, 'Предыстория'),
-          el('span', { class: 'equip-section-name' }, bgName ?? 'не выбрана'),
-        ),
-        bgAllEls.length
-          ? el('div', { class: 'equip-items' }, ...bgAllEls)
-          : el('p', { class: 'equip-empty' }, 'Выберите предысторию'),
-      );
-
-      bodyEl.append(moneyEl, clsSec, bgSec, footEl);
-
-    } else {
-      const rolled = st.mecEquipGold !== null && st.mecEquipGold !== undefined;
-
-      // ── Верхняя панель статистики (золото + вес) ──────────────────────────────
-      const statGoldLeftEl  = el('span', { class: 'equip-buy-stat-v' });
-      const statWeightEl    = el('span', { class: 'equip-buy-stat-v' });
-      function refreshTopStats() {
-        const left = rolled ? cartGoldLeft(st) : null;
-        const tw   = cartTotalLb(st);
-        const cap  = charCarryCap(st);
-        if (left !== null) {
-          statGoldLeftEl.textContent = `${fmtGp(left)} / ${st.mecEquipGold} зм`;
-          statGoldLeftEl.className   = `equip-buy-stat-v${left < 0 ? ' is-danger' : ''}`;
-        } else {
-          statGoldLeftEl.textContent = '— зм';
-          statGoldLeftEl.className   = 'equip-buy-stat-v is-pending';
-        }
-        statWeightEl.textContent = `${tw} / ${cap} фнт.`;
-        statWeightEl.className   = `equip-buy-stat-v${tw > cap ? ' is-danger' : ''}`;
-      }
-      refreshTopStats();
-
-      // ── Кнопка броска ──────────────────────────────────────────────────────────
-      const rollRow = !rolled
-        ? (() => {
-            const diceBtn = el('button', {
-              class: 'btn btn-primary equip-roll-dice-btn',
-              onClick: () => {
-                if (!goldInfo) return;
-                st.mecEquipGold = Array.from({ length: goldInfo.rolls },
-                  () => Math.floor(Math.random() * goldInfo.die) + 1
-                ).reduce((a, b) => a + b, 0) * goldInfo.mult;
-                scheduleSave(st);
-                renderBody();
-              },
-            }, `🎲 ${goldInfo ? goldInfo.formula : '…'}`, el('span', { class: 'equip-roll-dice-hint' }, ' зм'));
-            diceBtn.disabled = !goldInfo; // DOM property, not setAttribute
-            return el('div', { class: 'equip-roll-row' },
-              el('span', { class: 'equip-roll-prompt' }, 'Бросьте кубики, чтобы узнать стартовый капитал:'),
-              diceBtn,
-            );
-          })()
-        : null;
-
-      // ── Кнопка сброса (после броска) ──────────────────────────────────────────
-      const resetRow = rolled
-        ? el('div', { class: 'equip-reset-row' },
-            el('button', { class: 'btn btn-ghost btn-sm equip-reset-btn',
-              onClick: () => {
-                st.mecEquipGold = null;
-                st.mecCart      = [];
-                scheduleSave(st);
-                renderBody();
-              },
-            }, '↺ Сбросить бросок и корзину'),
-          )
-        : null;
-
-      // ── Панель сверху с показателями ──────────────────────────────────────────
-      const statsBar = el('div', { class: `equip-buy-statsbar${!rolled ? ' is-pre-roll' : ''}` },
-        el('div', { class: 'equip-buy-stat-item' },
-          el('span', { class: 'equip-buy-stat-l' }, rolled ? 'Осталось' : 'Стартовый капитал'),
-          statGoldLeftEl,
-        ),
-        rolled
-          ? el('div', { class: 'equip-buy-stat-item' },
-              el('span', { class: 'equip-buy-stat-l' }, 'Вес'),
-              statWeightEl,
-            )
-          : null,
-        rollRow,
-        resetRow,
-      );
-
-      // ── Подсказка новичку ──────────────────────────────────────────────────────
-      // dbName — точное имя в equipment.js; label — отображаемое имя; qty — сколько добавлять
-      const STARTER_ITEMS = [
-        { label: 'Рюкзак',            dbName: 'Рюкзак',                    hint: 'для переноски всего',      qty: 1 },
-        { label: 'Спальник',          dbName: 'Спальник',                  hint: 'отдых в дороге',           qty: 1 },
-        { label: 'Бурдюк',            dbName: 'Бурдюк',                    hint: 'вода в пути',              qty: 1 },
-        { label: 'Пайки (5 дней)',    dbName: 'Рационы (1 день)',          hint: 'еда в дороге',             qty: 5 },
-        { label: 'Верёвка (50 фт)',   dbName: 'Верёвка пеньковая (50 фт)', hint: 'универсальный инструмент', qty: 1 },
-        { label: 'Трутница',          dbName: 'Трутница',                  hint: 'разжечь костёр',           qty: 1 },
-        { label: 'Факелы (10 шт.)',   dbName: 'Факел',                     hint: 'свет в темноте',           qty: 10 },
-        { label: 'Зелье лечения',     dbName: 'Зелье лечения',             hint: 'спасёт жизнь',             qty: 1 },
-      ];
-
-      const buyRef = {};
-      const buyModeNode = buildBuyMode(st, footBtn, refreshTopStats, buyRef);
-
-      // Найти данные предмета по имени в SHOP_CATS
-      function findEquipItem(dbName) {
-        for (const cat of SHOP_CATS) {
-          const it = cat.items.find(i => i.name === dbName);
-          if (it) return { cat, it };
-        }
-        return null;
-      }
-
-      let _tipsOpen = false;
-      const tipsBody = el('div', { class: 'equip-tips-body', style: 'display:none' },
-        el('p', { class: 'equip-tips-intro' }, 'Опытные авантюристы всегда берут с собой базовый набор — даже если золото кончается:'),
-        el('ul', { class: 'equip-tips-list' },
-          ...STARTER_ITEMS.map(i => {
-            const found = findEquipItem(i.dbName);
-            const addBtn = el('button', { class: 'equip-tips-add-btn', onClick: () => {
-              if (!found || !buyRef.addItem) return;
-              const { cat, it } = found;
-              const id = `${cat.id}::${it.name}`;
-              for (let n = 0; n < i.qty; n++) {
-                buyRef.addItem({ id, name: it.name, costGp: it.costGp, weightLb: parseWeightLb(it.weight), category: cat.label });
-              }
-            }}, '+ В корзину');
-            return el('li', { class: 'equip-tips-item' },
-              el('span', { class: 'equip-tips-name' }, i.label),
-              el('span', { class: 'equip-tips-hint' }, ` — ${i.hint}`),
-              addBtn,
-            );
-          }),
-        ),
-      );
-      const tipsToggle = el('button', { class: 'equip-tips-toggle', onClick: () => {
-        _tipsOpen = !_tipsOpen;
-        tipsBody.style.display = _tipsOpen ? '' : 'none';
-        tipsToggle.querySelector('.equip-tips-arrow').textContent = _tipsOpen ? '▲' : '▼';
-      }},
-        el('span', { class: 'equip-tips-icon' }, '💡'),
-        el('span', {}, 'Совет новичку — что купить в первую очередь?'),
-        el('span', { class: 'equip-tips-arrow' }, '▼'),
-      );
-      const tipsCard = el('div', { class: 'equip-tips-card' }, tipsToggle, tipsBody);
-
-      bodyEl.append(statsBar, buyModeNode, tipsCard, footEl);
-    }
-  }
-
-  const equipHelp = el('button', { class: 'stat-method-help' }, '?');
-  equipHelp.addEventListener('mouseenter', e => showSrcTip(e, {
-    name: 'Как выбрать снаряжение?',
-    desc: 'Стандарт — готовый набор вещей от класса и предыстории плюс стартовые монеты.\n\nЗакуп — бросаете кубики по таблице класса и тратите золото на снаряжение самостоятельно.',
-  }));
-  equipHelp.addEventListener('mouseleave', hideSrcTip);
-
-  const modeBar = el('div', { class: 'equip-mode-bar' },
-    ...['standard', 'buy'].map(m => {
-      const btn = el('button', {
-        class: `equip-mode-btn${st.mecEquipMode === m ? ' is-active' : ''}`,
-        onClick: () => {
-          st.mecEquipMode = m;
-          scheduleSave(st);
-          modeBar.querySelectorAll('.equip-mode-btn').forEach(b =>
-            b.classList.toggle('is-active', b.dataset.mode === m)
-          );
-          renderBody();
-        },
-      }, m === 'standard' ? 'Стандарт' : 'Закуп');
-      btn.dataset.mode = m;
-      return btn;
-    }),
-    equipHelp,
-  );
-
-  renderBody();
-
-  return el('div', { class: 'mech-step-body' },
-    el('h2', { class: 'mech-step-title' }, 'Снаряжение'),
-    modeBar,
-    bodyEl,
   );
 }
 
