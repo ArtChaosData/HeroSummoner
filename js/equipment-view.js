@@ -121,6 +121,26 @@ export function makeRulePanel(emptyText = 'Нажмите ⓘ у предмет�
   return { aside, show, infoBtn, reset };
 }
 
+// ─── Состав набора строками (B-10, вариант А Совета 2026-09-28) ───────────────
+// Набор хранится одной записью (цена и вес — целиком), а показывается раскрытым: под заголовком
+// набора — предметы состава dnd.su (contents) с количеством, весом и ⓘ. Предметы состава,
+// которых нет в таблице снаряжения PHB (id: null), — строкой текста dnd.su без веса.
+
+/** Строки состава набора. kitQty — сколько наборов в записи. */
+export function kitContentRows(kit, kitQty = 1, { rules, profs } = {}) {
+  if (!kit || kit.category !== 'kit' || !Array.isArray(kit.contents)) return [];
+  return kit.contents.map(c => {
+    const it = c.id ? itemById(c.id) : null;
+    const n = (c.qty || 1) * (kitQty || 1);
+    const w = it?.weightLb != null ? it.weightLb * n : null;
+    return el('div', { class: 'eq-kit-row' },
+      el('span', { class: 'eq-kit-name' }, it ? it.name : c.text, it && n > 1 ? el('span', { class: 'eq-qty' }, ` ×${n}`) : null),
+      el('span', { class: 'eq-kit-meta' }, w ? fmtWeight(w) : ''),
+      rules && it ? rules.infoBtn(() => itemRuleNodes(it, { profs })) : el('span', { class: 'eq-kit-noinfo' }),
+    );
+  });
+}
+
 // ─── Инвентарь по категориям (Финал, лист) ────────────────────────────────────
 
 const VIEW_CATS = [
@@ -134,7 +154,7 @@ const SOURCE_LABEL = { class: 'класс', background: 'предыстория'
  * Список инвентаря по категориям Оружие / Доспехи / Снаряжение / Золото, КД и ⚠️.
  * entries — equipment.items; onToggle(entries) — после «надеть / снять» (null → только чтение).
  */
-export function buildInventoryView({ entries, coins, stats, profs, onToggle, rules }) {
+export function buildInventoryView({ entries, coins, stats, profs, onToggle, rules, acTotal = true }) {
   const root = el('div', { class: 'eq-view' });
   function render() {
     root.innerHTML = '';
@@ -145,11 +165,17 @@ export function buildInventoryView({ entries, coins, stats, profs, onToggle, rul
       rows.forEach(e => used.add(e));
       if (!rows.length) continue;
       root.append(el('div', { class: 'eq-view-cat' }, cat.label));
-      for (const e of rows) root.append(invRow(e, acInfo));
+      for (const e of rows) {
+        root.append(invRow(e, acInfo));
+        if (!e.custom) {
+          const kitRows = kitContentRows(itemById(e.id), e.qty || 1, { rules, profs });
+          if (kitRows.length) root.append(el('div', { class: 'eq-kit-list' }, ...kitRows));
+        }
+      }
     }
     root.append(el('div', { class: 'eq-view-cat' }, 'Золото'), el('div', { class: 'eq-view-row' },
       el('span', { class: 'eq-view-name' }, fmtCoins(coins))));
-    root.append(acBlock(acInfo));
+    root.append(acBlock(acInfo, { total: acTotal }));
   }
   function invRow(e, acInfo) {
     const it = itemById(e.id);
@@ -178,11 +204,12 @@ export function buildInventoryView({ entries, coins, stats, profs, onToggle, rul
 }
 
 /** Итог КД + предупреждения (тексты правил — дословно dnd.su). */
-export function acBlock(acInfo) {
+/** total: false — без строки итога КД (на «Финале» итог — в «Боевых параметрах», v0.39), только предупреждения. */
+export function acBlock(acInfo, { total = true } = {}) {
   const worn = [acInfo.armor?.name, acInfo.shield?.name].filter(Boolean).join(' + ') || 'без доспеха';
-  const box = el('div', { class: 'eq-ac' },
-    el('div', { class: 'eq-ac-main' }, el('span', { class: 'eq-ac-val' }, String(acInfo.ac)), el('span', { class: 'eq-ac-lbl' }, 'КД'),
-      el('span', { class: 'eq-ac-worn' }, worn)),
+  const box = el('div', { class: `eq-ac${total ? '' : ' is-warn-only'}` },
+    total ? el('div', { class: 'eq-ac-main' }, el('span', { class: 'eq-ac-val' }, String(acInfo.ac)), el('span', { class: 'eq-ac-lbl' }, 'КД'),
+      el('span', { class: 'eq-ac-worn' }, worn)) : null,
   );
   for (const w of acInfo.warnings) {
     if (w.kind === 'stealth') {

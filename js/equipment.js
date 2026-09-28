@@ -171,6 +171,8 @@ export const RACE_EQUIP_GRANTS = {
   'elf-high':       { weapon: ELF_WEAPONS },
   'elf-wood':       { weapon: ELF_WEAPONS },
   'elf-drow':       { weapon: ['рапира', 'короткий меч', 'ручной арбалет'] },
+  // «Жестянщик» (dnd.su, раса «Гном», скальный): «Вы владеете ремесленными инструментами (инструменты ремонтника)» — B-11
+  'gnome-rock':     { tool: ['Инструменты ремонтника'] },
 };
 
 // Старые названия инструментов в сохранённых персонажах → названия таблицы dnd.su (миграция v2 → v3).
@@ -400,3 +402,15 @@ export function armorClass(entries, stats, profs) {
 }
 
 export const carryCapacity = str => (str || 10) * 15;
+
+// ─── Металл в доспехах — для друида (B-12/B-05, решение заказчика 2026-09-28) ─────
+// dnd.su, Друид → Владения: «лёгкие доспехи, средние доспехи, щиты (друиды не носят доспехи и щиты из металла)».
+// Материал — по описаниям доспехов dnd.su (98/95-armor-and-shields): true — в описании прямо «металл…»;
+// false — описан без металла (ткань, кожа, шкуры); null — материал в описании не указан («шипами или заклёпками»,
+// «толстыми кольцами»; щит — «из дерева или металла») → «уточни у Мастера».
+export const ARMOR_METAL = {
+  padded: false, leather: false, hide: false,
+  'studded-leather': null, 'ring-mail': null, shield: null,
+  'chain-shirt': true, 'scale-mail': true, breastplate: true, 'half-plate': true,
+  'chain-mail': true, splint: true, plate: true,
+};
