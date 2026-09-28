@@ -23,7 +23,7 @@ import {
   TOOL_RENAMES, TOOL_REMOVED, RACE_EQUIP_GRANTS,
 } from './equipment.js';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 // ─── Entity ids ───────────────────────────────────────────────────────────────
 // Races/backgrounds: latin slug of the dnd.su page (/race/78-dwarf/ → dwarf, /backgrounds/766-acolyte/ → acolyte).
@@ -168,7 +168,31 @@ export function migrateWizardState(ws) {
   // Э3: названия инструментов — по таблице dnd.su; снаряжение — в mecEquip
   renameToolsInWizard(out);
   migrateEquipWizard(out);
+  // B-14 (v4): названия языков — как на dnd.su
+  for (const k of Object.keys(out)) if (k.startsWith('mec')) out[k] = renameLangsDeep(out[k]);
   return out;
+}
+
+/** B-14 (2026-09-28): старые названия языков → dnd.su. */
+export const LANG_RENAMES = {
+  'Дварфский': 'Дварфийский', 'Гномский': 'Гномий', 'Великанский': 'Великаний',
+  'Первозданный': 'Первичный', 'Общий Подземья': 'Подземный',
+};
+function renameLangStr(v) {
+  if (LANG_RENAMES[v]) return LANG_RENAMES[v];
+  if (v.startsWith('language::') && LANG_RENAMES[v.slice(10)]) return 'language::' + LANG_RENAMES[v.slice(10)];
+  return v;
+}
+/** Точное совпадение строк (значения и ключи объектов) — названия языков уникальны, с другими значениями не пересекаются. */
+function renameLangsDeep(v) {
+  if (typeof v === 'string') return renameLangStr(v);
+  if (Array.isArray(v)) return v.map(renameLangsDeep);
+  if (v && typeof v === 'object') {
+    const o = {};
+    for (const [k, x] of Object.entries(v)) o[k] = renameLangsDeep(x);
+    return o;
+  }
+  return v;
 }
 
 const renameTool = v => TOOL_RENAMES[v] || v;
@@ -243,7 +267,15 @@ export function migrateCharacter(rec) {
   let out = rec;
   if ((out.schemaVersion || 1) < 2) out = migrateV1toV2(out);
   if (out.schemaVersion < 3) out = migrateV2toV3(out);
+  if (out.schemaVersion < 4) out = migrateV3toV4(out);
   return out;
+}
+
+/** v3 → v4 (B-14): названия языков в grants и в состоянии мастера — как на dnd.su. */
+function migrateV3toV4(rec) {
+  const grants = (rec.grants || []).map(g => (g.pool === 'language' && LANG_RENAMES[g.value] ? { ...g, value: LANG_RENAMES[g.value] } : g));
+  const _wizardState = rec._wizardState ? migrateWizardState(rec._wizardState) : rec._wizardState;
+  return { ...rec, grants, _wizardState, schemaVersion: 4 };
 }
 
 function migrateV1toV2(rec) {

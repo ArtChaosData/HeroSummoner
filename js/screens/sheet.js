@@ -6,6 +6,7 @@ import { el } from '../utils.js';
 import { legacyView } from '../character.js';
 import { armorClass, equipProfs, itemById } from '../equipment.js';
 import { buildInventoryView, makeRulePanel } from '../equipment-view.js';
+import { RACE_DESCRIPTIONS } from '../data/race_descriptions.js';
 
 // ─── Data tables ──────────────────────────────────────────────────────────────
 
@@ -266,6 +267,7 @@ export async function renderSheet(container, router, { id } = {}) {
             ? buildInventoryView({
                 entries: record.equipment.items || [], coins: record.equipment.coins, stats: record.stats,
                 profs: equipProfs(record.grants), rules: makeRulePanel(),
+                size: RACE_DESCRIPTIONS[char.race]?.size || null, // B-16: «Тяжёлое» у Маленьких
                 onToggle: async entries => {
                   record.equipment.items = entries;
                   // мастер при редактировании строит «надето» из своего состояния — держим его в курсе

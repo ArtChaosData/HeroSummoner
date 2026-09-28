@@ -5,7 +5,7 @@
  */
 import { el } from './utils.js';
 import {
-  itemById, entryName, entryUnitWeight, itemStats, fmtWeight, fmtCoins, isProficient, armorClass,
+  itemById, entryName, entryUnitWeight, itemStats, fmtWeight, fmtCoins, isProficient, armorClass, smallHeavyWarning,
   setEquipped, WEAPON_PROPERTIES, ARMOR_RULES, ITEM_GROUPS, PICK_GROUPS,
 } from './equipment.js';
 
@@ -154,11 +154,13 @@ const SOURCE_LABEL = { class: 'класс', background: 'предыстория'
  * Список инвентаря по категориям Оружие / Доспехи / Снаряжение / Золото, КД и ⚠️.
  * entries — equipment.items; onToggle(entries) — после «надеть / снять» (null → только чтение).
  */
-export function buildInventoryView({ entries, coins, stats, profs, onToggle, rules, acTotal = true }) {
+export function buildInventoryView({ entries, coins, stats, profs, onToggle, rules, acTotal = true, size = null }) {
   const root = el('div', { class: 'eq-view' });
   function render() {
     root.innerHTML = '';
     const acInfo = armorClass(entries, stats, profs);
+    const sh = smallHeavyWarning(entries, size); // B-16
+    if (sh) acInfo.warnings = [...acInfo.warnings, sh];
     const used = new Set();
     for (const cat of VIEW_CATS) {
       const rows = entries.filter(e => !used.has(e) && !e.custom && cat.test(itemById(e.id)) || (cat.id === 'gear' && !used.has(e)));
@@ -216,7 +218,9 @@ export function acBlock(acInfo, { total = true } = {}) {
       box.append(el('p', { class: 'eq-ac-note' }, `Скрытность: Помеха (${w.items.join(', ')})`));
       continue;
     }
-    const head = w.kind === 'prof' ? `⚠️ Нет владения: ${w.items.join(', ')}. ` : `⚠️ Не хватает Силы для «${w.items[0]}» — скорость −10 фт. `;
+    const head = w.kind === 'prof' ? `⚠️ Нет владения: ${w.items.join(', ')}. `
+      : w.kind === 'small-heavy' ? `⚠️ Тяжёлое оружие у Маленького персонажа: ${w.items.join(', ')}. `
+      : `⚠️ Не хватает Силы для «${w.items[0]}» — скорость −10 фт. `;
     box.append(el('p', { class: 'eq-ac-warn' }, head, w.text));
   }
   return box;

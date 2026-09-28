@@ -612,207 +612,8 @@ const SOURCEBOOKS = {
   ],
 };
 
-// ─── Sourcebook content (races + subclasses) ──────────────────────────────────
-// subs: [[ClassName, sub1, sub2, ...], ...]
-
-const SRC_CONTENT = {
-  PHB: {
-    races: [
-      'Дварф (Горный)', 'Дварф (Холмовой)',
-      'Эльф (Высший)', 'Эльф (Лесной)', 'Тёмный эльф (дроу)',
-      'Полурослик (Легконогий)', 'Полурослик (Коренастый)',
-      'Человек', 'Человек (Альтернативный)',
-      'Драконорождённый',
-      'Гном (Лесной)', 'Гном (Скальный)',
-      'Полуэльф', 'Полуорк', 'Тифлинг',
-    ],
-    subs: [],
-  },
-  XGtE: {
-    rules: 'Расширяет правила инструментов, отдыха, встреч и ловушек.',
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [
-      ['Варвар',    'Путь Предка-Стража', 'Путь Вихря Бури', 'Путь Ревностного'],
-      ['Бард',      'Коллегия Гламура', 'Коллегия Мечей', 'Коллегия Шёпота'],
-      ['Жрец',      'Домен Кузницы', 'Домен Могилы'],
-      ['Друид',     'Круг Снов', 'Круг Пастыря'],
-      ['Воин',      'Аркейнный Стрелок', 'Кавалерист', 'Самурай'],
-      ['Монах',     'Путь Пьяного Мастера', 'Путь Кенсэй', 'Путь Солнечной Души'],
-      ['Паладин',   'Клятва Завоевания', 'Клятва Искупления'],
-      ['Следопыт',  'Преследователь Сумрака', 'Страж Горизонта', 'Истребитель Чудовищ'],
-      ['Плут',      'Инквизитор', 'Интриган', 'Разведчик', 'Щёголь'],
-      ['Чародей',   'Божественная Душа', 'Тёмная Магия', 'Магия Бурь'],
-      ['Колдун',    'Небесный', 'Кормилец Клинков'],
-      ['Волшебник', 'Боевая Магия'],
-    ],
-  },
-  TCE: {
-    rules: 'Необязательные классовые умения, кастомизация происхождения, сайдкики, групповые покровители.',
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [
-      ['Изобретатель', 'Алхимик', 'Доспешник', 'Арсеналист', 'Оружейник'],
-      ['Варвар',    'Путь Зверя', 'Путь Дикой Магии'],
-      ['Бард',      'Коллегия Созидания', 'Коллегия Красноречия'],
-      ['Жрец',      'Домен Порядка', 'Домен Мира', 'Домен Сумерек'],
-      ['Друид',     'Круг Звёзд', 'Круг Спор'],
-      ['Воин',      'Псионический Рыцарь', 'Рунный Рыцарь'],
-      ['Монах',     'Путь Преданности Духу', 'Путь Длинной Смерти (рев.)', 'Путь Четырёх Элементов (рев.)'],
-      ['Паладин',   'Клятва Мира', 'Клятва Слав'],
-      ['Плут',      'Призрак', 'Пройдоха'],
-      ['Чародей',   'Аберрантный Разум', 'Тело Заклинателя'],
-      ['Колдун',    'Джинн', 'Безликий'],
-      ['Волшебник', 'Хронург', 'Порядок Писцов'],
-    ],
-  },
-  SCAG: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [
-      ['Бард',      'Коллегия Мечей'],
-      ['Жрец',      'Домен Арканы'],
-      ['Воин',      'Рыцарь Пурпурного Дракона'],
-      ['Монах',     'Путь Длинной Смерти', 'Путь Открытой Руки (рев.)'],
-      ['Паладин',   'Клятва Короны'],
-      ['Плут',      'Мастер Сладкой Речи'],
-      ['Колдун',    'Повелитель Клинков'],
-      ['Волшебник', 'Воплощение', 'Чертёжник'],
-    ],
-  },
-  MToF: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [
-      ['Жрец',    'Домен Ковена'],
-      ['Паладин', 'Клятва Завоевания (рев.)'],
-    ],
-  },
-  VGtM: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [],
-  },
-  MPMM: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [],
-  },
-  VRGR: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [
-      ['Бард',      'Коллегия Духов'],
-      ['Следопыт',  'Охотник на Призраков'],
-      ['Плут',      'Призрак (рев.)'],
-      ['Колдун',    'Духи Нечисти'],
-      ['Волшебник', 'Порядок Писцов (рев.)'],
-    ],
-  },
-  SCC: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [
-      ['Бард',      'Коллегия Красноречия (рев.)'],
-      ['Жрец',      'Домен Порядка (рев.)'],
-      ['Друид',     'Круг Звёзд (рев.)'],
-      ['Воин',      'Псионический Рыцарь (рев.)'],
-      ['Паладин',   'Клятва Ваших', 'Клятва Мира (рев.)'],
-      ['Следопыт',  'Хранитель Дальнего'],
-      ['Плут',      'Пройдоха (рев.)'],
-      ['Чародей',   'Аберрантный Разум (рев.)'],
-      ['Волшебник', 'Лор Мастер'],
-    ],
-  },
-  WBW:  { races: [] /* 2026-09-27: расы не из PHB удалены из данных */, subs: [] },
-  MOT: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [
-      ['Жрец',    'Домен Благословения'],
-      ['Паладин', 'Клятва Слав'],
-    ],
-  },
-  GGR: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [
-      ['Жрец',      'Домен Порядка'],
-      ['Паладин',   'Клятва Завоевания (рев.)'],
-      ['Плут',      'Инквизитор (рев.)'],
-      ['Волшебник', 'Биомаг'],
-    ],
-  },
-  RLW: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [
-      ['Воин',      'Рыцарь Метки'],
-      ['Монах',     'Путь Четырёх Ветров'],
-      ['Следопыт',  'Рейнджер Зверей (рев.)'],
-      ['Волшебник', 'Маг Метки'],
-    ],
-  },
-  SAS: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [],
-  },
-  AI: {
-    races: [] /* 2026-09-27: расы не из PHB удалены из данных */,
-    subs: [
-      ['Жрец',   'Домен Порядка (рев.)'],
-      ['Плут',   'Корпоративный Агент'],
-    ],
-  },
-  POA:  { races: [] /* 2026-09-27: расы не из PHB удалены из данных */, subs: [] },
-  TP:   { races: [] /* 2026-09-27: расы не из PHB удалены из данных */, subs: [] },
-  OGA:  { races: [] /* 2026-09-27: расы не из PHB удалены из данных */, subs: [] },
-  LR:   { races: [] /* 2026-09-27: расы не из PHB удалены из данных */, subs: [] },
-};
-
-function buildSrcBlock(src, c) {
-  const bodyRows = [];
-
-  if (c.rules) bodyRows.push(
-    el('p', { class: 'mech-pr-rules' }, '⚙ ' + c.rules),
-  );
-
-  if (c.races.length) {
-    bodyRows.push(el('p', { class: 'mech-pr-section' }, 'Расы:'));
-    bodyRows.push(el('div', { class: 'mech-pr-grid' },
-      ...c.races.map(r => el('span', { class: 'mech-pr-item' }, r)),
-    ));
-  }
-
-  if (c.subs.length) {
-    bodyRows.push(el('p', { class: 'mech-pr-section' }, 'Подклассы:'));
-    bodyRows.push(el('div', { class: 'mech-pr-subs-grid' },
-      ...c.subs.map(([cls, ...names]) =>
-        el('div', { class: 'mech-pr-cls-block' },
-          el('p', { class: 'mech-pr-cls' }, cls + ':'),
-          ...names.map(n => el('span', { class: 'mech-pr-item' }, n)),
-        )
-      ),
-    ));
-  }
-
-  const details = document.createElement('details');
-  details.className = 'mech-src-block';
-
-  const summary = document.createElement('summary');
-  summary.className = 'mech-src-block-hd';
-  summary.append(
-    Object.assign(document.createElement('span'), { className: 'mech-pr-id',   textContent: src.id }),
-    Object.assign(document.createElement('span'), { className: 'mech-pr-name', textContent: src.name }),
-    Object.assign(document.createElement('span'), { className: 'mech-pr-desc', textContent: ' — ' + src.desc }),
-    Object.assign(document.createElement('span'), { className: 'mech-src-chevron', textContent: '▾' }),
-  );
-  details.append(summary);
-  if (bodyRows.length) details.append(el('div', { class: 'mech-src-body' }, ...bodyRows));
-  return details;
-}
-
-function buildSrcPreview(st) {
-  const books = SOURCEBOOKS['5e'] || [];
-  const active = books.filter(b => !b.locked && st.mecSources.includes(b.id));
-  if (!active.length) return null;
-
-  const blocks = active.map(src => {
-    const c = SRC_CONTENT[src.id];
-    return c ? buildSrcBlock(src, c) : null;
-  }).filter(Boolean);
-
-  return blocks.length ? el('div', { class: 'mech-src-preview' }, ...blocks) : null;
-}
+// 2026-09-28 (B-15): удалены SRC_CONTENT / buildSrcBlock / buildSrcPreview — нигде не вызывались,
+// списки подклассов дополнений в них были не с dnd.su. Подклассы 1 ур. — js/data/class_lvl1_subclasses.js.
 
 // ─── Mechanics: sourcebook tooltip ───────────────────────────────────────────
 
@@ -1147,7 +948,7 @@ function buildFinalStep(st, goMech, go) {
     ),
     eqStatus.ok ? null : el('p', { class: 'eq-ac-warn' }, `⚠️ ${eqStatus.reason} — шаг «Снаряжение».`),
     buildInventoryView({
-      entries: eqInv, coins: eqCoins(st), stats: eqStatsF, profs: eqProfsF, rules: eqRules, acTotal: false,
+      entries: eqInv, coins: eqCoins(st), stats: eqStatsF, profs: eqProfsF, rules: eqRules, acTotal: false, size: mecRaceSize(st),
       onToggle: entries => {
         for (const cat of ['armor', 'shield']) {
           const on = entries.find(e => e.equipped && !e.custom && EQ.itemById(e.id)?.category === cat);
@@ -2693,7 +2494,9 @@ const RACE_DATA = {
 
 // ─── Background data ──────────────────────────────────────────────────────────
 
-const LANGUAGES     = ['Бездны','Великанский','Гномский','Гоблинский','Глубокая речь','Дварфский','Драконий','Инфернальный','Небесный','Орочий','Первозданный','Полуросликов','Сильван','Общий Подземья','Эльфийский'];
+// B-14 (2026-09-28): названия — как на dnd.su (формы из текстов рас/подклассов dnd.su: «на Общем и Дварфийском»,
+// «Гномьем», «Великаньем», «Первичном», «Подземном»). «Глубокая речь», «Небесный» — ⚠️ в кэше dnd.su не встретились.
+const LANGUAGES     = ['Бездны','Великаний','Гномий','Гоблинский','Глубокая речь','Дварфийский','Драконий','Инфернальный','Небесный','Орочий','Первичный','Полуросликов','Сильван','Подземный','Эльфийский'];
 // PHB (2014) feats, for the race-trait "choose one feat" selector (Alternate/Variant Human).
 const PHB_FEATS = FEATS.map(f => f.name);   // 42 черты PHB — js/data/feats.js (dnd.su, генератор tools/gen_dndsu_extras.py)
 // Э3 (решение заказчика 2026-09-28): списки инструментов — из таблицы dnd.su (100-tools) через js/data/equipment.js.
@@ -3469,7 +3272,7 @@ function buildRaceStep(st, goMech) {
 
   // 2026-09-11 (заказчик, UX-правка, не код): пока полный перенос ~93 рас с ttg.club не
   // выверен, в списке показываем только PHB — это фильтр на отображение, а не удаление
-  // данных: RACE_DATA/SRC_CONTENT для остальных допов остаются в коде как есть, так что
+  // данных: RACE_DATA для остальных допов остаётся в коде как есть, так что
   // возврат к полному списку — это снова одна строка здесь, без повторного ввода данных.
   const books = (SOURCEBOOKS['5e'] || []).filter(b => b.id === 'PHB');
   books.forEach(book => {
@@ -4132,7 +3935,11 @@ const signNum  = n => n >= 0 ? `+${n}` : `${n}`;
 
 // 2026-09-26: фиксированные языки расы из строки `languages` («Общий, Эльфийский + один на
 // выбор»), без хвоста «+ … на выбор» и с приведением написания к списку LANGUAGES.
-const LANG_ALIASES = { 'Дварфийский': 'Дварфский', 'Великаний': 'Великанский' };
+const LANG_ALIASES = {}; // написание в race_descriptions.js → название из LANGUAGES (B-14: данные выровнены, алиасы не нужны)
+/** Размер расы из race_descriptions.js (dnd.su): «Маленький» / «Средний» (B-16). */
+function mecRaceSize(st) {
+  return st.mecRace ? (_resolveRaceDesc(st.mecRace.split('::')[1])?.size || null) : null;
+}
 function mecRaceBaseLanguages(raceDesc) {
   if (!raceDesc?.languages) return [];
   return raceDesc.languages.split(/,|\+/)
@@ -5352,7 +5159,11 @@ function buildEquipStep(st, goMech) {
     const inv = eqInventory(st, profs, stats);
     const acSec = el('section', { class: 'equip-section eq-ac-sec' },
       el('div', { class: 'equip-section-hd' }, el('span', { class: 'equip-section-name' }, 'Надето')),
-      (() => { const c = classArmorClass(st, inv, stats, profs); return acBlock({ ...c.base, ac: c.ac }); })(),
+      (() => {
+        const c = classArmorClass(st, inv, stats, profs);
+        const sh = EQ.smallHeavyWarning(inv, mecRaceSize(st)); // B-16
+        return acBlock({ ...c.base, ac: c.ac, warnings: [...c.base.warnings, ...(sh ? [sh] : [])] });
+      })(),
       el('p', { class: 'eq-hint' }, 'Доспех и щит надеваются автоматически; снять или надеть другой можно на «Финале».'),
     );
     return [clsSec, bgSec, acSec];

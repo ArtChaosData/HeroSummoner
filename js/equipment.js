@@ -381,6 +381,17 @@ export function setEquipped(entries, entry, on) {
  * КД из надетого: { ac, armor, shield, parts, warnings[] }.
  * Защита без доспехов Варвара/Монаха — этап «Лист» (ТЗ 4.4.7), здесь не учитывается.
  */
+/**
+ * B-16 (2026-09-28): свойство «Тяжёлое» у Маленького существа — помеха к атаке (текст свойства — dnd.su, WEAPON_PROPERTIES.heavy).
+ * size — размер расы («Маленький» / «Средний»). → { kind: 'small-heavy', items, text } | null.
+ */
+export function smallHeavyWarning(entries, size) {
+  if (size !== 'Маленький') return null;
+  const items = [...new Set((entries || []).map(e => (e.custom ? null : itemById(e.id)))
+    .filter(it => it && it.category === 'weapon' && (it.properties || []).some(p => p.id === 'heavy')).map(it => it.name))];
+  return items.length ? { kind: 'small-heavy', items, text: WEAPON_PROPERTIES.heavy?.text || '' } : null;
+}
+
 export function armorClass(entries, stats, profs) {
   const dexMod = mod(stats?.dex);
   const armorE = (entries || []).find(e => e.equipped && itemById(e.id)?.category === 'armor');
