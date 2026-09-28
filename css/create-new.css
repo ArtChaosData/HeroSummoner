@@ -3893,3 +3893,27 @@ select.cnew-input option { color: var(--text-primary); background: var(--surface
 .final-feat-body p { margin: 0 0 6px; }
 .final-feat-h { font-weight: 700; color: var(--text-primary); }
 .final-feat-none { color: var(--text-muted); font-style: italic; }
+
+/* ── Шаг 4.4.4a «Компетентность» (ТЗ v0.41, B-03) ── */
+.mech-step-body.is-expertise { gap: 14px; }
+.exp-body { display: flex; flex-direction: column; gap: 14px; max-width: 860px; }
+.exp-rule { border: 1px solid var(--border-2); border-radius: var(--r-md); background: var(--surface); }
+.exp-rule summary { display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer;
+  font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.exp-rule-src { margin-left: auto; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.exp-rule-body { padding: 0 12px 10px; }
+.exp-rule-body p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
+.exp-rule-body .exp-rule-h { font-weight: 700; color: var(--text-primary); }
+.exp-rule-wait { color: var(--text-muted); }
+.exp-chip { display: inline-flex; align-items: baseline; gap: 6px; }
+.exp-chip-src { font-size: 10.5px; font-weight: 400; color: var(--text-muted); }
+.cls-chip.is-picked .exp-chip-src { color: var(--accent-soft); opacity: .8; }
+.exp-langs { display: grid; grid-template-columns: repeat(2, minmax(0, 260px)); gap: 8px; }
+@media (max-width: 600px) { .exp-langs { grid-template-columns: 1fr; } }
+
+/* Компетентность на «Финале»: ×2 у навыка / инструмента */
+.sk-exp { flex-shrink: 0; font: 700 9.5px var(--font-body); letter-spacing: .02em; color: var(--gold-soft);
+  border: 1px solid var(--gold-dim); background: var(--gold-bg); border-radius: 3px; padding: 0 3px; cursor: help; }
+.sk-cb.is-expert { box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 3px var(--gold-soft); }
+.skill-row.is-expert .sk-bonus { color: var(--gold-soft); }
+.final-prof-chip .sk-exp { align-self: center; }

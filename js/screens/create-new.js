@@ -344,15 +344,25 @@ function buildConcept(st, go) {
 
 // ─── Mechanics: constants ─────────────────────────────────────────────────────
 
+// ord — порядковый номер шага для st.mecMaxStep (ТЗ v0.41): шаг «Компетентность» вставлен с дробным ord 2.5,
+// чтобы у сохранённых черновиков (mecMaxStep — прежний индекс) номера остальных шагов не сдвинулись.
 const MECH_STEPS = [
-  { id: 'class',      label: 'Класс' },
-  { id: 'race',       label: 'Раса' },
-  { id: 'background', label: 'Предыстория' },
-  { id: 'stats',      label: 'Характеристики' },
-  { id: 'spells',     label: 'Заклинания', magic: true },
-  { id: 'equipment',  label: 'Снаряжение' },
-  { id: 'final',      label: 'Финал' },
+  { id: 'class',      label: 'Класс',          ord: 0 },
+  { id: 'race',       label: 'Раса',           ord: 1 },
+  { id: 'background', label: 'Предыстория',    ord: 2 },
+  { id: 'expertise',  label: 'Компетентность', ord: 2.5, expertise: true },
+  { id: 'stats',      label: 'Характеристики', ord: 3 },
+  { id: 'spells',     label: 'Заклинания',     ord: 4, magic: true },
+  { id: 'equipment',  label: 'Снаряжение',     ord: 5 },
+  { id: 'final',      label: 'Финал',          ord: 6 },
 ];
+const stepOrd = id => MECH_STEPS.find(s => s.id === id)?.ord ?? 0;
+/** Шаг 4.4.4a «Компетентность» — только у Плута и у Следопыта в версии Таши (ТЗ 4.4.4a). */
+function hasExpertiseStep(st) {
+  return st.mecClass === 'rogue' || (st.mecClass === 'ranger' && clsVariant(st) === 'tce');
+}
+/** Шаг после «Предыстории». */
+function stepAfterBackground(st) { return hasExpertiseStep(st) ? 'expertise' : 'stats'; }
 
 function isConceptDone(st) {
   return !!(
@@ -362,7 +372,7 @@ function isConceptDone(st) {
   );
 }
 function isMechDone(st) {
-  return (st.mecMaxStep || 0) >= MECH_STEPS.findIndex(s => s.id === 'final');
+  return (st.mecMaxStep || 0) >= stepOrd('final');
 }
 
 const CLASS_HP_DIE = {
@@ -399,6 +409,15 @@ function buildCharacterGrants(st) {
   }
   if (cc.fighting_style) g.push(grant('feature', cc.fighting_style, 'class', cls, { kind: 'choice', slot: 'fighting_style' }));
   for (const v of [].concat(cc.maneuver || [])) g.push(grant('feature', v, 'class', cls, { kind: 'choice', slot: 'maneuver' }));
+  // Шаг 4.4.4a «Компетентность» (ТЗ v0.41): Плут — «Компетентность», Следопыт (Таша) — «Искусный исследователь»
+  if (hasExpertiseStep(st)) {
+    for (const v of [].concat(cc.expertise || []).filter(Boolean)) g.push(grant('expertise', v, 'class', cls, { kind: 'choice', slot: 'expertise' }));
+    if (cls === 'ranger') {
+      for (const v of [].concat(cc.deft_explorer_languages || []).filter(Boolean)) {
+        g.push(grant('language', v, 'class', cls, { kind: 'choice', slot: 'deft_explorer_languages' }));
+      }
+    }
+  }
   // ── Подкласс (1 ур.)
   const sub = clsSubclassObj(st);
   if (sub) {
@@ -409,6 +428,10 @@ function buildCharacterGrants(st) {
     for (const v of sg.skills || [])    g.push(grant('skill',    v, 'subclass', sub.id));
     for (const v of sg.languages || []) g.push(grant('language', v, 'subclass', sub.id));
     for (const v of sc.skills || [])    g.push(grant('skill',    v, 'subclass', sub.id, { kind: 'choice', slot: 'subclass_skills' }));
+    // Домен знаний: навыки домена — с компетентностью (ТЗ 4.4.4a: ставится на навыки, которые даёт сам домен)
+    if ((sub.choices || []).some(c => c.id === 'skills' && c.expertise)) {
+      for (const v of sc.skills || []) g.push(grant('expertise', v, 'subclass', sub.id, { kind: 'choice', slot: 'subclass_skills' }));
+    }
     for (const v of sc.languages || []) g.push(grant('language', v, 'subclass', sub.id, { kind: 'choice', slot: 'subclass_languages' }));
   }
   // ── Раса и подраса
@@ -817,10 +840,11 @@ function hideSrcTip() { _srcTip?.remove(); _srcTip = null; }
 function buildMechProgress(st, goMech, magic) {
   // Паладин/Следопыт без заклинаний расы/черты: шаг виден, но пропускается — «Магия придёт на 2 уровне» (ТЗ 4.4.6)
   const lateMagic = !magic && LATE_CASTERS.has(st.mecClass);
-  const steps     = MECH_STEPS.filter(s => !s.magic || magic || lateMagic);
+  const expert    = hasExpertiseStep(st);
+  const steps     = MECH_STEPS.filter(s => (!s.magic || magic || lateMagic) && (!s.expertise || expert));
   const cur       = steps.findIndex(s => s.id === (st.mecStep || 'class'));
-  // mecMaxStep — индекс в полном MECH_STEPS; переводим в индекс видимого списка
-  const maxIdx    = steps.filter(s => MECH_STEPS.indexOf(s) <= (st.mecMaxStep || 0)).length - 1;
+  // mecMaxStep — ord шага (MECH_STEPS); переводим в индекс видимого списка
+  const maxIdx    = steps.filter(s => s.ord <= (st.mecMaxStep || 0)).length - 1;
   const statsIdx  = steps.findIndex(s => s.id === 'stats');
   const spellsIdx = magic ? steps.findIndex(s => s.id === 'spells') : -1;
   const spellsOk  = spellsIdx < 0 || spellStepDone(st);
@@ -829,6 +853,7 @@ function buildMechProgress(st, goMech, magic) {
   // на заблокированном шаге — подсказка, что и где не заполнено.
   const pc = PL.conflicts(buildCharacterGrants(st));
   const gate = [['class', mecClassMissing(st, pc)], ['race', mecRaceMissing(st, pc)], ['background', mecBgMissing(st, pc)]];
+  if (expert) gate.push(['expertise', mecExpertiseMissing(st)]); // шаг 4.4.4a
   const firstOpen = gate.findIndex(([, miss]) => miss.length);
   const openIdx = firstOpen < 0 ? Infinity : steps.findIndex(s => s.id === gate[firstOpen][0]);
   const labelOf = id => MECH_STEPS.find(s => s.id === id)?.label || id;
@@ -992,6 +1017,11 @@ function buildFinalStep(st, goMech, go) {
   const PB      = 2;
   const skillGrant = new Map();   // norm(навык) → grant (первый источник)
   for (const g of fGrants) if (g.pool === 'skill' && !skillGrant.has(PL.norm(g.value))) skillGrant.set(PL.norm(g.value), g);
+  // Компетентность (шаг 4.4.4a, Домен знаний): бонус мастерства ×2 — только для владений персонажа
+  const expertSet = new Set(fGrants.filter(g => g.pool === 'expertise').map(g => PL.norm(g.value)));
+  const EXPERT_TIP = 'Компетентность — бонус мастерства удваивается.';
+  const skillPB = name => (skillGrant.has(PL.norm(name)) ? PB * (expertSet.has(PL.norm(name)) ? 2 : 1) : 0);
+  const expBadge = () => el('span', { class: 'sk-exp', title: EXPERT_TIP }, '×2');
   /** Всплывашка при наведении (и по тапу): название + текст. */
   function tipOn(node, name, desc) {
     node.classList.add('has-ftip');
@@ -1060,27 +1090,31 @@ function buildFinalStep(st, goMech, go) {
       const fromClass = srcT === 'class' || srcT === 'subclass';
       const fromRace  = srcT === 'race' || srcT === 'subrace' || srcT === 'feat';
       const prof      = !!g;
-      const bonus     = mod + (prof ? 2 : 0);
+      const expert    = prof && expertSet.has(PL.norm(name));
+      const bonus     = mod + skillPB(name);
       let cbCls = 'sk-cb';
       if (fromBg)         cbCls += ' src-bg has-check';
       else if (fromClass) cbCls += ' src-class has-check';
       else if (fromRace)  cbCls += ' src-race has-check';
-      return el('div', { class: `skill-row locked` },
+      if (expert) cbCls += ' is-expert';
+      const row = el('div', { class: `skill-row locked${expert ? ' is-expert' : ''}` },
         el('div',  { class: cbCls }),
         el('span', { class: `sk-name${prof ? ' proficient' : ''}` }, name),
+        expert ? expBadge() : null,
         el('div',  { class: 'sk-bonus-wrap' },
           el('span', { class: `sk-bonus${fromClass ? ' col-class' : fromBg ? ' col-bg' : fromRace ? ' col-race' : ''}` }, signNum(bonus)),
         ),
       );
+      if (expert) row.title = `${name}: ${signNum(mod)} (мод.) + ${PB * 2} (бонус мастерства ×2, компетентность)`;
+      return row;
     });
 
     if (key === 'wis') {
-      const percProf = skillGrant.has(PL.norm('Восприятие'));
       skillEls.push(el('div', { class: 'skill-row locked passive-row' },
         el('div',  { class: 'sk-cb sk-cb-passive' }),
         el('span', { class: 'sk-name' }, 'Пасс. Внимательность'),
         el('div',  { class: 'sk-bonus-wrap' },
-          el('span', { class: 'sk-bonus' }, String(10 + mod + (percProf ? 2 : 0))),
+          el('span', { class: 'sk-bonus' }, String(10 + mod + skillPB('Восприятие'))),
         ),
       ));
     }
@@ -1139,7 +1173,7 @@ function buildFinalStep(st, goMech, go) {
   if (subInfoF?.speed) speedF = subInfoF.speed;
   const heavyIgnored = (raceDescF?.traits || []).some(t => /не снижает вашу скорость/.test(t.text || ''));
   const strPenalty = !heavyIgnored && acBase.warnings.some(w => w.kind === 'str');
-  const percP = 10 + wisM + (skillGrant.has(PL.norm('Восприятие')) ? PB : 0);
+  const percP = 10 + wisM + skillPB('Восприятие');
   function tile(v, k, sub, tipTitle = null, tipText = null, cls = '') {
     const t = el('div', { class: `final-tile ${cls}`.trim() },
       el('span', { class: 'final-tile-v' }, String(v)),
@@ -1154,7 +1188,7 @@ function buildFinalStep(st, goMech, go) {
     tile(signNum(initV), 'Инициатива', alert ? 'ЛОВ + «Бдительный»' : 'ЛОВ'),
     tile(strPenalty ? speedF - 10 : speedF, 'Скорость', 'фт.', 'Скорость', `Из расы: ${speedF} фт.${strPenalty ? ' −10 фт.: не хватает Силы для надетого тяжёлого доспеха.' : ''}`),
     tile(signNum(PB), 'Бонус мастерства', '1 ур.'),
-    tile(percP, 'Пасс. внимат.', '10 + Восприятие'),
+    tile(percP, 'Пасс. внимат.', expertSet.has(PL.norm('Восприятие')) && skillGrant.has(PL.norm('Восприятие')) ? '10 + Восприятие (×2)' : '10 + Восприятие'),
   ];
   let magicTiles = [];
   if (hasSpellStep(st)) {
@@ -1217,6 +1251,7 @@ function buildFinalStep(st, goMech, go) {
   function profChip(g, pool) {
     const label = pool === 'save' ? (AB_SHORT2[g.value] || g.value) : cap1(String(g.value));
     const chip = el('span', { class: 'final-prof-chip' }, label, srcTag(g));
+    if ((pool === 'skill' || pool === 'tool') && expertSet.has(PL.norm(g.value))) chip.append(expBadge());
     if (pool === 'tool') {
       const it = EQ.itemByName(g.value) || EQ.itemByName(EQ.TOOL_RENAMES?.[g.value] || '');
       const extra = TOOL_EXTRA[PL.norm(g.value)];
@@ -1270,7 +1305,11 @@ function buildFinalStep(st, goMech, go) {
         }
         continue;
       }
-      featItems.push({ name: nm, src: 'класс', cls: 'is-class', paras: r ? rulesParas(r.full) : [] });
+      // Шаг 4.4.4a: к «Компетентности» / «Искусному исследователю» — что выбрано
+      const expPick = (nm === 'Компетентность' || nm === 'Искусный исследователь') && hasExpertiseStep(st)
+        ? [...[].concat(cc.expertise || []), ...(nm === 'Искусный исследователь' ? [].concat(cc.deft_explorer_languages || []) : [])].filter(Boolean)
+        : [];
+      featItems.push({ name: expPick.length ? `${nm}: ${expPick.join(', ')}` : nm, src: 'класс', cls: 'is-class', paras: r ? rulesParas(r.full) : [] });
     }
   }
   // Подкласс, 1 ур. (subclass_features.js — dnd.su)
@@ -1388,6 +1427,7 @@ function buildFinalStep(st, goMech, go) {
 
 function buildMechanics(st, go, container) {
   if (!st.mecStep || st.mecStep === 'edition') st.mecStep = 'class';
+  if (st.mecStep === 'expertise' && !hasExpertiseStep(st)) st.mecStep = 'stats'; // класс сменили — шага 4.4.4a нет
   if (!st.mecSources || !st.mecSources.length) st.mecSources = ['PHB'];
 
   // Шаг «Заклинания» — у любого персонажа с источником заклинаний на 1 ур. (ТЗ v0.29)
@@ -1395,9 +1435,10 @@ function buildMechanics(st, go, container) {
   mecPoolSync(st); // «Озёра», правила 2–3 — до прогресс-бара и шага
 
   function goMech(step) {
+    if (step === 'expertise' && !hasExpertiseStep(st)) step = 'stats'; // шаг 4.4.4a есть не у всех
     st.mecStep = step;
-    const idx = MECH_STEPS.findIndex(s => s.id === step);
-    if (idx > (st.mecMaxStep || 0)) st.mecMaxStep = idx;
+    const ord = stepOrd(step);
+    if (ord > (st.mecMaxStep || 0)) st.mecMaxStep = ord;
     scheduleSave(st);
     container.innerHTML = '';
     container.append(buildMechanics(st, go, container));
@@ -1421,6 +1462,7 @@ function buildMechanics(st, go, container) {
       st.mecStep === 'class'      ? buildClassStep(st, goMech)
         : st.mecStep === 'race'       ? buildRaceStep(st, goMech)
         : st.mecStep === 'background' ? buildBackgroundStep(st, goMech)
+        : st.mecStep === 'expertise'  ? buildExpertiseStep(st, goMech)
         : st.mecStep === 'stats'      ? buildStatsStep(st, goMech)
         : st.mecStep === 'spells'     ? buildSpellsStep(st, goMech)
         : st.mecStep === 'equipment'  ? buildEquipStep(st, goMech)
@@ -1488,8 +1530,8 @@ const CLASS_PROF_DATA = {
 // ТЗ v0.25, шаг 4.4.2 (③ инструменты/языки, ④ выборы 1 ур. + чек-лист, ⑤ подкласс).
 // Данные: js/data/class_lvl1.js (ручные списки) и js/data/class_lvl1_subclasses.js
 // (генерируется tools/gen_class_lvl1.py из docs/reviews/lvl1_choices.json).
-// Не сделано на этом этапе (см. порядок реализации в ТЗ): «озёра выборов» между шагами,
-// шаг 4.4.4a «Компетентность», фильтр TCE-расширений списков на шаге «Заклинания».
+// «Озёра выборов» — v0.34 (js/pools.js), шаг 4.4.4a «Компетентность» — v0.41 (buildExpertiseStep).
+// Не сделано: фильтр TCE-расширений списков на шаге «Заклинания».
 
 /** Версия класса: у Изобретателя всегда 'tce' (класс целиком из TCE), у остальных — переключатель. */
 function clsVariant(st) {
@@ -1615,6 +1657,12 @@ function clsVariantLosses(st, next) {
     if (cc.favored_enemy_language) out.push(`язык врага «${cc.favored_enemy_language}»`);
     if (cc.favored_terrain) out.push(`избранная местность «${cc.favored_terrain}»`);
   }
+  if (st.mecClass === 'ranger' && next === 'phb') {
+    const ex = [].concat(cc.expertise || []).filter(Boolean);
+    const dl = [].concat(cc.deft_explorer_languages || []).filter(Boolean);
+    if (ex.length) out.push(`компетентность «${ex.join(', ')}»`);
+    if (dl.length) out.push(`языки «${dl.join(', ')}»`);
+  }
   return out;
 }
 
@@ -1627,6 +1675,7 @@ function clsApplyVariant(st, next) {
   if (st.mecClass === 'ranger' && next === 'tce') {
     delete cc.favored_enemy; delete cc.favored_enemy_language; delete cc.favored_terrain;
   }
+  if (st.mecClass === 'ranger' && next === 'phb') { delete cc.expertise; delete cc.deft_explorer_languages; } // шаг 4.4.4a
   st.mecClassVariant = next;
 }
 
@@ -3594,7 +3643,8 @@ function buildBackgroundStep(st, goMech) {
     // Choice rows — with completion tracking
     const checkers = [];
     const hintEl   = el('p', { class: 'mech-bg-foot-hint', hidden: true });
-    const nextBtn  = el('button', { class: 'cnew-save-btn', onClick: () => goMech('stats') }, 'Далее → Характеристики');
+    const nextBtn  = el('button', { class: 'cnew-save-btn', onClick: () => goMech(stepAfterBackground(st)) },
+      hasExpertiseStep(st) ? 'Далее → Компетентность' : 'Далее → Характеристики');
     nextBtn.addEventListener('mouseenter', e => {
       if (nextBtn.disabled) showSrcTip(e, { name: '', desc: 'Заполните все выборы, чтобы продолжить' });
     });
@@ -3792,13 +3842,212 @@ function buildBackgroundStep(st, goMech) {
   });
 
   if (st.mecBackground) {
-    footEl.append(el('button', { class: 'cnew-save-btn', onClick: () => goMech('stats') }, 'Далее → Характеристики'));
+    footEl.append(el('button', { class: 'cnew-save-btn', onClick: () => goMech(stepAfterBackground(st)) },
+      hasExpertiseStep(st) ? 'Далее → Компетентность' : 'Далее → Характеристики'));
   }
   updateDetail();
 
   return el('div', { class: 'mech-step-body' },
     el('h2', { class: 'mech-step-title' }, 'Выберите предысторию'),
     el('div', { class: 'mech-cls-layout' }, el('div', { class: 'mech-list-wrap' }, listEl), detailEl),
+    footEl,
+  );
+}
+
+// ─── Шаг 4.4.4a «Компетентность» (ТЗ v0.41, B-03) ────────────────────────────────
+// Плут: «Компетентность» — 2 владения (2 навыка или навык + воровские инструменты).
+// Следопыт (Таша): «Искусный исследователь», «Хитрец» — 1 навык + 2 языка (языки — по правилам «Озёр»).
+// Выбор: st.mecClassChoices.expertise / .deft_explorer_languages → grants (pool 'expertise' / 'language').
+// Тексты правил — только dnd.su (rules_levels.js: «Плут:КОМПЕТЕНТНОСТЬ», «Следопыт:ИСКУСНЫЙ ИССЛЕДОВАТЕЛЬ»).
+
+/** { n, tools, langs, ruleKey, title } — что выбирается на шаге; null — шага нет. */
+function mecExpertiseSpec(st) {
+  if (st.mecClass === 'rogue') return { n: 2, tools: true, langs: 0, ruleKey: 'Плут:КОМПЕТЕНТНОСТЬ', title: 'Компетентность' };
+  if (st.mecClass === 'ranger' && clsVariant(st) === 'tce') {
+    return { n: 1, tools: false, langs: 2, ruleKey: 'Следопыт:ИСКУСНЫЙ ИССЛЕДОВАТЕЛЬ', title: 'Искусный исследователь' };
+  }
+  return null;
+}
+const isThievesTools = v => PL.norm(v) === 'воровские инструменты';
+
+/** Варианты: все навыки, которыми персонаж владеет (+ воровские инструменты у Плута) — [{ value, pool, who }]. */
+function mecExpertiseOptions(st, grants = buildCharacterGrants(st)) {
+  const spec = mecExpertiseSpec(st);
+  if (!spec) return [];
+  const out = new Map();
+  for (const g of grants) {
+    if (!(g.pool === 'skill' || (spec.tools && g.pool === 'tool' && isThievesTools(g.value)))) continue;
+    const k = PL.norm(g.value);
+    if (!out.has(k)) out.set(k, { value: cap1(g.value), pool: g.pool, who: mecWho(st, g) });
+  }
+  return [...out.values()].sort((a, b) => (a.pool === b.pool ? a.value.localeCompare(b.value, 'ru') : a.pool === 'skill' ? -1 : 1));
+}
+
+/** Снимает компетентность с владений, которых у персонажа больше нет (ТЗ 4.4.4a). true — что-то снято. */
+function mecExpertiseSync(st) {
+  const spec = mecExpertiseSpec(st);
+  const cc = st.mecClassChoices;
+  if (!spec || !cc || !Array.isArray(cc.expertise) || !cc.expertise.length) return false;
+  const owned = new Set(mecExpertiseOptions(st).map(o => PL.norm(o.value)));
+  const cur = cc.expertise;
+  const keep = cur.filter(v => owned.has(PL.norm(v))).slice(0, spec.n);
+  if (keep.length === cur.length) return false;
+  const notes = st.mecPoolNotes || (st.mecPoolNotes = {});
+  const list = notes.expertise || (notes.expertise = []);
+  for (const v of cur.filter(v => !keep.includes(v))) {
+    const msg = `«${cap1(v)}» больше нет среди ваших владений — выберите другое владение для компетентности.`;
+    if (!list.includes(msg)) list.push(msg);
+  }
+  cc.expertise = keep;
+  return true;
+}
+
+/** Чего не хватает на шаге (для прогресс-бара и «Далее»). */
+function mecExpertiseMissing(st) {
+  const spec = mecExpertiseSpec(st);
+  if (!spec) return [];
+  const cc = st.mecClassChoices || {};
+  const owned = new Set(mecExpertiseOptions(st).map(o => PL.norm(o.value)));
+  const have = [].concat(cc.expertise || []).filter(v => v && owned.has(PL.norm(v))).length;
+  const out = [];
+  if (have < spec.n) out.push(`выберите компетентность (${have}/${spec.n})`);
+  if (spec.langs) {
+    const hl = [].concat(cc.deft_explorer_languages || []).filter(Boolean).length;
+    if (hl < spec.langs) out.push(`выберите языки (${hl}/${spec.langs})`);
+  }
+  return out;
+}
+
+/** Абзацы правила 1-го уровня (у «Искусного исследователя» — до «Бродяги (6-й уровень)»). */
+function expertiseRuleParas(full) {
+  const out = [];
+  for (const b of full || []) {
+    if (b.h && /\((\d+)-й уровень\)/.test(b.h) && !/\(1-й уровень\)/.test(b.h)) break;
+    out.push(b);
+  }
+  return out;
+}
+
+function buildExpertiseStep(st, goMech) {
+  if (!st.mecClassChoices) st.mecClassChoices = {};
+  const cc = st.mecClassChoices;
+  const spec = mecExpertiseSpec(st);
+  const body = el('div', { class: 'exp-body' });
+  const footEl = el('div', { class: 'mech-foot' });
+  const clsName = CLASS_DATA.find(c => c.id === st.mecClass)?.name || '';
+
+  function ruleCard() {
+    const r = _rulesLevels?.[spec.ruleKey];
+    const paras = r ? expertiseRuleParas(r.full) : [];
+    return el('details', { class: 'exp-rule', open: 'true' },
+      el('summary', {}, `${clsName}: «${spec.title}»`, el('span', { class: 'exp-rule-src' }, 'dnd.su')),
+      el('div', { class: 'exp-rule-body' }, ...(r
+        ? paras.map(b => (b.h ? el('p', { class: 'exp-rule-h' }, b.h) : el('p', {}, b.p)))
+        : [el('p', { class: 'exp-rule-wait' }, 'Загружаем текст правила…')])),
+    );
+  }
+
+  function render() {
+    mecPoolSync(st);
+    const grants = buildCharacterGrants(st);
+    const opts = mecExpertiseOptions(st, grants);
+    const picked = [].concat(cc.expertise || []).filter(Boolean);
+    const pickedK = new Set(picked.map(PL.norm));
+    const atLimit = picked.length >= spec.n;
+    const miss = mecExpertiseMissing(st);
+    if (!miss.length && st.mecPoolNotes?.expertise) { delete st.mecPoolNotes.expertise; scheduleSave(st); }
+    const notes = st.mecPoolNotes?.expertise || [];
+
+    // ── Выбор владений ──
+    const chips = el('div', { class: 'cls-chips exp-chips' }, ...opts.map(o => {
+      const isPicked = pickedK.has(PL.norm(o.value));
+      const dim = !isPicked && spec.n > 1 && atLimit;
+      const b = el('button', {
+        class: 'cls-chip exp-chip' + (isPicked ? ' is-picked' : '') + (dim ? ' is-dim' : ''),
+        onClick: () => {
+          let next = picked.slice();
+          if (isPicked) next = next.filter(v => PL.norm(v) !== PL.norm(o.value));
+          else if (spec.n === 1) next = [o.value];
+          else if (!atLimit) next.push(o.value);
+          else return;
+          cc.expertise = next;
+          scheduleSave(st); render();
+        },
+      }, (isPicked ? '✓ ' : '') + o.value, el('span', { class: 'exp-chip-src' }, o.who));
+      if (dim) b.disabled = true;
+      return b;
+    }));
+    const pickHd = spec.n > 1
+      ? `Выберите ${spec.n} владения (${picked.length}/${spec.n})`
+      : `Выберите навык (${picked.length}/${spec.n})`;
+    const pickHint = spec.tools
+      ? 'Два навыка — или один навык и воровские инструменты. В списке — всё, чем персонаж уже владеет, и откуда это владение.'
+      : 'В списке — все навыки, которыми персонаж уже владеет, и откуда это владение.';
+    const blocks = [
+      el('div', { class: 'cls-choice', 'data-ck': 'expertise' },
+        el('div', { class: 'cls-choice-hd' }, pickHd),
+        el('p', { class: 'cls-choice-hint' }, pickHint),
+        opts.length ? chips : el('p', { class: 'cls-choice-hint' }, 'Пока нет ни одного навыка — выберите навыки на шаге «Класс».')),
+    ];
+
+    // ── Языки «Искусного исследователя» (Следопыт, Таша) ──
+    if (spec.langs) {
+      const langs = [].concat(cc.deft_explorer_languages || []);
+      const locks = mecLocks(st, 'language', ['class:deft_explorer_languages'], grants); // «Озёра», правило 1
+      const sels = [];
+      for (let i = 0; i < spec.langs; i++) {
+        const cur = langs[i] || '';
+        const other = langs.filter((v, j) => j !== i && v).map(PL.norm);
+        const sel = el('select', { class: 'mech-bg-select' },
+          el('option', { value: '' }, `— язык ${i + 1} —`),
+          ...LANGUAGES.map(l => {
+            const why = l !== cur ? (locks.get(PL.norm(l)) || (other.includes(PL.norm(l)) ? 'выбран в соседнем поле' : null)) : null;
+            const o = el('option', { value: l }, why ? `🔒 ${l} — уже есть: ${why}` : l);
+            if (why) o.disabled = true;
+            return o;
+          }));
+        sel.value = cur;
+        sel.addEventListener('change', () => {
+          const next = [];
+          for (let j = 0; j < spec.langs; j++) next[j] = j === i ? (sel.value || null) : (langs[j] || null);
+          cc.deft_explorer_languages = next.filter(Boolean);
+          scheduleSave(st); render();
+        });
+        sels.push(sel);
+      }
+      const hl = langs.filter(Boolean).length;
+      blocks.push(el('div', { class: 'cls-choice', 'data-ck': 'deft_explorer_languages' },
+        el('div', { class: 'cls-choice-hd' }, `Языки — выберите ${spec.langs} (${hl}/${spec.langs})`),
+        el('p', { class: 'cls-choice-hint' }, 'Вы также можете говорить, читать и писать на двух дополнительных языках по вашему выбору.'), // dnd.su
+        el('div', { class: 'exp-langs' }, ...sels)));
+    }
+
+    body.innerHTML = '';
+    body.append(
+      el('div', { class: 'cls-info-card exp-newbie' },
+        el('p', { class: 'cls-info-text' }, 'Компетентность — навык, в котором ваш персонаж настоящий профи: бонус мастерства к нему удваивается.')),
+      ruleCard(),
+      ...(notes.length ? [el('div', { class: 'pool-panel' }, ...notes.map(n => el('p', { class: 'pool-note' }, '⚠️ ' + n)))] : []),
+      ...blocks,
+    );
+
+    footEl.innerHTML = '';
+    const btn = el('button', { class: 'cnew-save-btn', onClick: () => goMech('stats') }, 'Далее → Характеристики');
+    if (miss.length) {
+      btn.disabled = true; btn.classList.add('is-disabled');
+      footEl.append(el('span', { class: 'cls-foot-reason' }, 'Осталось выбрать: ' + miss.join(' · ')));
+    }
+    footEl.append(btn);
+  }
+
+  if (!_rulesLevels) {
+    import('../data/rules_levels.js').then(m => { _rulesLevels = m.RULES_LEVELS; if (body.isConnected) render(); }).catch(() => {});
+  }
+  render();
+
+  return el('div', { class: 'mech-step-body is-expertise' },
+    el('h2', { class: 'mech-step-title' }, spec.langs ? 'Компетентность и языки' : 'Компетентность'),
+    body,
     footEl,
   );
 }
@@ -3906,6 +4155,7 @@ function mecWho(st, g) {
   if (t === 'race') return `Раса (${st.mecRace?.split('::')[1] || '—'})`;
   if (t === 'subrace') return `Раса (${[st.mecSubrace, st.mecRace?.split('::')[1]].filter(Boolean).join(' ')})`;
   if (t === 'background') return `Предыстория (${mecBgObj(st)?.name || '—'})`;
+  if (t === 'feat') return 'Черта';
   return 'другой шаг';
 }
 
@@ -3931,6 +4181,10 @@ function mecPoolRemove(st, g) {
   if (slot === 'class_skills') st.mecChosen = drop(st.mecChosen);
   else if (slot === 'class_tools') { const c = st.mecClassToolChoice || {}; c[st.mecClass] = drop(c[st.mecClass]); }
   else if (slot === 'favored_enemy_language') delete (st.mecClassChoices || {}).favored_enemy_language;
+  else if (slot === 'deft_explorer_languages') {
+    const cc = st.mecClassChoices || {};
+    cc.deft_explorer_languages = drop(cc.deft_explorer_languages);
+  }
   else if (slot === 'subclass_skills' || slot === 'subclass_languages') {
     const id = slot === 'subclass_skills' ? 'skills' : 'languages';
     if (st.mecSubclassChoices) st.mecSubclassChoices[id] = drop(st.mecSubclassChoices[id]);
@@ -3969,7 +4223,7 @@ function mecPoolSync(st) {
       const holder = grants.find(h => h !== g && h.pool === g.pool && PL.norm(h.value) === PL.norm(g.value)
         && (h.kind === 'fixed' || !c.removals.includes(h)));
       mecPoolRemove(st, g);
-      const step = PL.STEP_OF[g.source.type];
+      const step = PL.stepOf(g);
       const msg = `«${cap1(g.value)}» теперь даёт ${holder ? mecWho(st, holder) : 'другой шаг'} — выберите другой ${PL.POOL_NOUN[g.pool]}.`;
       const list = st.mecPoolNotes[step] || (st.mecPoolNotes[step] = []);
       if (!list.includes(msg)) list.push(msg);
@@ -3978,6 +4232,7 @@ function mecPoolSync(st) {
     if (!changed) break;
     scheduleSave(st);
   }
+  if (mecExpertiseSync(st)) scheduleSave(st); // шаг 4.4.4a: компетентность только во владениях персонажа
   return c;
 }
 

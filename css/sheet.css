@@ -305,3 +305,7 @@
 .cs-equip { margin-top: 12px; }
 .cs-empty { margin: 0; font-size: 13px; color: var(--text-muted); }
 .cs-card .eq-view { padding: 4px 12px 12px; }
+
+/* Компетентность (шаг 4.4.4a): бонус мастерства ×2 */
+.cs-dot.is-expert { box-shadow: 0 0 0 1.5px var(--surface), 0 0 0 3px var(--gold-soft, #d9b35a); }
+.cs-exp { font-size: 10px; font-weight: 700; color: var(--gold-soft, #d9b35a); }

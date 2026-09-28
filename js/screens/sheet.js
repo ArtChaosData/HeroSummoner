@@ -82,17 +82,21 @@ function buildSaves(stats, saves, pb) {
   );
 }
 
-function buildSkills(stats, profSkills, pb) {
+function buildSkills(stats, profSkills, pb, expertise = []) {
   const profSet = new Set(profSkills || []);
+  const expSet  = new Set((expertise || []).map(v => String(v).toLowerCase()));
   return el('div', { class: 'cs-card' },
     el('div', { class: 'cs-card-title' }, 'Навыки'),
     ...Object.entries(SKILL_ABILITY).map(([skill, abilKey]) => {
       const isProficient = profSet.has(skill);
-      const bonus = mod(stats[abilKey] ?? 10) + (isProficient ? pb : 0);
-      return el('div', { class: `cs-row${isProficient ? ' is-prof' : ''}` },
-        el('span', { class: `cs-dot${isProficient ? ' is-filled' : ''}` }),
+      const isExpert = isProficient && expSet.has(skill.toLowerCase()); // компетентность: бонус мастерства ×2
+      const bonus = mod(stats[abilKey] ?? 10) + (isProficient ? pb * (isExpert ? 2 : 1) : 0);
+      const rowAttrs = { class: `cs-row${isProficient ? ' is-prof' : ''}${isExpert ? ' is-expert' : ''}` };
+      if (isExpert) rowAttrs.title = 'Компетентность — бонус мастерства удваивается.';
+      return el('div', rowAttrs,
+        el('span', { class: `cs-dot${isProficient ? ' is-filled' : ''}${isExpert ? ' is-expert' : ''}` }),
         el('span', { class: 'cs-row-val' }, sign(bonus)),
-        el('span', { class: 'cs-row-label' }, skill),
+        el('span', { class: 'cs-row-label' }, skill, isExpert ? el('span', { class: 'cs-exp' }, ' ×2') : null),
         el('span', { class: 'cs-row-ab' }, STAT_SHORT[abilKey]),
       );
     }),
@@ -103,7 +107,8 @@ function buildCombat(char, pb, ac) {
   const dexMod = mod(char.stats?.dex);
   const wisMod = mod(char.stats?.wis);
   const hasPercProf = (char.skills || []).includes('Восприятие');
-  const passPerc = 10 + wisMod + (hasPercProf ? pb : 0);
+  const percExpert = hasPercProf && (char.expertise || []).some(v => String(v).toLowerCase() === 'восприятие');
+  const passPerc = 10 + wisMod + (hasPercProf ? pb * (percExpert ? 2 : 1) : 0);
   const cells = [
     ['КД',            ac              ],
     ['Инициатива',    sign(dexMod)    ],
@@ -249,7 +254,7 @@ export async function renderSheet(container, router, { id } = {}) {
 
         // Right: skills
         el('div', { class: 'cs-col cs-col-right' },
-          buildSkills(stats, char.skills, pb),
+          buildSkills(stats, char.skills, pb, char.expertise),
         ),
       ),
 

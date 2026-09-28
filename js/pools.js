@@ -3,7 +3,7 @@
  * Чистая логика над реестром grants[] (без DOM и без состояния мастера).
  *
  * Пулы: навыки (skill), инструменты (tool), языки (language). Шаги по порядку мастера: Класс (класс + подкласс),
- * Раса (раса + подраса), Предыстория.
+ * Раса (раса + подраса), Предыстория, Компетентность (языки «Искусного исследователя» — SLOT_STEP).
  *   Правило 1 — lockMap(): всё, что уже получено в другом месте, видно в списке заблокированным с подписью.
  *   Правило 2 — conflicts().removals: выбор, совпавший с фиксированным владением, снимается (слот пустеет);
  *               дубль двух выборов (старые черновики) — снимается более поздний.
@@ -14,13 +14,15 @@
  */
 
 export const STEP_OF = { class: 'class', subclass: 'class', race: 'race', subrace: 'race', background: 'background' };
-export const STEP_ORDER = ['class', 'race', 'background'];
-export const STEP_LABEL = { class: 'Класс', race: 'Раса', background: 'Предыстория' };
+/** Слоты класса, которые выбираются на шаге 4.4.4a «Компетентность» (ТЗ v0.41): языки «Искусного исследователя». */
+export const SLOT_STEP = { deft_explorer_languages: 'expertise' };
+export const STEP_ORDER = ['class', 'race', 'background', 'expertise'];
+export const STEP_LABEL = { class: 'Класс', race: 'Раса', background: 'Предыстория', expertise: 'Компетентность' };
 export const POOLS = ['skill', 'tool', 'language'];
 export const POOL_NOUN = { skill: 'навык', tool: 'инструмент', language: 'язык' };
 
 export const norm = v => String(v ?? '').trim().toLowerCase().replace(/ё/g, 'е');
-const stepOf = g => STEP_OF[g?.source?.type] || null;
+export const stepOf = g => SLOT_STEP[g?.slot] || STEP_OF[g?.source?.type] || null;
 const rank = g => STEP_ORDER.indexOf(stepOf(g)) * 2 + (g.source.type === 'subclass' || g.source.type === 'subrace' ? 1 : 0);
 /** Слот выбора: у одного слота выборы не блокируют сами себя. */
 export const slotKey = g => `${g.source.type}:${g.slot || (g.kind === 'fixed' ? 'fixed' : 'choice')}`;

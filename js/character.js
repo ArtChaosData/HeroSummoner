@@ -132,6 +132,7 @@ export function legacyView(char) {
     background: entityName(char, 'background'),
     level: characterLevel(char),
     skills: poolValues(char, 'skill'),
+    expertise: poolValues(char, 'expertise'), // компетентность (шаг 4.4.4a, Домен знаний) — бонус мастерства ×2
     languages: poolValues(char, 'language'),
     toolProficiencies: poolValues(char, 'tool'),
     feats: poolValues(char, 'feat').map(featName),
