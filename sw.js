@@ -2,7 +2,7 @@
  * HeroSummoner — Service Worker
  * Strategy: cache-first for assets, always update in background.
  */
-const CACHE = 'herosummoner-v66';
+const CACHE = 'herosummoner-v78';
 // 2026-09-27 (ТЗ v0.29): js/pdf.js и js/data/background_descriptions.js (читает только pdf.js) убраны из
 // precache — экспорт PDF снят с хаба до перепроектирования; файлы остаются в репозитории.
 
@@ -58,10 +58,17 @@ const PRECACHE = [
   // 2026-09-28 (ТЗ 4.4.7 v0.32, Э3): снаряжение — логика, общий вид и стартовое снаряжение классов
   './js/equipment.js',
   './js/equipment-view.js',
+  // 2026-10-06 (П2, ТЗ v0.51): общий расчёт персонажа — «Финал» и лист
+  './js/derive.js',
+  // 2026-10-09 (П9, ТЗ v0.56): механика черт альт. человека — мастер и общий расчёт
+  './js/feats-mech.js',
   './js/pools.js',
   './js/data/background_features.js',
   './js/data/race_traits.js',
   './js/data/class_starting_equipment.js',
+  // 2026-10-06 (П6/П7, ТЗ v0.52): умения подклассов 1 ур. (B-23) и ресурсы умений (B-41) — «Финал»
+  './js/data/subclass_lvl1_features.js',
+  './js/data/feature_resources.js',
   './assets/icon_4.svg',
 ];
 

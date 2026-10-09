@@ -183,9 +183,20 @@ export const TOOL_RENAMES = {
 };
 export const TOOL_REMOVED = ['Скрипка', 'Инструменты бондаря'];
 
+/** B-33: предметы каталога, к которым относится владение оружием («короткие мечи» → ['shortsword']). */
+export function weaponProfIds(value) {
+  const v = String(value || '').trim().toLowerCase();
+  return WEAPON_PROF[v] || (itemByName(v)?.category === 'weapon' ? [itemByName(v).id] : []);
+}
+
 /** Владения снаряжением персонажа: { weapons:Set(id), armor:Set(light|medium|heavy|shield), tools:Set(id) }. */
 export function equipProfs(grants) {
   const out = { weapons: new Set(), armor: new Set(), tools: new Set() };
+  // П5: признаки персонажа для правил снаряжения — друид и металл (B-26), дварф и тяжёлый доспех (B-27)
+  out.druid = (grants || []).some(g => g.source?.type === 'class' && g.source.id === 'druid');
+  out.dwarf = (grants || []).some(g => (g.source?.type === 'race') && g.source.id === 'dwarf');
+  // П10 (решение 2026-10-09): «Мастер средних доспехов» — ЛОВ к КД до +3 при ЛОВ 16+, без помехи Скрытности
+  out.mediumArmorMaster = (grants || []).some(g => g.pool === 'feat' && g.value === 'medium-armor-master');
   for (const g of grants || []) {
     const v = String(g.value || '').trim().toLowerCase();
     if (g.pool === 'weapon') {
@@ -356,12 +367,13 @@ export function autoEquip(entries, profs, stats) {
   let best = null, bestAc = -1;
   for (const e of entries) {
     const it = itemById(e.id);
-    if (it?.category === 'armor' && !e.custom && isProficient(it, profs)) {
+    if (it?.category === 'armor' && !e.custom && isProficient(it, profs) && !(profs?.druid && druidMetal(it) === true)) { // B-26
       const ac = armorAC(it, dexMod);
       if (ac > bestAc) { best = e; bestAc = ac; }
     }
   }
-  const shield = entries.find(e => !e.custom && itemById(e.id)?.category === 'shield' && profs.armor.has('shield'));
+  const shield = entries.find(e => !e.custom && itemById(e.id)?.category === 'shield' && profs.armor.has('shield')
+    && !(profs?.druid && druidMetal(itemById(e.id)) === true));
   for (const e of entries) {
     const it = itemById(e.id);
     if (it && !e.custom && (it.category === 'armor' || it.category === 'shield')) e.equipped = e === best || e === shield;
@@ -398,6 +410,10 @@ export function armorClass(entries, stats, profs) {
   const shieldE = (entries || []).find(e => e.equipped && itemById(e.id)?.category === 'shield');
   const armor = itemById(armorE?.id), shield = itemById(shieldE?.id);
   let ac = armorAC(armor, dexMod);
+  // П10: «Мастер средних доспехов» (dnd.su): «Когда вы носите средний доспех, вы можете добавлять к КД 3, а не 2, если ваша Ловкость 16 или выше.»
+  const mam = !!(profs?.mediumArmorMaster && armor?.dex === 'max2');
+  const mamBonus = mam && dexMod >= 3 ? 1 : 0;
+  ac += mamBonus;
   if (shield) ac += shield.acBonus || 2;
   const warnings = [];
   const rules = ARMOR_RULES.rules || {};
@@ -405,11 +421,19 @@ export function armorClass(entries, stats, profs) {
     const noProf = [armor, shield].filter(it => it && !isProficient(it, profs));
     if (noProf.length) warnings.push({ kind: 'prof', items: noProf.map(i => i.name), text: rules['Владение доспехами'] || '' });
   }
-  if (armor?.strReq && (stats?.str ?? 10) < armor.strReq) {
+  // B-26: друид — предупреждение (не запрет) о металле; материал не указан — «уточните у Мастера»
+  if (profs?.druid) {
+    const metal = [armor, shield].filter(it => it && druidMetal(it) === true);
+    const ask = [armor, shield].filter(it => it && druidMetal(it) === null);
+    if (metal.length) warnings.push({ kind: 'druid-metal', items: metal.map(i => i.name), text: DRUID_METAL_TEXT });
+    if (ask.length) warnings.push({ kind: 'druid-ask', items: ask.map(i => i.name), text: DRUID_METAL_TEXT });
+  }
+  // B-27: дварф — «Ношение тяжёлых доспехов не снижает вашу скорость» (dnd.su): предупреждения о Силе нет
+  if (armor?.strReq && (stats?.str ?? 10) < armor.strReq && !profs?.dwarf) {
     warnings.push({ kind: 'str', items: [armor.name], text: rules['Тяжёлые доспехи'] || '', speed: -10 });
   }
-  if (armor?.stealthDisadv) warnings.push({ kind: 'stealth', items: [armor.name], text: rules['Скрытность'] || '' });
-  return { ac, armor, shield, warnings };
+  if (armor?.stealthDisadv && !mam) warnings.push({ kind: 'stealth', items: [armor.name], text: rules['Скрытность'] || '' }); // П10: не у «Мастера средних доспехов»
+  return { ac, armor, shield, warnings, mamBonus };
 }
 
 export const carryCapacity = str => (str || 10) * 15;
@@ -421,7 +445,17 @@ export const carryCapacity = str => (str || 10) * 15;
 // «толстыми кольцами»; щит — «из дерева или металла») → «уточни у Мастера».
 export const ARMOR_METAL = {
   padded: false, leather: false, hide: false,
-  'studded-leather': null, 'ring-mail': null, shield: null,
+  'studded-leather': null, shield: null,
+  'ring-mail': true, // B-26, решение заказчика 2026-09-28: колечный — металл (исторически металлические кольца)
   'chain-shirt': true, 'scale-mail': true, breastplate: true, 'half-plate': true,
   'chain-mail': true, splint: true, plate: true,
 };
+
+/** dnd.su, класс «Друид» → «Владения» (дословно, текст в скобках). */
+export const DRUID_METAL_TEXT = 'друиды не носят доспехи и щиты из металла';
+/** B-26: металл ли доспех/щит — true / false / null («уточните у Мастера»); не доспех — false. */
+export function druidMetal(it) {
+  if (!it || (it.category !== 'armor' && it.category !== 'shield')) return false;
+  const v = ARMOR_METAL[it.id];
+  return v === undefined ? false : v;
+}

@@ -13,7 +13,7 @@
  *   Правило 4 — widenIfExhausted(): все варианты списка уже есть → открыть любой навык / инструмент.
  */
 
-export const STEP_OF = { class: 'class', subclass: 'class', race: 'race', subrace: 'race', background: 'background' };
+export const STEP_OF = { class: 'class', subclass: 'class', race: 'race', subrace: 'race', feat: 'race', background: 'background' }; // П10: выборы черты альт. человека — шаг «Раса»
 /** Слоты класса, которые выбираются на шаге 4.4.4a «Компетентность» (ТЗ v0.41): языки «Искусного исследователя». */
 export const SLOT_STEP = { deft_explorer_languages: 'expertise' };
 export const STEP_ORDER = ['class', 'race', 'background', 'expertise'];
@@ -27,6 +27,14 @@ const rank = g => STEP_ORDER.indexOf(stepOf(g)) * 2 + (g.source.type === 'subcla
 /** Слот выбора: у одного слота выборы не блокируют сами себя. */
 export const slotKey = g => `${g.source.type}:${g.slot || (g.kind === 'fixed' ? 'fixed' : 'choice')}`;
 const isChoice = g => g.kind === 'choice' || g.kind === 'replacement';
+/**
+ * ТЗ «Приоритет подкласса» (v0.43, B-20): навыки и инструменты подкласса выбираются всегда из своего списка,
+ * совпадение решает другая сторона — выбор подкласса ведёт себя как фиксированное владение.
+ * Языки подкласса — без изменений (правило PHB о замене — только навыки и инструменты).
+ */
+export const isPriority = g => g?.source?.type === 'subclass' && (g.pool === 'skill' || g.pool === 'tool');
+/** «Твёрдое» владение: фиксированное или выбор подкласса (правило 4 считает занятыми только их). */
+export const isHard = g => g.kind === 'fixed' || isPriority(g);
 
 /**
  * Конфликты в реестре: { removals: grant[], replacements: [{ pool, value, key, step, holders }], langDups: [...] }.
@@ -44,15 +52,18 @@ export function conflicts(grants) {
     }
     for (const [k, list] of groups) {
       if (list.length < 2) continue;
-      const fixed = list.filter(g => g.kind === 'fixed').sort((a, b) => rank(a) - rank(b));
-      const choices = list.filter(isChoice).sort((a, b) => rank(a) - rank(b));
+      const fixed = list.filter(isHard).sort((a, b) => rank(a) - rank(b));
+      const choices = list.filter(g => isChoice(g) && !isPriority(g)).sort((a, b) => rank(a) - rank(b));
       if (fixed.length) removals.push(...choices);            // правило 2
       else removals.push(...choices.slice(1));                // дубль выборов — оставляем самый ранний
       // фиксированные дубли из разных источников
       const srcs = [];
       for (const f of fixed) if (!srcs.some(s => s.source.type === f.source.type && s.source.id === f.source.id)) srcs.push(f);
       if (srcs.length >= 2) {
-        const last = srcs[srcs.length - 1];
+        // B-20: если среди источников выбор подкласса — замену получает другая сторона (её последний источник)
+        const others = srcs.filter(s => !isPriority(s));
+        const side = others.length && others.length < srcs.length ? others : srcs;
+        const last = side[side.length - 1];
         const entry = { pool, value: fixed[0].value, key: `${pool}:${k}`, step: stepOf(last), holders: srcs };
         if (pool === 'language') langDups.push(entry); else replacements.push(entry); // правило 3
       }

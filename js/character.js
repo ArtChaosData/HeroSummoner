@@ -1,5 +1,5 @@
 /**
- * HeroSummoner — Character model v1 (schemaVersion 3).
+ * HeroSummoner — Character model v1 (schemaVersion 5).
  * Spec: docs/SPECIFICATION.md §2.1 (v0.28, stage E1).
  *
  *   ids        classId / subclassId / raceId / subraceId / backgroundId — canonical keys;
@@ -11,7 +11,10 @@
  *   equipment  { mode, encumbrance, classChoices, gold, items[{ id|null, qty, source, equipped?, name?, custom? }], coins }
  *              — schemaVersion 3 (Э3, ТЗ 4.4.7 v0.32). КД, атаки и вес на листе считаются из items + equipped.
  *
- * migrateCharacter() upgrades v1 (no schemaVersion) → v2 → v3. Pure: returns a new object.
+ *   backgroundFeature  { from: <имя предыстории PHB> } | { custom: { title, text } } | null
+ *              — schemaVersion 5 (П3, B-22): умение предыстории; у «Собственной» — выбранное или своё (с Мастером).
+ *
+ * migrateCharacter() upgrades v1 (no schemaVersion) → v2 → v3 → v4 → v5. Pure: returns a new object.
  */
 import { CLASS_DESCRIPTIONS } from './data/class_descriptions.js';
 import { LVL1_SUBCLASSES } from './data/class_lvl1_subclasses.js';
@@ -23,7 +26,7 @@ import {
   TOOL_RENAMES, TOOL_REMOVED, RACE_EQUIP_GRANTS,
 } from './equipment.js';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 // ─── Entity ids ───────────────────────────────────────────────────────────────
 // Races/backgrounds: latin slug of the dnd.su page (/race/78-dwarf/ → dwarf, /backgrounds/766-acolyte/ → acolyte).
@@ -268,7 +271,22 @@ export function migrateCharacter(rec) {
   if ((out.schemaVersion || 1) < 2) out = migrateV1toV2(out);
   if (out.schemaVersion < 3) out = migrateV2toV3(out);
   if (out.schemaVersion < 4) out = migrateV3toV4(out);
+  if (out.schemaVersion < 5) out = migrateV4toV5(out);
   return out;
+}
+
+/**
+ * v4 → v5 (П3, B-22): поле backgroundFeature. Для стандартной предыстории — ссылка на её умение;
+ * у «Собственной предыстории» умения в v4 не было — null (в мастере шаг станет незаполненным, пока умение не выбрано).
+ * Идемпотентно: уже заданное поле не трогаем; ничего не удаляем.
+ */
+function migrateV4toV5(rec) {
+  let backgroundFeature = rec.backgroundFeature;
+  if (backgroundFeature === undefined) {
+    const bgName = rec.labels?.background || null;
+    backgroundFeature = bgName && bgName !== 'Собственная предыстория' ? { from: bgName } : null;
+  }
+  return { ...rec, backgroundFeature, schemaVersion: 5 };
 }
 
 /** v3 → v4 (B-14): названия языков в grants и в состоянии мастера — как на dnd.su. */

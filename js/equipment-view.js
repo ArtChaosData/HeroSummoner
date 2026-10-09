@@ -127,6 +127,16 @@ export function makeRulePanel(emptyText = 'Нажмите ⓘ у предмет�
 // которых нет в таблице снаряжения PHB (id: null), — строкой текста dnd.su без веса.
 
 /** Строки состава набора. kitQty — сколько наборов в записи. */
+// B-39 Б (решение заказчика 2026-09-29): содержимое наборов — именительный падеж. Предметы без записи в каталоге
+// в данных — кусок фразы dnd.su «…содержит коробку для пожертвований…» (винительный); на экран — так:
+const KIT_TEXT_NOM = {
+  'коробку для пожертвований': 'Коробка для пожертвований', '2 упаковки благовоний': 'Упаковка благовоний',
+  'кадило': 'Кадило', 'облачение': 'Облачение', 'научную книгу': 'Научная книга',
+  'небольшую сумочку с песком': 'Небольшая сумочка с песком', 'небольшой нож': 'Небольшой нож',
+  '10 футов лески': 'Леска (10 футов)',
+};
+const kitTextName = t => KIT_TEXT_NOM[t] || (t ? t.charAt(0).toUpperCase() + t.slice(1) : t);
+
 export function kitContentRows(kit, kitQty = 1, { rules, profs } = {}) {
   if (!kit || kit.category !== 'kit' || !Array.isArray(kit.contents)) return [];
   return kit.contents.map(c => {
@@ -134,7 +144,7 @@ export function kitContentRows(kit, kitQty = 1, { rules, profs } = {}) {
     const n = (c.qty || 1) * (kitQty || 1);
     const w = it?.weightLb != null ? it.weightLb * n : null;
     return el('div', { class: 'eq-kit-row' },
-      el('span', { class: 'eq-kit-name' }, it ? it.name : c.text, it && n > 1 ? el('span', { class: 'eq-qty' }, ` ×${n}`) : null),
+      el('span', { class: 'eq-kit-name' }, it ? it.name : kitTextName(c.text), n > 1 ? el('span', { class: 'eq-qty' }, ` ×${n}`) : null),
       el('span', { class: 'eq-kit-meta' }, w ? fmtWeight(w) : ''),
       rules && it ? rules.infoBtn(() => itemRuleNodes(it, { profs })) : el('span', { class: 'eq-kit-noinfo' }),
     );
@@ -154,13 +164,15 @@ const SOURCE_LABEL = { class: 'класс', background: 'предыстория'
  * Список инвентаря по категориям Оружие / Доспехи / Снаряжение / Золото, КД и ⚠️.
  * entries — equipment.items; onToggle(entries) — после «надеть / снять» (null → только чтение).
  */
-export function buildInventoryView({ entries, coins, stats, profs, onToggle, rules, acTotal = true, size = null }) {
+/** acExtra(entries) → доп. предупреждения к КД (B-35: «КД в доспехе N, без доспеха было бы M» — считает мастер). */
+export function buildInventoryView({ entries, coins, stats, profs, onToggle, rules, acTotal = true, size = null, acExtra = null }) {
   const root = el('div', { class: 'eq-view' });
   function render() {
     root.innerHTML = '';
     const acInfo = armorClass(entries, stats, profs);
     const sh = smallHeavyWarning(entries, size); // B-16
     if (sh) acInfo.warnings = [...acInfo.warnings, sh];
+    if (acExtra) acInfo.warnings = [...acInfo.warnings, ...(acExtra(entries) || [])];
     const used = new Set();
     for (const cat of VIEW_CATS) {
       const rows = entries.filter(e => !used.has(e) && !e.custom && cat.test(itemById(e.id)) || (cat.id === 'gear' && !used.has(e)));
@@ -218,6 +230,13 @@ export function acBlock(acInfo, { total = true } = {}) {
       box.append(el('p', { class: 'eq-ac-note' }, `Скрытность: Помеха (${w.items.join(', ')})`));
       continue;
     }
+    if (w.kind === 'druid-metal' || w.kind === 'druid-ask') { // B-26: текст — дословно dnd.su («Друид» → «Владения»)
+      box.append(el('p', { class: 'eq-ac-warn' }, w.kind === 'druid-metal'
+        ? `⚠️ ${w.items.join(', ')} — металл: ${w.text} (dnd.su, «Друид»).`
+        : `⚠️ ${w.items.join(', ')} — материал не указан, уточните у Мастера: ${w.text} (dnd.su, «Друид»).`));
+      continue;
+    }
+    if (w.kind === 'ac-lower') { box.append(el('p', { class: 'eq-ac-warn' }, w.text)); continue; } // B-35
     const head = w.kind === 'prof' ? `⚠️ Нет владения: ${w.items.join(', ')}. `
       : w.kind === 'small-heavy' ? `⚠️ Тяжёлое оружие у Маленького персонажа: ${w.items.join(', ')}. `
       : `⚠️ Не хватает Силы для «${w.items[0]}» — скорость −10 фт. `;

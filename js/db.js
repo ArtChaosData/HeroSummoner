@@ -2,14 +2,16 @@
  * HeroSummoner — IndexedDB wrapper
  *
  * Object stores:
- *   characters  character model v1 (schemaVersion 4) — see js/character.js and
+ *   characters  character model v1 (schemaVersion 5) — see js/character.js and
  *               docs/SPECIFICATION.md §2.1. DB_VERSION 2/3 migrate stored records once
  *               (3: снаряжение в записи — Э3, ТЗ 4.4.7 v0.32).
+ *   backup_v4   (DB_VERSION 5, П3) — копия всех записей ДО миграции на schemaVersion 5, как были (резервная копия;
+ *               мигрирует только `characters`, эта копия не меняется).
  */
 import { migrateCharacter } from './character.js';
 
 const DB_NAME    = 'HeroSummonerDB';
-const DB_VERSION = 4;   // 2: character model v1 (E1); 3: equipment (E3); 4: названия языков dnd.su (B-14) — records migrated in onupgradeneeded
+const DB_VERSION = 5;   // 2: character model v1 (E1); 3: equipment (E3); 4: названия языков dnd.su (B-14); 5: backgroundFeature (B-22) + backup_v4 — records migrated in onupgradeneeded
 
 let _db = null;
 
@@ -31,12 +33,18 @@ function openDB() {
         store.createIndex('updatedAt','updatedAt', { unique: false });
       }
 
-      // v1 → v2 → v3 → v4: migrate every stored character in the upgrade transaction (one pass, never deletes).
-      if (e.oldVersion >= 1 && e.oldVersion < 4) {
+      // П3 (schemaVersion 5): резервная копия записей до миграции — отдельное хранилище, не меняется
+      const backup = e.oldVersion >= 1 && e.oldVersion < 5 && !db.objectStoreNames.contains('backup_v4')
+        ? db.createObjectStore('backup_v4', { keyPath: 'id' }) : null;
+
+      // v1 → v2 → v3 → v4 → v5: migrate every stored character in the upgrade transaction (one pass, never deletes).
+      if (e.oldVersion >= 1 && e.oldVersion < 5) {
         const cursorReq = req.transaction.objectStore('characters').openCursor();
         cursorReq.onsuccess = () => {
           const cursor = cursorReq.result;
           if (!cursor) return;
+          try { if (backup && cursor.value?.id) backup.put(structuredClone(cursor.value)); }
+          catch (err) { console.error('HeroSummoner: backup failed for', cursor.value?.id, err); }
           try {
             cursor.update(migrateCharacter(cursor.value));
           } catch (err) {

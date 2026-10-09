@@ -4,9 +4,11 @@
 import { DB } from '../db.js';
 import { el } from '../utils.js';
 import { legacyView } from '../character.js';
-import { armorClass, equipProfs, itemById } from '../equipment.js';
+import { equipProfs, itemById } from '../equipment.js';
 import { buildInventoryView, makeRulePanel } from '../equipment-view.js';
 import { RACE_DESCRIPTIONS } from '../data/race_descriptions.js';
+import { deriveCharacter } from '../derive.js'; // П2: общий расчёт (тот же, что на «Финале»)
+import * as DV from '../derive.js'; // B-32/B-24: подписи класса и расы
 
 // ─── Data tables ──────────────────────────────────────────────────────────────
 
@@ -45,11 +47,8 @@ function hpClass(hp, maxHp) {
   return 'cs-hp-val';
 }
 
-/** КД из надетого (ТЗ 4.4.7 «Надето и КД», Э3). Защита без доспехов Варвара/Монаха — этап «Лист». */
-function computeAC(record) {
-  const items = record?.equipment?.items || [];
-  return armorClass(items, record?.stats, equipProfs(record?.grants)).ac;
-}
+/** П2 (B-04, B-05): КД и скорость — общий расчёт js/derive.js (ЗбД Варвара/Монаха, «Оборона», «Драконья устойчивость»). */
+function computeDerived(record) { return deriveCharacter(record); }
 
 const armorCat = e => (e.custom ? null : itemById(e.id)?.category);
 
@@ -104,21 +103,21 @@ function buildSkills(stats, profSkills, pb, expertise = []) {
   );
 }
 
-function buildCombat(char, pb, ac) {
+function buildCombat(char, pb, dv) {
   const dexMod = mod(char.stats?.dex);
   const wisMod = mod(char.stats?.wis);
   const hasPercProf = (char.skills || []).includes('Восприятие');
   const percExpert = hasPercProf && (char.expertise || []).some(v => String(v).toLowerCase() === 'восприятие');
   const passPerc = 10 + wisMod + (hasPercProf ? pb * (percExpert ? 2 : 1) : 0);
   const cells = [
-    ['КД',            ac              ],
-    ['Инициатива',    sign(dexMod)    ],
-    ['Скорость',      '30 фт.'       ],
-    ['Проф.',         sign(pb)        ],
-    ['Пас. Воспр.',   passPerc        ],
+    ['КД',            dv.ac.ac,                `КД ${dv.ac.ac} = ${dv.ac.how}. ${dv.ac.src}`],
+    ['Инициатива',    sign(dv.initiative.value), dv.initiative.alert ? 'ЛОВ + «Бдительный» (+5)' : 'ЛОВ'],
+    ['Скорость',      `${dv.speed.value} фт.`, dv.speed.note],
+    ['Проф.',         sign(pb),                null],
+    ['Пас. Воспр.',   passPerc,                null],
   ];
   return el('div', { class: 'cs-combat-row' },
-    ...cells.map(([label, val]) => el('div', { class: 'cs-combat-cell' },
+    ...cells.map(([label, val, tip]) => el('div', { class: 'cs-combat-cell', ...(tip ? { title: tip } : {}) },
       el('div', { class: 'cs-combat-val' }, String(val)),
       el('div', { class: 'cs-combat-label' }, label),
     )),
@@ -165,9 +164,9 @@ function buildHpTracker(char, onUpdate) {
 }
 
 function buildIdentity(char) {
-  const race = [char.subrace, char.race].filter(Boolean).join(' ') || '—';
+  const race = DV.raceLabel(char.race, char.subrace, DV.dragonAncestryOf(char.grants)) || '—'; // B-32 / B-24
   const rows = [
-    ['Класс',         char.class      || '—'],
+    ['Класс',         DV.classLabel(char.class, char.subclass) || '—'], // B-32
     ['Раса',          race                  ],
     ['Предыстория',   char.background || '—'],
     ['Мировоззрение', char.alignment  || '—'],
@@ -206,8 +205,11 @@ export async function renderSheet(container, router, { id } = {}) {
   }
 
   const pb    = profBonus(char.level || 1);
-  let ac      = computeAC(record);
-  const saves = CLASS_SAVES[char.class] || [];
+  let dv      = computeDerived(record);
+  // П9: + спасбросок от черты («Устойчивый») — из реестра grants
+  const SAVE_KEY = { 'Сила': 'str', 'Ловкость': 'dex', 'Телосложение': 'con', 'Интеллект': 'int', 'Мудрость': 'wis', 'Харизма': 'cha' };
+  const saves = [...new Set([...(CLASS_SAVES[char.class] || []),
+    ...(record.grants || []).filter(g => g.pool === 'save' && g.source?.type === 'feat').map(g => SAVE_KEY[g.value]).filter(Boolean)])];
   const stats = char.stats || {};
 
   async function onHpChange(hp) {
@@ -231,7 +233,7 @@ export async function renderSheet(container, router, { id } = {}) {
         el('div', { class: 'cs-header-info' },
           el('h1', { class: 'cs-name' }, char.name || 'Без имени'),
           el('div', { class: 'cs-sub' },
-            [char.class, char.race, `Ур. ${char.level || 1}`].filter(Boolean).join(' · '),
+            [DV.classLabel(char.class, char.subclass), DV.raceLabel(char.race, char.subrace, DV.dragonAncestryOf(char.grants)), `Ур. ${char.level || 1}`].filter(Boolean).join(' · '), // B-32
           ),
         ),
         el('button', { class: 'cs-back-btn', onClick: () => router.navigate('/') }, '← Назад'),
@@ -249,7 +251,7 @@ export async function renderSheet(container, router, { id } = {}) {
         // Middle: HP + combat + identity
         el('div', { class: 'cs-col cs-col-mid' },
           buildHpTracker(char, onHpChange),
-          buildCombat(char, pb, ac),
+          buildCombat(char, pb, dv),
           buildIdentity(char),
         ),
 
@@ -267,6 +269,7 @@ export async function renderSheet(container, router, { id } = {}) {
             ? buildInventoryView({
                 entries: record.equipment.items || [], coins: record.equipment.coins, stats: record.stats,
                 profs: equipProfs(record.grants), rules: makeRulePanel(),
+                acExtra: entries => deriveCharacter({ ...record, equipment: { ...record.equipment, items: entries } }).ac.base.warnings.filter(w => w.kind === 'ac-lower'), // B-35
                 size: RACE_DESCRIPTIONS[char.race]?.size || null, // B-16: «Тяжёлое» у Маленьких
                 onToggle: async entries => {
                   record.equipment.items = entries;
@@ -279,9 +282,9 @@ export async function renderSheet(container, router, { id } = {}) {
                       ws.mecEquip.equippedManual[cat] = on ? on.id : null;
                     }
                   }
-                  ac = computeAC(record);
-                  const acEl = container.querySelector('.cs-combat-cell .cs-combat-val');
-                  if (acEl) acEl.textContent = String(ac);
+                  dv = computeDerived(record);
+                  const row = container.querySelector('.cs-combat-row'); // П2: КД и скорость пересчитываются сразу
+                  if (row) row.replaceWith(buildCombat(char, pb, dv));
                   await DB.put(record);
                 },
               })
