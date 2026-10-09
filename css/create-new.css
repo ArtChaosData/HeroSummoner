@@ -3833,6 +3833,11 @@ select.cnew-input option { color: var(--text-primary); background: var(--surface
 .pool-panel { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--gold-dim); border-radius: var(--r-md); background: var(--gold-bg); margin: 4px 0; }
 .pool-note { margin: 0; font-size: 12.5px; color: var(--gold-soft); line-height: 1.45; }
 .pool-info { margin: 0; font-size: 12px; color: var(--text-muted); line-height: 1.45; }
+.pool-note--lost { color: var(--text-primary); }
+/* Б2 (B-47): совпадения в подвале — не блокируют «Далее» */
+.cf-foot-note { align-self: center; font-size: 12px; color: var(--gold-soft); padding-right: 12px; }
+.mech-foot:has(.cf-foot-note) { justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.mech-foot:has(.cf-foot-note) .cls-foot-reason { margin-right: 0; }
 .pool-replace { display: flex; flex-direction: column; gap: 6px; }
 .pool-replace-text { margin: 0; font-size: 12.5px; color: var(--text-secondary); line-height: 1.45; }
 .pool-replace.is-empty .mech-bg-select { border-color: var(--gold); }

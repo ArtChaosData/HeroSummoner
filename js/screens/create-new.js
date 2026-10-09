@@ -1827,6 +1827,17 @@ function openConflictWindow(st, blocks, onGo) {
   (win.querySelector('select') || goBtn).focus?.();
 }
 
+/** Б2 (B-47): строка в подвале шага рядом с «Далее» — «Есть совпадения: N — …» (не блокирует переход). */
+function mecConflictFootNote(st, root) {
+  if (!root) return;
+  root.querySelectorAll('.cf-foot-note').forEach(e => e.remove());
+  if (st.mecStep === 'final') return;
+  const n = mecConflictBlocks(st).length;
+  const foot = root.querySelector('.mech-content .mech-foot');
+  if (!n || !foot) return;
+  foot.prepend(el('span', { class: 'cf-foot-note' }, `⚠️ Есть совпадения: ${n} — замену выберете после «Далее»`));
+}
+
 // ─── Mechanics: main wrapper ──────────────────────────────────────────────────
 
 
@@ -1861,9 +1872,10 @@ function buildMechanics(st, go, container) {
     const next = buildMechProgress(st, goMech, hasSpellStep(st));
     progressEl.replaceWith(next);
     progressEl = next;
+    mecConflictFootNote(st, progressEl.parentElement);
   };
 
-  return el('div', { class: 'mech-wrap' },
+  const wrapEl = el('div', { class: 'mech-wrap' },
     el('div', { class: 'mech-header' },
       el('span', { class: 'cnew-concept-hd-title' }, 'Механика'),
       el('div', { class: 'mech-header-btns' },
@@ -1890,6 +1902,8 @@ function buildMechanics(st, go, container) {
         : el('div', { class: 'cnew-wip' }, st.mecStep + ' — скоро'),
     ),
   );
+  requestAnimationFrame(() => mecConflictFootNote(st, wrapEl)); // Б2 (B-47): подвал строится шагом — пометку ставим после
+  return wrapEl;
 }
 
 // ─── Class step: data ─────────────────────────────────────────────────────────
@@ -4317,7 +4331,6 @@ function buildBackgroundStep(st, goMech) {
         badge,
       ),
       el('p', { class: 'mech-cls-desc' }, bgObj.desc),
-      buildPoolPanel(st, 'background', updateDetail),
       el('div', { class: 'mech-bg-section' },
         eqLabel,
         el('p', { class: 'mech-bg-eq-text' }, bgObj.equipment),
@@ -4333,6 +4346,7 @@ function buildBackgroundStep(st, goMech) {
           ...toolProfSelects.flatMap((sel, i) => [(i || (bgObj.tools || []).length) ? ', ' : '', sel]),
         ),
       ) : null,
+      buildPoolPanel(st, 'background', updateDetail), // Б2 (B-47): пометки совпадений — под владениями предыстории
       ...choiceEls,
       featEl,
       hintEl,
@@ -4981,9 +4995,21 @@ function buildPoolPanel(st, step, onChange) {
   const notes = st.mecPoolNotes?.[step] || [];
   const reps = c.replacements.filter(r => r.step === step);
   const langs = c.langDups.filter(r => r.step === step);
-  if (!notes.length && !reps.length && !langs.length) return null;
+  // Б2 (B-47, решение заказчика 2026-10-09): «Выбор совпал» виден на шаге сразу; «Далее» не блокируется, замена — в окне при «Далее»
+  const lost = mecConflictBlocks(st).filter(b => b.type === 'lost'
+    && (PL.stepOf(b.g) === step || (b.holder && PL.stepOf(b.holder) === step)));
+  if (!notes.length && !reps.length && !langs.length && !lost.length) return null;
   const box = el('div', { class: 'pool-panel', 'data-ck': 'pool_replace' });
   for (const n of notes) box.append(el('p', { class: 'pool-note' }, '⚠️ ' + n));
+  for (const b of lost) {
+    const K = CF_KIND[b.g.pool] || CF_KIND.skill;
+    const v = `«${cap1(b.g.value)}»`, h = b.holder, gStep = PL.stepOf(b.g);
+    const txt = !h ? `${cap1(K.nom)} ${v} уже есть — после «Далее» вы выберете ${K.other}.`
+      : gStep === step
+        ? `${cap1(K.nom)} ${v} уже даёт ${mecSrcName(st, h)} — после «Далее» вы выберете ${K.other} вместо него.`
+        : `${cap1(K.nom)} ${v} вы уже выбрали на шаге «${PL.STEP_LABEL[gStep] || '—'}» — его даёт и ${mecSrcName(st, h)}. После «Далее» вы выберете ${K.other} вместо него.`;
+    box.append(el('p', { class: 'pool-note pool-note--lost' }, '⚠️ ' + txt));
+  }
   // П4: замена по правилу 3 выбирается в «Окне конфликтов» при «Далее»; на странице — пометка без выбора
   for (const r of reps) {
     const K = CF_KIND[r.pool] || CF_KIND.skill;
