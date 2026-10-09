@@ -88,6 +88,27 @@ function freshState() {
 
 let _st = null;
 
+// ─── Сброс (Б2, решение заказчика 2026-10-09): «Начать заново» и «Сбросить механику» ───
+const isMecKey = k => k.startsWith('mec');
+/** Очистить только механику: концепт (имя, история, портрет) и привязка к сохранённому персонажу остаются. */
+function resetMechanics(st) {
+  const f = freshState();
+  for (const k of Object.keys(st)) if (isMecKey(k)) delete st[k];
+  for (const [k, v] of Object.entries(f)) if (isMecKey(k)) st[k] = v;
+  clearTimeout(_saveTimer); _saveTimer = null; _pendingSt = null;
+  saveDraft(st);
+}
+/** Начать заново: весь черновик стирается; открытый сохранённый персонаж не меняется — дальше создаётся новый. */
+function resetAll(st) {
+  for (const k of Object.keys(st)) if (k !== 'step') delete st[k];
+  const { step: _s, ...f } = freshState();
+  Object.assign(st, f);
+  clearTimeout(_saveTimer); _saveTimer = null; _pendingSt = null;
+  localStorage.removeItem(DRAFT_KEY);
+}
+const hasAnyInput = st => !!st._charId || Object.entries(freshState()).some(([k, v]) =>
+  k !== 'step' && JSON.stringify(st[k] ?? null) !== JSON.stringify(v));
+
 // ─── Draft persistence (localStorage, 15-min TTL) ─────────────────────────────
 
 const DRAFT_KEY = 'hs_create_draft';
@@ -193,7 +214,20 @@ function buildLanding(st, go) {
         'Сохранить черновик призыва',
       );
 
-  return el('div', { class: 'cnew-landing' },
+  const restartBtn = hasAnyInput(st) ? el('button', { class: 'cnew-back-btn cnew-restart-btn', type: 'button', onClick: () => openConfirmModal({
+    title: 'Начать заново?',
+    text: st._charId
+      ? `Мастер очистится полностью — концепт и механика. Сохранённый персонаж${st.name ? ` «${st.name}»` : ''} не изменится: дальше будет создаваться новый.`
+      : 'Все выборы концепта и механики будут удалены. Отменить это нельзя.',
+    okText: 'Да, начать заново',
+    onOk: () => {
+      const wasEdit = location.hash.startsWith('#/edit/');
+      resetAll(st); toast('Черновик очищен', 'success');
+      if (wasEdit) go('landing'); else root.replaceWith(buildLanding(st, go)); // из /edit/:id — на /create, чтобы перезагрузка не открыла старого персонажа
+    },
+  }) }, 'Начать заново') : null;
+
+  const root = el('div', { class: 'cnew-landing' },
     el('div', { class: 'cnew-landing-card' },
 
       el('div', { class: 'cnew-name-block' },
@@ -226,8 +260,10 @@ function buildLanding(st, go) {
         // B-39 А: что нужно для «Создать персонажа» (иначе — только черновик в архив)
         allDone ? null : el('p', { class: 'cnew-cta-hint' },
           `Чтобы создать персонажа, заполните ${[!conceptDone && '«Концепт»', !mechDone && '«Механику»'].filter(Boolean).join(' и ')}. Пока можно сохранить черновик — он попадёт в архив.`)),
+      restartBtn,
     ),
   );
+  return root;
 }
 
 // ─── Concept screen ───────────────────────────────────────────────────────────
@@ -1830,7 +1866,16 @@ function buildMechanics(st, go, container) {
   return el('div', { class: 'mech-wrap' },
     el('div', { class: 'mech-header' },
       el('span', { class: 'cnew-concept-hd-title' }, 'Механика'),
-      el('button', { class: 'cnew-back-btn', onClick: () => go('landing') }, '← Назад'),
+      el('div', { class: 'mech-header-btns' },
+        el('button', { class: 'cnew-back-btn mech-reset-btn', type: 'button', onClick: () => openConfirmModal({
+          title: 'Сбросить механику?',
+          text: 'Класс, раса, предыстория, характеристики, заклинания и снаряжение будут очищены. Концепт (имя, история, внешность) останется.'
+            + (st._charId ? ' Сохранённый персонаж изменится, только если вы сохраните его снова.' : ''),
+          okText: 'Да, сбросить',
+          onOk: () => { closeConflictWindow(); resetMechanics(st); container.innerHTML = ''; container.append(buildMechanics(st, go, container)); toast('Механика сброшена', 'success'); },
+        }) }, 'Сбросить механику'),
+        el('button', { class: 'cnew-back-btn', onClick: () => go('landing') }, '← Назад'),
+      ),
     ),
     progressEl,
     el('div', { class: 'mech-content' },

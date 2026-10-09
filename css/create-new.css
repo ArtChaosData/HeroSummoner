@@ -144,6 +144,8 @@
 .cnew-landing-cta {
   margin-top: 4px;
   display: flex;
+  flex-direction: column; /* Б2: подсказка B-39 — под кнопкой, а не рядом (на телефоне сжимала кнопку) */
+  align-items: stretch;
   justify-content: center;
 }
 .cnew-cta-btn {
@@ -372,6 +374,10 @@ select.cnew-input option { background: var(--surface-3); }
   align-items: center;
   justify-content: space-between;
 }
+.mech-header-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+/* Сброс (Б2): второстепенные кнопки — не спорят с «Далее» / «Создать персонажа» */
+.mech-reset-btn:hover, .cnew-restart-btn:hover { color: var(--danger, #e5534b); border-color: var(--danger, #e5534b); }
+.cnew-restart-btn { display: block; margin: 14px auto 0; }
 
 /* Progress bar */
 .mech-progress {
